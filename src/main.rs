@@ -1,7 +1,61 @@
 use crossterm::style::{Color, ResetColor, SetForegroundColor};
+use rustyline::completion::{Completer, FilenameCompleter};
+use rustyline::config::Configurer;
+use rustyline::highlight::Highlighter;
+use rustyline::hint::Hinter;
+use rustyline::history::DefaultHistory;
+use rustyline::validate::Validator;
+use rustyline::{Editor, Helper};
 use serde::{Deserialize, Serialize};
+use std::borrow::Cow;
 use std::io::{self, Write};
 use std::path::PathBuf;
+
+// ── Rustyline helper wrapper ────────────────────────────────────────────────
+
+struct FileHelper {
+    completer: FilenameCompleter,
+}
+
+impl FileHelper {
+    fn new() -> Self {
+        Self {
+            completer: FilenameCompleter::new(),
+        }
+    }
+}
+
+impl Helper for FileHelper {}
+impl Validator for FileHelper {}
+
+impl Completer for FileHelper {
+    type Candidate = <FilenameCompleter as Completer>::Candidate;
+
+    fn complete(
+        &self,
+        line: &str,
+        pos: usize,
+        ctx: &rustyline::Context<'_>,
+    ) -> rustyline::Result<(usize, Vec<Self::Candidate>)> {
+        self.completer.complete(line, pos, ctx)
+    }
+}
+
+impl Hinter for FileHelper {
+    type Hint = String;
+    fn hint(&self, _line: &str, _pos: usize, _ctx: &rustyline::Context<'_>) -> Option<String> {
+        None
+    }
+}
+
+impl Highlighter for FileHelper {
+    fn highlight_hint<'h>(&self, hint: &'h str) -> Cow<'h, str> {
+        Cow::Borrowed(hint)
+    }
+    fn highlight<'l>(&self, line: &'l str, _pos: usize) -> Cow<'l, str> {
+        Cow::Borrowed(line)
+    }
+}
 
 // ── Config ──────────────────────────────────────────────────────────────────
 
@@ -277,7 +331,25 @@ fn prompt_confirm(msg: &str) -> bool {
     io::stdin().read_line(&mut input).is_ok() && input.trim().eq_ignore_ascii_case("y")
 }
 
-fn prompt_input() -> Option<String> {
+fn prompt_input(rl: &mut Editor<FileHelper, DefaultHistory>) -> Option<String> {
+    let prompt = format!("{}> {}", SetForegroundColor(Color::Cyan), ResetColor);
+    match rl.readline(&prompt) {
+        Ok(line) => {
+            let trimmed = line.trim().to_string();
+            let _ = rl.add_history_entry(&trimmed);
+            if trimmed.is_empty() {
+                None
+            } else {
+                Some(trimmed)
+            }
+        }
+        Err(rustyline::error::ReadlineError::Interrupted)
+        | Err(rustyline::error::ReadlineError::Eof) => None,
+        Err(_) => None,
+    }
+}
+
+fn prompt_input_fallback() -> Option<String> {
     let stdout = io::stdout();
     let mut out = stdout.lock();
     let _ = write!(out, "{}> {}", SetForegroundColor(Color::Cyan), ResetColor);
@@ -335,6 +407,7 @@ fn print_help() {
     println!("  x / exec     Execute the current command");
     println!("  c / copy     Copy current command to clipboard");
     println!("  q / quit     Exit");
+    println!("  Tab          Complete filename from current directory");
     println!();
     println!("Config priority: ~/.local/bin/,.config.json > ~/.claude/settings.json");
     println!("Prompt file:     ~/.local/bin/,.prompt.md");
@@ -364,15 +437,25 @@ fn run_oneshot(config: &Config, system: &str, intent: &str) {
 
 fn run_interactive(config: &Config, system: &str) {
     print_info(&format!(
-        "Interactive mode (model: {}). Type 'q' to quit, 'x' to execute, 'c' to copy.",
+        "Interactive mode (model: {}). Tab completes filenames. 'q' to quit, 'x' to exec, 'c' to copy.",
         config.model
     ));
+
+    let mut rl = Editor::<FileHelper, DefaultHistory>::new().ok();
+    if let Some(ref mut editor) = rl {
+        editor.set_helper(Some(FileHelper::new()));
+        editor.set_completion_type(rustyline::CompletionType::List);
+    }
 
     let mut messages: Vec<Message> = Vec::new();
     let mut current_cmd = String::new();
 
     loop {
-        match prompt_input() {
+        let input = match rl.as_mut() {
+            Some(editor) => prompt_input(editor),
+            None => prompt_input_fallback(),
+        };
+        match input {
             None => continue,
             Some(input) => {
                 if input == "q" || input == "quit" || input == "exit" {

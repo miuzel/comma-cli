@@ -44,7 +44,7 @@ Execute? [y/N]
 
 ```
 $ ,
-▸ Interactive mode (model: mimo-v2.5-pro). Type 'q' to quit, 'x' to execute, 'c' to copy.
+▸ Interactive mode (model: mimo-v2.5-pro). Tab completes filenames. 'q' to quit, 'x' to exec, 'c' to copy.
 > find large files
 find . -type f -size +100M -exec ls -lh {} \;
 > sort by size descending
@@ -53,8 +53,11 @@ find . -type f -size +100M -exec ls -lh {} \; | sort -k5 -h -r
 ▸ Running: find . -type f -size +100M -exec ls -lh {} \; | sort -k5 -h -r
 ```
 
+输入时按 **Tab** 键可自动补全当前目录下的文件/目录名。支持路径补全（如 `./src/m` → `./src/main.rs`）。
+
 | 命令 | 作用 |
 |------|------|
+| `Tab` | 补全文件名 |
 | `x` / `exec` | 执行当前命令 |
 | `c` / `copy` | 复制到剪贴板 |
 | `q` / `quit` / `exit` | 退出 |
