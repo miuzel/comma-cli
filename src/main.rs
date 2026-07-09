@@ -6,8 +6,10 @@ use rustyline::hint::Hinter;
 use rustyline::history::DefaultHistory;
 use rustyline::validate::Validator;
 use rustyline::{Editor, Helper};
+use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
+use std::collections::HashMap;
 use std::io::{self, Write};
 use std::path::PathBuf;
 
@@ -107,6 +109,7 @@ struct LocalConfig {
     auth_token: Option<String>,
     model: Option<String>,
     api_style: Option<String>,
+    prefer: Option<HashMap<String, Vec<String>>>,
 }
 
 #[derive(Deserialize)]
@@ -129,6 +132,7 @@ struct Config {
     auth_token: String,
     model: String,
     api_style: ApiStyle,
+    prefer: HashMap<String, Vec<String>>,
 }
 
 fn home_dir() -> Result<String, String> {
@@ -174,11 +178,14 @@ fn load_config() -> Result<Config, String> {
         .and_then(|s| ApiStyle::from_str(&s))
         .unwrap_or_else(|| ApiStyle::from_url(&base_url));
 
+    let prefer = local.prefer.unwrap_or_default();
+
     Ok(Config {
         base_url,
         auth_token,
         model,
         api_style,
+        prefer,
     })
 }
 
@@ -241,69 +248,56 @@ fn get_hostname() -> String {
 }
 
 fn get_packages() -> String {
-    let mut found: Vec<String> = Vec::new();
+    let mut sections: Vec<String> = Vec::new();
 
-    // Detect package manager and list installed packages (truncated)
-    let managers: &[(&str, &[&str], usize)] = &[
-        ("dpkg", &["-l"], 200),   // Debian/Ubuntu
-        ("rpm", &["-qa"], 200),   // RHEL/Fedora
-        ("pacman", &["-Q"], 200), // Arch
-        ("apk", &["list", "--installed"], 100), // Alpine
-        ("xbps-query", &["-l"], 100), // Void
-    ];
-
-    for (cmd, args, limit) in managers {
-        if let Some(output) = run_cmd(cmd, args) {
-            let count = output.lines().count();
-            let lines: Vec<&str> = output.lines().take(*limit).collect();
-            found.push(format!(
-                "[{} ({} packages total, showing first {}):\n{}]",
-                cmd,
-                count,
-                limit,
-                lines.join("\n")
-            ));
-            break; // Use first found package manager
-        }
+    // Detect package manager
+    let managers: &[&str] = &["apt", "dnf", "yum", "pacman", "apk", "xbps-install", "zypper", "eopkg"];
+    let pkg_mgr = managers.iter().find(|m| run_cmd("which", &[m]).is_some());
+    if let Some(mgr) = pkg_mgr {
+        sections.push(format!("[Package manager: {}]", mgr));
     }
 
-    // List executables in Linux-native $PATH dirs (skip /mnt/ for WSL Windows drives)
-    let path_dirs = std::env::var("PATH").unwrap_or_default();
-    let mut all_execs: Vec<String> = Vec::new();
-    for dir in path_dirs.split(':') {
-        // Skip Windows-mounted drives in WSL
-        if dir.starts_with("/mnt/") {
-            continue;
-        }
-        if let Ok(entries) = std::fs::read_dir(dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.is_file() {
-                    use std::os::unix::fs::PermissionsExt;
-                    if let Ok(meta) = path.metadata() {
-                        if meta.permissions().mode() & 0o111 != 0 {
-                            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                                all_execs.push(name.to_string());
-                            }
-                        }
-                    }
-                }
-            }
+    // List user-installed packages (non-auto, not part of base system)
+    // This is much smaller than listing all PATH executables.
+    let user_pkgs = get_user_packages();
+    if !user_pkgs.is_empty() {
+        sections.push(format!("[User-installed packages: {}]", user_pkgs.join(", ")));
+    }
+
+    sections.join("\n")
+}
+
+/// Get packages explicitly installed by the user (not auto-installed deps).
+fn get_user_packages() -> Vec<String> {
+    // Try apt-mark showmanual (Debian/Ubuntu)
+    if let Some(output) = run_cmd("apt-mark", &["showmanual"]) {
+        let pkgs: Vec<String> = output
+            .lines()
+            .map(|l| l.trim().to_string())
+            .filter(|l| !l.is_empty())
+            .collect();
+        if !pkgs.is_empty() {
+            return pkgs;
         }
     }
-    all_execs.sort();
-    all_execs.dedup();
-    let total = all_execs.len();
-    let exec_list = all_execs.join(", ");
-    // Truncate to ~6000 chars to keep prompt size reasonable
-    let exec_display = if exec_list.len() > 6000 {
-        format!("{}...", &exec_list[..6000])
-    } else {
-        exec_list
-    };
-    found.push(format!("[Available tools ({} total):\n{}]", total, exec_display));
-
-    found.join("\n")
+    // Try dnf/yum (RHEL/Fedora)
+    if let Some(output) = run_cmd("dnf", &["repoquery", "--userinstalled", "--qf", "%{name}"]) {
+        let pkgs: Vec<String> = output.lines().map(|l| l.trim().to_string()).filter(|l| !l.is_empty()).collect();
+        if !pkgs.is_empty() {
+            return pkgs;
+        }
+    }
+    // Try pacman (Arch)
+    if let Some(output) = run_cmd("pacman", &["-Qe"]) {
+        let pkgs: Vec<String> = output
+            .lines()
+            .filter_map(|l| l.split_whitespace().next().map(|s| s.to_string()))
+            .collect();
+        if !pkgs.is_empty() {
+            return pkgs;
+        }
+    }
+    Vec::new()
 }
 
 /// Non-private system context sent to the API.
@@ -356,14 +350,31 @@ fn apply_placeholders(cmd: &str, ph: &Placeholders) -> String {
 
 // ── Prompt ──────────────────────────────────────────────────────────────────
 
-fn load_prompt() -> String {
+fn load_prompt(config: &Config) -> String {
     let home = home_dir().unwrap_or_default();
     let path = PathBuf::from(&home).join(".local/bin/,.prompt.md");
     let raw = std::fs::read_to_string(&path).unwrap_or_else(|_| DEFAULT_PROMPT.into());
 
-    // Gather non-private context and substitute
     let ctx = gather_context();
+    let prefs = format_preferences(&config.prefer);
+
     raw.replace("{{SYSTEM_CONTEXT}}", &ctx)
+        .replace("{{PREFERENCES}}", &prefs)
+}
+
+fn format_preferences(prefer: &HashMap<String, Vec<String>>) -> String {
+    if prefer.is_empty() {
+        return "(none configured)".to_string();
+    }
+    let mut lines: Vec<String> = Vec::new();
+    let mut keys: Vec<&String> = prefer.keys().collect();
+    keys.sort();
+    for key in keys {
+        if let Some(tools) = prefer.get(key) {
+            lines.push(format!("- {}: {}", key, tools.join(" > ")));
+        }
+    }
+    lines.join("\n")
 }
 
 const DEFAULT_PROMPT: &str = r#"You are a shell command generator. The user describes intent in natural language; you output the corresponding shell command.
@@ -372,16 +383,27 @@ Rules:
 - Output exactly ONE shell command that can be executed directly. No explanations.
 - The command should be concise, general-purpose, and correct for the user's platform (see system context below).
 - If the intent is ambiguous, output the most reasonable default.
-- Prefer modern tools (e.g. ripgrep over grep, fd over find) when available on this system.
 - If the intent cannot be achieved in one command, output the closest command with a # comment noting the limitation.
 - Output ONLY the command, nothing else. No markdown fences, no prose.
 - Tailor commands to the installed package manager and available tools.
+- Respect the user's tool preferences below. Use their preferred tools when possible.
 
-Exploration:
-If you are NOT SURE about a tool's exact usage/flags, prefix your response with #EXPLORE: followed by a help command.
-Example: #EXPLORE: openclaw --help
-The tool will run it, capture the output, and ask you again with that context.
-Use #EXPLORE: ONLY when you genuinely need to learn about a tool. If you already know the command, output it directly.
+Multiple candidates:
+When there are genuinely different approaches (e.g. different tools or styles), you may output up to 3 alternatives separated by |||.
+Example: ls -la ||| exa -la ||| eza -la --icons
+The user will pick one. Only use ||| when alternatives are meaningfully different.
+If there's one clear best command, output it alone without |||.
+
+Tool discovery:
+When you recommend a command, consider which tools are BEST for the job.
+If you are unsure what's installed, use #CHECK: followed by candidate tool names.
+Example: #CHECK: ripgrep fd bat jq yq
+The tool will report which are available, then you generate the final command.
+If you need to learn a tool's flags, use #EXPLORE: <help-cmd>.
+If you already know the best command, output it directly.
+
+User tool preferences (ordered by preference, leftmost is most preferred):
+{{PREFERENCES}}
 
 Private data placeholders — use these when the command references user/host/home:
 - {{USER}} for the current username
@@ -742,6 +764,84 @@ fn call_anthropic(config: &Config, system: &str, messages: &[Message], v: Verbos
     Ok(LlmResponse { content: trimmed.to_string(), usage })
 }
 
+// ── #CHECK: tool availability query ─────────────────────────────────────────
+
+const CHECK_PREFIX: &str = "#CHECK:";
+
+const CHECK_HINT: &str = "\
+Here is which tools are available on this system. \
+Now generate the best shell command using what's actually installed. \
+Output ONLY the final command. Do NOT prefix with #CHECK: or #EXPLORE:.";
+
+/// If raw starts with `#CHECK:`, extract the tool names.
+fn parse_check(raw: &str) -> Option<Vec<&str>> {
+    let trimmed = raw.trim();
+    let rest = trimmed.strip_prefix(CHECK_PREFIX)?.trim();
+    if rest.is_empty() {
+        return None;
+    }
+    let tools: Vec<&str> = rest.split_whitespace().collect();
+    if tools.is_empty() {
+        None
+    } else {
+        Some(tools)
+    }
+}
+
+/// Check which tools are available, return a report string.
+fn check_tools(tools: &[&str]) -> String {
+    let mut found = Vec::new();
+    let mut missing = Vec::new();
+    for tool in tools {
+        if run_cmd("which", &[tool]).is_some() {
+            found.push(*tool);
+        } else {
+            missing.push(*tool);
+        }
+    }
+    let mut parts = Vec::new();
+    if !found.is_empty() {
+        parts.push(format!("Available: {}", found.join(", ")));
+    }
+    if !missing.is_empty() {
+        parts.push(format!("Not found: {}", missing.join(", ")));
+    }
+    parts.join("\n")
+}
+
+/// If the model returned `#CHECK: t1 t2 t3`, check availability,
+/// feed results back to the LLM, and return the real command.
+fn check_then_generate(
+    config: &Config,
+    system: &str,
+    messages: &[Message],
+    raw: &str,
+    v: Verbosity,
+) -> Result<Option<String>, String> {
+    let tools = match parse_check(raw) {
+        Some(t) => t,
+        None => return Ok(None),
+    };
+
+    print_info(&format!("Checking tools: {}", tools.join(", ")));
+    let report = check_tools(&tools);
+    print_info(&report);
+
+    // Feed results back
+    let mut ext = messages.to_vec();
+    ext.push(Message {
+        role: "assistant".into(),
+        content: raw.to_string(),
+    });
+    ext.push(Message {
+        role: "user".into(),
+        content: format!("{}\n\nTool availability:\n{}", CHECK_HINT, report),
+    });
+
+    let resp = call_llm_with_retry(config, system, &ext, v)?;
+    Ok(Some(resp.content))
+}
+
 // ── Exploration: #EXPLORE: prefix ───────────────────────────────────────────
 
 const EXPLORE_PREFIX: &str = "#EXPLORE:";
@@ -771,6 +871,36 @@ fn run_and_capture(cmd: &str) -> Result<String, String> {
         result.push_str(&stderr);
     }
     Ok(truncate(&result, 4096).to_string())
+}
+
+/// Chain: #CHECK → #EXPLORE → final command.
+fn process_response(
+    config: &Config,
+    system: &str,
+    messages: &[Message],
+    raw: &str,
+    ph: &Placeholders,
+    v: Verbosity,
+) -> String {
+    // Step 1: #CHECK: tool availability
+    let after_check = match check_then_generate(config, system, messages, raw, v) {
+        Ok(Some(cmd)) => cmd,
+        Ok(None) => raw.to_string(),
+        Err(e) => {
+            print_error(&format!("Check: {}", e));
+            raw.to_string()
+        }
+    };
+
+    // Step 2: #EXPLORE: help command
+    match explore_then_generate(config, system, messages, &after_check, ph, v) {
+        Ok(Some(cmd)) => cmd,
+        Ok(None) => after_check,
+        Err(e) => {
+            print_error(&format!("Explore: {}", e));
+            after_check
+        }
+    }
 }
 
 /// If the model returned `#EXPLORE: <cmd>`, run it with user permission,
@@ -882,6 +1012,118 @@ fn print_cmd(cmd: &str) {
         SetForegroundColor(Color::Green),
         cmd,
         ResetColor
+    );
+    let _ = writeln!(out);
+}
+
+/// Split LLM output by ||| delimiter into candidate commands.
+fn parse_candidates(raw: &str) -> Vec<String> {
+    let candidates: Vec<String> = raw
+        .split("|||")
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .collect();
+    if candidates.is_empty() {
+        vec![raw.trim().to_string()]
+    } else {
+        candidates
+    }
+}
+
+/// Interactive selector for multiple candidates.
+/// Returns the index of the selected candidate, or None if cancelled.
+fn select_command(candidates: &[String]) -> Option<usize> {
+    if candidates.len() <= 1 {
+        return Some(0);
+    }
+
+    let mut selected: usize = 0;
+    let stdout = io::stdout();
+    let mut out = stdout.lock();
+
+    // Print initial state
+    let _ = writeln!(out);
+    for (i, cmd) in candidates.iter().enumerate() {
+        print_candidate(&mut out, i, cmd, i == selected, is_dangerous(cmd));
+    }
+    let _ = out.flush();
+
+    // Read key events
+    loop {
+        if let Ok(Event::Key(KeyEvent { code, modifiers, .. })) = event::read() {
+            match code {
+                KeyCode::Up | KeyCode::Char('k') => {
+                    if selected > 0 {
+                        selected -= 1;
+                    }
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    if selected < candidates.len() - 1 {
+                        selected += 1;
+                    }
+                }
+                KeyCode::Tab => {
+                    selected = (selected + 1) % candidates.len();
+                }
+                KeyCode::BackTab => {
+                    selected = if selected == 0 {
+                        candidates.len() - 1
+                    } else {
+                        selected - 1
+                    };
+                }
+                KeyCode::Enter => {
+                    // Clear the candidate lines
+                    let _ = crossterm::execute!(
+                        io::stdout(),
+                        crossterm::cursor::MoveUp(candidates.len() as u16),
+                        crossterm::terminal::Clear(crossterm::terminal::ClearType::FromCursorDown),
+                    );
+                    return Some(selected);
+                }
+                KeyCode::Char('c') if modifiers.contains(KeyModifiers::CONTROL) => {
+                    return None;
+                }
+                KeyCode::Esc | KeyCode::Char('q') => {
+                    return None;
+                }
+                _ => {}
+            }
+            // Redraw
+            let _ = crossterm::execute!(
+                out,
+                crossterm::cursor::MoveUp(candidates.len() as u16),
+            );
+            for (i, cmd) in candidates.iter().enumerate() {
+                print_candidate(&mut out, i, cmd, i == selected, is_dangerous(cmd));
+            }
+            let _ = out.flush();
+        }
+    }
+}
+
+fn print_candidate(out: &mut impl Write, _index: usize, cmd: &str, active: bool, dangerous: bool) {
+    let _ = crossterm::execute!(
+        out,
+        crossterm::terminal::Clear(crossterm::terminal::ClearType::CurrentLine),
+    );
+    let marker = if active { "▸" } else { " " };
+    let color = if dangerous {
+        Color::Red
+    } else if active {
+        Color::Green
+    } else {
+        Color::DarkGrey
+    };
+    let _ = write!(
+        out,
+        "{}{} {}{}{} {}",
+        SetForegroundColor(Color::Cyan),
+        marker,
+        SetForegroundColor(color),
+        cmd,
+        ResetColor,
+        if dangerous { "⚠" } else { "" },
     );
     let _ = writeln!(out);
 }
@@ -1029,7 +1271,7 @@ fn main() {
         }
     };
 
-    let system = load_prompt();
+    let system = load_prompt(&config);
 
     if args.is_empty() {
         run_interactive(&config, &system, verbosity);
@@ -1134,6 +1376,24 @@ fn run_tests() {
     check("parse_explore: partial prefix", parse_explore("#EXPLOR ls").is_none());
     check("parse_explore: just prefix", parse_explore("#EXPLORE:").is_none());
 
+    // Test 12: #CHECK: prefix detection
+    check("parse_check: basic", parse_check("#CHECK: ripgrep fd bat") == Some(vec!["ripgrep", "fd", "bat"]));
+    check("parse_check: single", parse_check("#CHECK: jq") == Some(vec!["jq"]));
+    check("parse_check: no prefix", parse_check("ls -la").is_none());
+    check("parse_check: just prefix", parse_check("#CHECK:").is_none());
+
+    // Test 13: parse_candidates
+    let c = parse_candidates("ls -la ||| exa -la ||| eza -la");
+    check("parse_candidates: 3 items", c.len() == 3);
+    check("parse_candidates: first", c[0] == "ls -la");
+    check("parse_candidates: second", c[1] == "exa -la");
+    check("parse_candidates: third", c[2] == "eza -la");
+    let c2 = parse_candidates("ls -la");
+    check("parse_candidates: single", c2.len() == 1);
+    check("parse_candidates: single value", c2[0] == "ls -la");
+    let c3 = parse_candidates("  ls -la  |||  exa -la  ");
+    check("parse_candidates: trims", c3[0] == "ls -la" && c3[1] == "exa -la");
+
     // Summary
     println!("\n{} passed, {} failed", pass, fail);
     if fail > 0 {
@@ -1179,17 +1439,24 @@ fn run_oneshot(config: &Config, system: &str, intent: &str, v: Verbosity) {
     match call_llm_with_retry(config, system, &messages, v) {
         Ok(resp) => {
             print_usage(&resp.usage);
-            // Try exploration: if LLM returned a help command, learn from it
-            let final_raw = match explore_then_generate(config, system, &messages, &resp.content, &ph, v) {
-                Ok(Some(real_cmd)) => real_cmd,
-                Ok(None) => resp.content,
-                Err(e) => {
-                    print_error(&format!("Explore: {}", e));
-                    resp.content
+            let final_raw = process_response(config, system, &messages, &resp.content, &ph, v);
+            let candidates: Vec<String> = parse_candidates(&final_raw)
+                .into_iter()
+                .map(|c| apply_placeholders(&c, &ph))
+                .collect();
+
+            // Show selector if multiple candidates, otherwise just print
+            let cmd = if candidates.len() > 1 {
+                match select_command(&candidates) {
+                    Some(i) => candidates[i].clone(),
+                    None => return,
                 }
+            } else {
+                let c = candidates[0].clone();
+                print_cmd(&c);
+                c
             };
-            let cmd = apply_placeholders(&final_raw, &ph);
-            print_cmd(&cmd);
+
             if is_dangerous(&cmd) {
                 if prompt_confirm("Execute this dangerous command?") {
                     execute(&cmd);
@@ -1269,21 +1536,29 @@ fn run_interactive(config: &Config, system: &str, v: Verbosity) {
                 match call_llm_with_retry(config, system, &messages, v) {
                     Ok(resp) => {
                         print_usage(&resp.usage);
-                        // Try exploration: if LLM returned a help command, learn from it
-                        let final_raw = match explore_then_generate(config, system, &messages, &resp.content, &ph, v) {
-                            Ok(Some(real_cmd)) => real_cmd,
-                            Ok(None) => resp.content,
-                            Err(e) => {
-                                print_error(&format!("Explore: {}", e));
-                                resp.content
+                        let final_raw = process_response(config, system, &messages, &resp.content, &ph, v);
+                        let candidates: Vec<String> = parse_candidates(&final_raw)
+                            .into_iter()
+                            .map(|c| apply_placeholders(&c, &ph))
+                            .collect();
+
+                        let cmd = if candidates.len() > 1 {
+                            match select_command(&candidates) {
+                                Some(i) => candidates[i].clone(),
+                                None => {
+                                    messages.pop();
+                                    continue;
+                                }
                             }
+                        } else {
+                            let c = candidates[0].clone();
+                            print_cmd(&c);
+                            c
                         };
-                        let cmd = apply_placeholders(&final_raw, &ph);
-                        current_cmd = cmd.clone();
-                        print_cmd(&current_cmd);
+                        current_cmd = cmd;
                         messages.push(Message {
                             role: "assistant".into(),
-                            content: final_raw, // keep raw in conversation
+                            content: final_raw,
                         });
                     }
                     Err(e) => {
