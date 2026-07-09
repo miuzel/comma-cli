@@ -1415,7 +1415,7 @@ fn prompt_confirm(msg: &str) -> bool {
     let mut out = stdout.lock();
     let _ = write!(
         out,
-        "{}{}{} [y/Ctrl+Enter/N] ",
+        "{}{}{} [y/Space/N] ",
         SetForegroundColor(Color::Yellow),
         msg,
         ResetColor
@@ -1433,7 +1433,7 @@ fn prompt_confirm(msg: &str) -> bool {
     let result = loop {
         if let Ok(Event::Key(KeyEvent { code, modifiers, .. })) = event::read() {
             match code {
-                KeyCode::Char('y') | KeyCode::Char('Y') => break true,
+                KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Char(' ') => break true,
                 KeyCode::Enter if modifiers.contains(KeyModifiers::CONTROL) => break true,
                 KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Enter | KeyCode::Esc => {
                     break false;
