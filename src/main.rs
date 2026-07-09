@@ -1259,11 +1259,14 @@ fn select_command(candidates: &[String]) -> Option<usize> {
     }
 
     let mut selected: usize = 0;
-    let n = candidates.len() as u16;
 
-    // Print initial candidates
+    // Print initial candidates, save cursor row
     draw_candidates(candidates, selected);
     let _ = io::stdout().flush();
+
+    // Get cursor position AFTER printing — this is the row below the last candidate
+    let (_, end_row) = crossterm::cursor::position().unwrap_or((0, 0));
+    let start_row = end_row.saturating_sub(candidates.len() as u16);
 
     let _ = crossterm::terminal::enable_raw_mode();
 
@@ -1291,10 +1294,9 @@ fn select_command(candidates: &[String]) -> Option<usize> {
                     };
                 }
                 KeyCode::Enter => {
-                    // Clear candidate lines and print selected command
                     let _ = crossterm::execute!(
                         io::stdout(),
-                        crossterm::cursor::MoveUp(n),
+                        crossterm::cursor::MoveTo(0, start_row),
                         crossterm::terminal::Clear(crossterm::terminal::ClearType::FromCursorDown),
                     );
                     let _ = crossterm::terminal::disable_raw_mode();
@@ -1305,10 +1307,10 @@ fn select_command(candidates: &[String]) -> Option<usize> {
                 KeyCode::Esc | KeyCode::Char('q') => break None,
                 _ => {}
             }
-            // Clear old lines and redraw
+            // Move to saved row, column 0, clear and redraw
             let _ = crossterm::execute!(
                 io::stdout(),
-                crossterm::cursor::MoveUp(n),
+                crossterm::cursor::MoveTo(0, start_row),
                 crossterm::terminal::Clear(crossterm::terminal::ClearType::FromCursorDown),
             );
             draw_candidates(candidates, selected);
@@ -1321,12 +1323,8 @@ fn select_command(candidates: &[String]) -> Option<usize> {
 }
 
 fn draw_candidates(candidates: &[String], selected: usize) {
-    let mut out = io::stdout();
+    let mut out = io::stdout().lock();
     for (i, cmd) in candidates.iter().enumerate() {
-        let _ = crossterm::execute!(
-            out,
-            crossterm::terminal::Clear(crossterm::terminal::ClearType::CurrentLine),
-        );
         let (command, comment) = split_comment(cmd);
         let marker = if i == selected { "▸" } else { " " };
         let color = if is_dangerous(command) {
@@ -1336,7 +1334,7 @@ fn draw_candidates(candidates: &[String], selected: usize) {
         } else {
             Color::DarkGrey
         };
-        let _ = write!(out, "{}{} ", SetForegroundColor(Color::Cyan), marker);
+        let _ = write!(out, "\r{}{} ", SetForegroundColor(Color::Cyan), marker);
         let _ = write!(out, "{}{}{}", SetForegroundColor(color), command, ResetColor);
         if let Some(cmt) = comment {
             let _ = write!(out, "  {}# {}{}", SetForegroundColor(Color::DarkGrey), cmt, ResetColor);
