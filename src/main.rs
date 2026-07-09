@@ -1259,12 +1259,10 @@ fn select_command(candidates: &[String]) -> Option<usize> {
     }
 
     let mut selected: usize = 0;
+    let n = candidates.len() as u16;
 
-    // Save cursor position before printing candidates
-    let _ = crossterm::execute!(io::stdout(), crossterm::cursor::SavePosition);
-    for (i, cmd) in candidates.iter().enumerate() {
-        print_candidate(&mut io::stdout(), i, cmd, i == selected, is_dangerous(cmd));
-    }
+    // Print initial candidates
+    draw_candidates(candidates, selected);
     let _ = io::stdout().flush();
 
     let _ = crossterm::terminal::enable_raw_mode();
@@ -1293,26 +1291,27 @@ fn select_command(candidates: &[String]) -> Option<usize> {
                     };
                 }
                 KeyCode::Enter => {
+                    // Clear candidate lines and print selected command
                     let _ = crossterm::execute!(
                         io::stdout(),
-                        crossterm::cursor::RestorePosition,
+                        crossterm::cursor::MoveUp(n),
                         crossterm::terminal::Clear(crossterm::terminal::ClearType::FromCursorDown),
                     );
-                    break Some(selected);
+                    let _ = crossterm::terminal::disable_raw_mode();
+                    print_cmd(&candidates[selected]);
+                    return Some(selected);
                 }
                 KeyCode::Char('c') if modifiers.contains(KeyModifiers::CONTROL) => break None,
                 KeyCode::Esc | KeyCode::Char('q') => break None,
                 _ => {}
             }
-            // Restore cursor to saved position, then redraw
+            // Clear old lines and redraw
             let _ = crossterm::execute!(
                 io::stdout(),
-                crossterm::cursor::RestorePosition,
+                crossterm::cursor::MoveUp(n),
                 crossterm::terminal::Clear(crossterm::terminal::ClearType::FromCursorDown),
             );
-            for (i, cmd) in candidates.iter().enumerate() {
-                print_candidate(&mut io::stdout(), i, cmd, i == selected, is_dangerous(cmd));
-            }
+            draw_candidates(candidates, selected);
             let _ = io::stdout().flush();
         }
     };
@@ -1321,42 +1320,33 @@ fn select_command(candidates: &[String]) -> Option<usize> {
     result
 }
 
-fn print_candidate(out: &mut impl Write, _index: usize, cmd: &str, active: bool, dangerous: bool) {
-    let _ = crossterm::execute!(
-        out,
-        crossterm::terminal::Clear(crossterm::terminal::ClearType::CurrentLine),
-    );
-    let (command, comment) = split_comment(cmd);
-    let marker = if active { "▸" } else { " " };
-    let color = if dangerous {
-        Color::Red
-    } else if active {
-        Color::Green
-    } else {
-        Color::DarkGrey
-    };
-    let _ = write!(
-        out,
-        "{}{} {}{}{}",
-        SetForegroundColor(Color::Cyan),
-        marker,
-        SetForegroundColor(color),
-        command,
-        ResetColor,
-    );
-    if let Some(cmt) = comment {
-        let _ = write!(
+fn draw_candidates(candidates: &[String], selected: usize) {
+    let mut out = io::stdout();
+    for (i, cmd) in candidates.iter().enumerate() {
+        let _ = crossterm::execute!(
             out,
-            "  {}# {}{}",
-            SetForegroundColor(Color::DarkGrey),
-            cmt,
-            ResetColor
+            crossterm::terminal::Clear(crossterm::terminal::ClearType::CurrentLine),
         );
+        let (command, comment) = split_comment(cmd);
+        let marker = if i == selected { "▸" } else { " " };
+        let color = if is_dangerous(command) {
+            Color::Red
+        } else if i == selected {
+            Color::Green
+        } else {
+            Color::DarkGrey
+        };
+        let _ = write!(out, "{}{} ", SetForegroundColor(Color::Cyan), marker);
+        let _ = write!(out, "{}{}{}", SetForegroundColor(color), command, ResetColor);
+        if let Some(cmt) = comment {
+            let _ = write!(out, "  {}# {}{}", SetForegroundColor(Color::DarkGrey), cmt, ResetColor);
+        }
+        if is_dangerous(command) {
+            let _ = write!(out, " {}⚠{}", SetForegroundColor(Color::Red), ResetColor);
+        }
+        let _ = writeln!(out);
     }
-    if dangerous {
-        let _ = write!(out, " {}⚠{}", SetForegroundColor(Color::Red), ResetColor);
-    }
-    let _ = writeln!(out);
+    let _ = out.flush();
 }
 
 fn print_info(msg: &str) {
