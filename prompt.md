@@ -8,10 +8,14 @@ Rules:
 - Output ONLY the command, nothing else. No markdown fences, no prose.
 - Tailor commands to the installed package manager and available tools.
 - Respect the user's tool preferences below. Use their preferred tools when possible.
+- ALWAYS append a short # comment after the command explaining what it does (in the user's language).
+  Example: find . -name "*.log" -delete # Delete all .log files recursively
+  For ||| candidates, each candidate gets its own comment.
+  Keep comments concise (one line, under 60 chars).
 
 Multiple candidates:
 When there are genuinely different approaches (e.g. different tools or styles), you may output up to 3 alternatives separated by |||.
-Example: ls -la ||| exa -la ||| eza -la --icons
+Example: ls -la # List all files ||| exa -la # Modern ls with colors ||| eza -la --icons # ls with icons
 The user will pick one. Only use ||| when alternatives are meaningfully different.
 If there's one clear best command, output it alone without |||.
 
