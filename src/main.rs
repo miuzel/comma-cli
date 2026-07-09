@@ -685,17 +685,22 @@ fn call_llm(
 ) -> Result<LlmResponse, String> {
     let key = cache_key(&config.model, system, messages);
 
-    // Check cache
+    // Check cache — only return non-empty cached responses
     if let Some(entry) = cache.get(&key) {
-        if v.show_debug() {
-            print_debug(&format!("Cache hit: {}", &key[..8]));
+        if !entry.content.is_empty() {
+            if v.show_debug() {
+                print_debug(&format!("Cache hit: {}", &key[..8]));
+            }
+            let mut resp = entry.to_response();
+            resp.cache_key = Some(key);
+            return Ok(resp);
         }
-        let mut resp = entry.to_response();
-        resp.cache_key = Some(key);
-        return Ok(resp);
     }
 
     // Call API
+    if v.show_debug() {
+        print_debug(&format!("Cache miss: {}", &key[..8]));
+    }
     let mut result = match config.api_style {
         ApiStyle::OpenAI => call_openai(config, system, messages, v),
         ApiStyle::Anthropic => call_anthropic(config, system, messages, v),
@@ -1244,6 +1249,12 @@ fn parse_candidates(raw: &str) -> Vec<String> {
 /// Returns the index of the selected candidate, or None if cancelled.
 fn select_command(candidates: &[String]) -> Option<usize> {
     if candidates.len() <= 1 {
+        return Some(0);
+    }
+
+    // Non-interactive (piped): just pick the first candidate
+    if !atty::is(atty::Stream::Stdin) {
+        print_cmd(&candidates[0]);
         return Some(0);
     }
 
