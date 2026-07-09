@@ -1,5 +1,6 @@
 {
   "base_url": "",
   "auth_token": "",
-  "model": ""
+  "model": "",
+  "api_style": ""
 }
