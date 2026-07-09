@@ -1,14 +1,16 @@
-# `,` — LLM 驱动的 Shell 命令生成器
+# `,` — LLM-Powered Shell Command Generator
 
-输入自然语言意图，调用 LLM 生成可执行的 shell 命令。支持交互式改进、危险命令检测。
+Describe what you want in natural language, get an executable shell command. Supports interactive refinement, dangerous command detection, and tool discovery.
 
-## 安装
+[中文文档](README.zh-CN.md)
+
+## Install
 
 ```bash
 ./install.sh
 ```
 
-或手动安装：
+Or manually:
 
 ```bash
 cargo build --release
@@ -17,120 +19,121 @@ cp prompt.md ~/.local/bin/,.prompt.md
 cp config.json ~/.local/bin/,.config.json
 ```
 
-安装后文件布局：
+Installed files:
 
 ```
 ~/.local/bin/
-├── ,              # 二进制
-├── ,.config.json  # 配置（可选，优先级高于 Claude 设置）
-└── ,.prompt.md    # 系统提示词（可编辑）
+├── ,              # binary
+├── ,.config.json  # config (optional, overrides Claude settings)
+└── ,.prompt.md    # system prompt (editable)
 ```
 
-## 用法
+## Usage
 
 ```bash
-, what is my ip              # 一次性：生成命令 → 确认/执行
-, list files larger than 1G  # 生成 du/find 命令
-,                            # 交互模式：多轮对话改进命令
-, -h                         # 帮助
+, what is my ip              # one-shot: generate command → confirm/execute
+, list files larger than 1G  # generate du/find command
+,                            # interactive mode: multi-turn refinement
+, -h                         # help
+, -V                         # version
 ```
 
-### 一次性模式
+### One-shot mode
 
 ```
 $ , find all TODO comments in python files
-▸ Model: mimo-v2.5-pro
-grep -rn "TODO" --include="*.py" .
-Execute? [y/N]
+▸ mimo-v2.5-pro (anthropic)
+  tokens: 73in + 263out = 336 | 6124ms
+rg -n TODO --type py  # Find TODO comments in Python files
+Execute? [y/Ctrl+Enter/N]
 ```
 
-输入 `y` 执行，其他任意输入取消。
+Type `y` or `Ctrl+Enter` to execute, anything else to cancel.
 
-### 交互模式
+### Interactive mode
 
 ```
 $ ,
 ▸ Interactive mode (model: mimo-v2.5-pro). Tab completes filenames. 'q' to quit, 'x' to exec, 'c' to copy.
 > find large files
-find . -type f -size +100M -exec ls -lh {} \;
+fd --size +100M  # Find files larger than 100MB
 > sort by size descending
-find . -type f -size +100M -exec ls -lh {} \; | sort -k5 -h -r
+fd --size +100M -x ls -lh {} + | sort -k5 -h -r  # Sort large files by size
 > x
-▸ Running: find . -type f -size +100M -exec ls -lh {} \; | sort -k5 -h -r
+▸ Running: fd --size +100M -x ls -lh {} + | sort -k5 -h -r
 ```
 
-输入时按 **Tab** 键可自动补全当前目录下的文件/目录名。支持路径补全（如 `./src/m` → `./src/main.rs`）。
+Press **Tab** to autocomplete filenames from the current directory.
 
-| 命令 | 作用 |
-|------|------|
-| `Tab` | 补全文件名 |
-| `x` / `exec` | 执行当前命令 |
-| `c` / `copy` | 复制到剪贴板 |
-| `q` / `quit` / `exit` | 退出 |
-| 其他任意文本 | 发送给 LLM 改进命令 |
+| Command | Action |
+|---------|--------|
+| `Tab` | Autocomplete filename |
+| `x` / `exec` | Execute current command |
+| `c` / `copy` | Copy to clipboard |
+| `q` / `quit` / `exit` | Exit |
+| Any other text | Send to LLM to refine command |
 
-## 探索模式
+## Exploration: #EXPLORE:
 
-当模型不确定某个工具的用法时，会返回 `#EXPLORE:` 前缀标记，请求先运行帮助命令学习用法：
+When the model is unsure about a tool's usage, it returns `#EXPLORE:` to run the help command first:
 
 ```
 $ , compress video to 10mb using ffmpeg
-▸ Model: gemma-4-31b (openai)
 ▸ Model wants to explore: ffmpeg -h
 Run to learn usage? [y/N] y
 ▸ Learning from output...
-ffmpeg -i input.mp4 -b:v 8M -b:a 128k output.mp4
-Execute? [y/N]
+ffmpeg -i input.mp4 -b:v 8M -b:a 128k output.mp4  # Compress video to ~10MB
+Execute? [y/Ctrl+Enter/N]
 ```
 
-流程：
-1. 模型不确定 → 返回 `#EXPLORE: ffmpeg -h`
-2. comma-cli 提示用户确认运行
-3. 捕获帮助输出，附加到对话上下文
-4. 模型根据帮助输出生成真正的命令
+Flow:
+1. Model unsure → returns `#EXPLORE: ffmpeg -h`
+2. comma-cli asks user to confirm
+3. Captures help output, appends to conversation context
+4. Model generates the real command with full context
 
-## 工具发现：#CHECK:
+## Tool Discovery: #CHECK:
 
-模型不确定装了什么工具时，可以输出 `#CHECK:` 查询可用性：
+When unsure what's installed, the model can query tool availability:
 
 ```
 $ , "compress this image"
 ▸ Model wants to check: convert magick ffmpeg
   Available: ffmpeg
   Not found: convert, magick
-ffmpeg -i input.png -quality 85 output.jpg
-Execute? [y/N]
+ffmpeg -i input.png -quality 85 output.jpg  # Compress image using ffmpeg
+Execute? [y/Ctrl+Enter/N]
 ```
 
-## 候选命令选择
+## Multi-candidate Selection
 
-模型可以输出多个候选命令（用 `|||` 分隔），用户通过 ↑↓/Tab 选择：
+The model can output multiple candidates separated by `|||`. Use ↑↓/Tab to select:
 
 ```
 $ , "list files"
-▸ ls -la
-  exa -la
-  eza -la --icons
+▸ ls -la  # Classic listing
+  exa -la  # Modern ls replacement
+  eza -la --icons  # ls with icons
 ```
 
-- `↑`/`↓`/`j`/`k` — 上下移动
-- `Tab`/`Shift+Tab` — 循环切换
-- `Enter` — 确认选择
-- `Esc`/`q` — 取消
+- `↑`/`↓`/`j`/`k` — Move up/down
+- `Tab`/`Shift+Tab` — Cycle through
+- `Enter` — Confirm selection
+- `Esc`/`q` — Cancel
 
-## 配置
+## Config
 
-### 配置优先级
+### Config priority
 
 ```
-~/.local/bin/,.config.json  >  ~/.claude/settings.json  >  内置默认值
+~/.local/bin/,.config.json  >  ~/.claude/settings.json  >  built-in defaults
 ```
 
-只有当本地配置文件中某个字段为空字符串或缺失时，才回退到 Claude 的设置。
+Fields left as empty string `""` fall back to the next source.
 
-### 本地配置 `~/.local/bin/,.config.json`
+### Local config `~/.local/bin/,.config.json`
 
-**Anthropic（Claude）示例：**
+**Anthropic (Claude) example:**
 
 ```json
 {
@@ -141,7 +144,7 @@ $ , "list files"
 }
 ```
 
-**OpenAI 兼容示例（Cerebras、Groq、Ollama、vLLM 等）：**
+**OpenAI-compatible example (Cerebras, Groq, Ollama, vLLM, etc.):**
 
 ```json
 {
@@ -152,19 +155,18 @@ $ , "list files"
 }
 ```
 
-| 字段 | 说明 | 回退来源 |
-|------|------|----------|
-| `base_url` | API 端点 | `ANTHROPIC_BASE_URL` in settings.json |
-| `auth_token` | API 密钥 | `ANTHROPIC_AUTH_TOKEN` in settings.json |
-| `model` | 模型名称 | `ANTHROPIC_MODEL` in settings.json |
-| `api_style` | API 格式（见下文） | 自动检测（含 `anthropic` 的 URL → anthropic，其余 → openai） |
-| `prefer` | 工具偏好映射 | `{}`（空） |
+| Field | Description | Fallback |
+|-------|-------------|----------|
+| `base_url` | API endpoint | `ANTHROPIC_BASE_URL` in settings.json |
+| `auth_token` | API key | `ANTHROPIC_AUTH_TOKEN` in settings.json |
+| `model` | Model name | `ANTHROPIC_MODEL` in settings.json |
+| `api_style` | API format (see below) | Auto-detect (URL contains `anthropic` → anthropic, else → openai) |
+| `prefer` | Tool preference map | `{}` |
+| `cache_size` | Response cache size | `1000` |
 
-字段留空字符串 `""` 视为未设置，会回退。
+### Tool Preferences (`prefer`)
 
-### 工具偏好 (`prefer`)
-
-配置首选工具，模型会优先使用：
+Configure preferred tools — the model will use them preferentially:
 
 ```json
 {
@@ -179,102 +181,115 @@ $ , "list files"
 }
 ```
 
-键是功能描述（自由命名），值是按偏好排序的工具列表。提示词中会显示为：
+Keys are free-form category names, values are tool lists ordered by preference. Shown in prompt as:
 ```
 - editor: nvim > vim > vi
 - list: eza > exa > ls
 ```
 
-### API 格式 (`api_style`)
+### API Format (`api_style`)
 
-| 值 | 格式 | 适用服务 |
-|----|------|----------|
+| Value | Format | Services |
+|-------|--------|----------|
 | `openai` | OpenAI Chat Completions | Cerebras, Groq, Ollama, vLLM, Together, Fireworks, DeepSeek, ... |
-| `anthropic` | Anthropic Messages | Anthropic Claude, 代理转发 |
+| `anthropic` | Anthropic Messages | Anthropic Claude, proxy forwarding |
 
-省略时根据 URL 自动判断：URL 包含 `anthropic` → `anthropic`，否则 → `openai`。
+When omitted, auto-detected from URL: contains `anthropic` → `anthropic`, otherwise → `openai`.
 
-URL 处理规则：
-- 自动去除末尾 `/v1`，由程序拼接正确路径
-- OpenAI：`{base_url}/v1/chat/completions`
-- Anthropic：`{base_url}/v1/messages`
+URL handling:
+- Trailing `/v1` is stripped automatically
+- OpenAI: `{base_url}/v1/chat/completions`
+- Anthropic: `{base_url}/v1/messages`
 
-### 提示词 `~/.local/bin/,.prompt.md`
+### Prompt `~/.local/bin/,.prompt.md`
 
-编辑此文件可自定义 LLM 行为（偏好工具、输出格式、平台等）。删除此文件会使用内置默认提示词。
+Edit to customize LLM behavior (preferred tools, output format, platform, etc.). Delete to use built-in defaults.
 
-#### 系统上下文
+### Response Cache
 
-每次调用 LLM 时，程序会自动采集以下**非私密**信息并注入提示词：
+Responses are cached and reused when the same request is made again. Only cached when the user chooses to execute (not when declined).
 
-- **发行版**：`/etc/os-release` (`PRETTY_NAME`)
-- **内核**：`uname -srmo`
-- **架构**：`uname -m`
-- **Shell**：`$SHELL`
-- **当前目录**：`cwd`
-- **已安装包列表**：自动检测包管理器（dpkg/rpm/pacman/apk）并列出前 100-200 个包
-- **可用工具**：检测 git、curl、python3、node、docker、rustc 等常用工具
-
-这些信息让 LLM 能根据你的实际环境生成正确的命令（例如用 `apt` 而非 `pacman`）。
-
-#### 隐私保护：占位符
-
-**私密信息（用户名、主机名、家目录）不会发送给 API。** 提示词指示 LLM 在命令中使用占位符，程序收到响应后在本地替换为真实值：
-
-| 占位符 | 替换为 | 示例 |
-|--------|--------|------|
-| `{{USER}}` | 当前用户名 | `miuzel` |
-| `{{HOSTNAME}}` | 主机名 | `myserver` |
-| `{{HOME}}` | 家目录路径 | `/home/miuzel` |
-
-流程：
-```
-用户: "list my home directory"
-        ↓
-LLM 看到: "User: {{USER}}, Home: {{HOME}}"  (不包含真实值)
-LLM 输出: "ls -la {{HOME}}"
-        ↓
-本地替换: "ls -la /home/miuzel"  (仅在本机发生)
+```json
+{
+  "cache_size": 1000
+}
 ```
 
-提示词中可使用 `{{SYSTEM_CONTEXT}}` 注入完整系统信息块。
+Cache stored at `~/.local/bin/,.cache.json`.
 
-## 危险命令检测
+## System Context
 
-以下命令会触发红色 `⚠ DANGEROUS COMMAND ⚠` 警告，执行前需要明确输入 `y` 确认：
+On each call, comma-cli injects non-private system info into the prompt:
 
-- `rm -rf /`、`rm -rf ~`
+- **Distro**: `/etc/os-release` (`PRETTY_NAME`)
+- **Kernel**: `uname -srmo`
+- **Arch**: `uname -m`
+- **Shell**: `$SHELL`
+- **CWD**: current working directory (sanitized)
+- **User-installed packages**: detected via package manager
+
+This lets the LLM generate correct commands for your platform (e.g. `apt` vs `pacman`).
+
+## Privacy: Placeholders
+
+**Private data (username, hostname, home path) is never sent to the API.** The prompt instructs the LLM to use placeholders, which are replaced locally after the response:
+
+| Placeholder | Replaced with | Example |
+|-------------|---------------|---------|
+| `{{USER}}` | Current username | `miuzel` |
+| `{{HOSTNAME}}` | Hostname | `myserver` |
+| `{{HOME}}` | Home directory | `/home/miuzel` |
+
+Flow:
+```
+User: "list my home directory"
+        ↓
+LLM sees: "User: {{USER}}, Home: {{HOME}}"  (no real values)
+LLM outputs: "ls -la {{HOME}}"
+        ↓
+Local replace: "ls -la /home/miuzel"  (local only)
+```
+
+## Dangerous Command Detection
+
+These trigger a red `⚠ DANGEROUS COMMAND ⚠` warning and require explicit confirmation:
+
+- `rm -rf /`, `rm -rf ~`
 - `dd if=... of=/dev/`
 - `mkfs.*`
 - Fork bomb `:(){ :|:& };:`
 - `chmod -R 777 /`
-- `shutdown`、`reboot`
+- `shutdown`, `reboot`
 - `curl/wget | sh/bash`
 - `sudo rm`
 - `git push --force`
 - SQL `DROP TABLE` / `DROP DATABASE`
 
-## 无状态设计
+## Verbose Modes
 
-- 不保存任何会话、历史、日志
-- 每次调用都是独立的 HTTP 请求
-- 交互模式的对话仅存在于内存中，退出即消失
-- 不写入临时文件，不创建 session 目录
+```
+, -v  "list files"     # show system prompt and LLM reply
+, -vv "list files"     # add request URL, body, status, timing, raw response
+```
 
-## 依赖
+## Dependencies
 
-- 运行时：无（静态链接）
-- 剪贴板功能（可选）：`wl-clipboard`、`xclip`、`xsel` 或 `pbcopy`
-- 编译时：Rust toolchain（`rustup`）
+- Runtime: none (statically linked)
+- Clipboard (optional): `wl-clipboard`, `xclip`, `xsel`, or `pbcopy`
+- Build: Rust toolchain (`rustup`)
 
-## 卸载
+## Uninstall
 
 ```bash
 ./uninstall.sh
 ```
 
-或手动：
+Or manually:
 
 ```bash
-rm ~/.local/bin/, ~/.local/bin/,.config.json ~/.local/bin/,.prompt.md
+rm ~/.local/bin/, ~/.local/bin/,.config.json ~/.local/bin/,.prompt.md ~/.local/bin/,.cache.json
 ```
+
+## License
+
+[MIT](LICENSE)
