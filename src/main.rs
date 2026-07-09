@@ -433,10 +433,59 @@ fn normalize_base_url(url: &str) -> String {
 
 // ── Call LLM ────────────────────────────────────────────────────────────────
 
+const MAX_RETRIES: usize = 3;
+
+const RETRY_HINT: &str =
+    "Your previous response was empty. You MUST output exactly ONE shell command. No explanations, no markdown fences. Just the raw command.";
+
 fn call_llm(config: &Config, system: &str, messages: &[Message]) -> Result<String, String> {
     match config.api_style {
         ApiStyle::OpenAI => call_openai(config, system, messages),
         ApiStyle::Anthropic => call_anthropic(config, system, messages),
+    }
+}
+
+/// Call LLM with retry on empty response. Up to MAX_RETRIES attempts.
+fn call_llm_with_retry(
+    config: &Config,
+    system: &str,
+    messages: &[Message],
+) -> Result<String, String> {
+    let mut attempts = 0;
+    loop {
+        attempts += 1;
+        let result = call_llm(config, system, messages)?;
+        let trimmed = result.trim();
+        if !trimmed.is_empty() {
+            return Ok(trimmed.to_string());
+        }
+        if attempts >= MAX_RETRIES {
+            return Err(format!(
+                "Model returned empty response after {} attempts.",
+                MAX_RETRIES
+            ));
+        }
+        print_info(&format!(
+            "Empty response, retrying ({}/{})...",
+            attempts, MAX_RETRIES
+        ));
+        // We need to append the retry hint to the conversation.
+        // Since we can't mutate `messages`, we build a temporary extended copy.
+        let mut retry_msgs = messages.to_vec();
+        retry_msgs.push(Message {
+            role: "assistant".into(),
+            content: String::new(),
+        });
+        retry_msgs.push(Message {
+            role: "user".into(),
+            content: RETRY_HINT.to_string(),
+        });
+        // Re-call with extended messages (only affects this attempt)
+        let retry_result = call_llm(config, system, &retry_msgs)?;
+        if !retry_result.trim().is_empty() {
+            return Ok(retry_result.trim().to_string());
+        }
+        // If still empty, loop will check attempts count
     }
 }
 
@@ -796,6 +845,11 @@ fn run_tests() {
     check("context contains CWD", ctx.contains("CWD:"));
     check("context contains packages", ctx.contains("Installed packages"));
 
+    // Test 10: retry constants are sane
+    check("MAX_RETRIES >= 2", MAX_RETRIES >= 2);
+    check("MAX_RETRIES <= 5", MAX_RETRIES <= 5);
+    check("RETRY_HINT is non-empty", !RETRY_HINT.is_empty());
+
     // Summary
     println!("\n{} passed, {} failed", pass, fail);
     if fail > 0 {
@@ -832,7 +886,7 @@ fn run_oneshot(config: &Config, system: &str, intent: &str) {
     let ph = collect_placeholders();
 
     print_info(&format!("{} ({})", config.model, style_label(config.api_style)));
-    match call_llm(config, system, &messages) {
+    match call_llm_with_retry(config, system, &messages) {
         Ok(raw) => {
             let cmd = apply_placeholders(&raw, &ph);
             print_cmd(&cmd);
@@ -909,7 +963,7 @@ fn run_interactive(config: &Config, system: &str) {
                 });
 
                 print_info("Thinking...");
-                match call_llm(config, system, &messages) {
+                match call_llm_with_retry(config, system, &messages) {
                     Ok(raw) => {
                         let cmd = apply_placeholders(&raw, &ph);
                         current_cmd = cmd.clone();
