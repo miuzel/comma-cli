@@ -89,6 +89,35 @@ Execute? [y/N]
 3. 捕获帮助输出，附加到对话上下文
 4. 模型根据帮助输出生成真正的命令
 
+## 工具发现：#CHECK:
+
+模型不确定装了什么工具时，可以输出 `#CHECK:` 查询可用性：
+
+```
+$ , "compress this image"
+▸ Model wants to check: convert magick ffmpeg
+  Available: ffmpeg
+  Not found: convert, magick
+ffmpeg -i input.png -quality 85 output.jpg
+Execute? [y/N]
+```
+
+## 候选命令选择
+
+模型可以输出多个候选命令（用 `|||` 分隔），用户通过 ↑↓/Tab 选择：
+
+```
+$ , "list files"
+▸ ls -la
+  exa -la
+  eza -la --icons
+```
+
+- `↑`/`↓`/`j`/`k` — 上下移动
+- `Tab`/`Shift+Tab` — 循环切换
+- `Enter` — 确认选择
+- `Esc`/`q` — 取消
+
 ## 配置
 
 ### 配置优先级
@@ -129,8 +158,32 @@ Execute? [y/N]
 | `auth_token` | API 密钥 | `ANTHROPIC_AUTH_TOKEN` in settings.json |
 | `model` | 模型名称 | `ANTHROPIC_MODEL` in settings.json |
 | `api_style` | API 格式（见下文） | 自动检测（含 `anthropic` 的 URL → anthropic，其余 → openai） |
+| `prefer` | 工具偏好映射 | `{}`（空） |
 
 字段留空字符串 `""` 视为未设置，会回退。
+
+### 工具偏好 (`prefer`)
+
+配置首选工具，模型会优先使用：
+
+```json
+{
+  "prefer": {
+    "editor": ["nvim", "vim", "vi"],
+    "list": ["eza", "exa", "ls"],
+    "cat": ["bat", "batcat", "cat"],
+    "find": ["fd", "find"],
+    "grep": ["rg", "grep"],
+    "top": ["btop", "htop", "top"]
+  }
+}
+```
+
+键是功能描述（自由命名），值是按偏好排序的工具列表。提示词中会显示为：
+```
+- editor: nvim > vim > vi
+- list: eza > exa > ls
+```
 
 ### API 格式 (`api_style`)
 
