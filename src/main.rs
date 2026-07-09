@@ -441,6 +441,7 @@ struct Usage {
 struct LlmResponse {
     content: String,
     usage: Usage,
+    cache_key: Option<String>,
 }
 
 // ── Response cache ──────────────────────────────────────────────────────────
@@ -568,6 +569,7 @@ impl CacheEntry {
                 duration_ms: 0,
                 from_cache: true,
             },
+            cache_key: None,
         }
     }
 }
@@ -675,7 +677,7 @@ fn call_llm(
     system: &str,
     messages: &[Message],
     v: Verbosity,
-    cache: &mut ResponseCache,
+    cache: &ResponseCache,
 ) -> Result<LlmResponse, String> {
     let key = cache_key(&config.model, system, messages);
 
@@ -684,18 +686,20 @@ fn call_llm(
         if v.show_debug() {
             print_debug(&format!("Cache hit: {}", &key[..8]));
         }
-        return Ok(entry.to_response());
+        let mut resp = entry.to_response();
+        resp.cache_key = Some(key);
+        return Ok(resp);
     }
 
     // Call API
-    let result = match config.api_style {
+    let mut result = match config.api_style {
         ApiStyle::OpenAI => call_openai(config, system, messages, v),
         ApiStyle::Anthropic => call_anthropic(config, system, messages, v),
     };
 
-    // Store in cache on success
-    if let Ok(ref resp) = result {
-        cache.put(key, CacheEntry::from(resp));
+    // Attach cache key (caller decides whether to store)
+    if let Ok(ref mut resp) = result {
+        resp.cache_key = Some(key);
     }
 
     result
@@ -732,7 +736,7 @@ fn call_llm_with_retry(
     system: &str,
     messages: &[Message],
     v: Verbosity,
-    cache: &mut ResponseCache,
+    cache: &ResponseCache,
 ) -> Result<LlmResponse, String> {
     let mut attempts = 0;
     loop {
@@ -853,7 +857,7 @@ fn call_openai(config: &Config, system: &str, messages: &[Message], v: Verbosity
         print_debug(&format!("LLM reply: {}", content));
     }
 
-    Ok(LlmResponse { content: content.to_string(), usage })
+    Ok(LlmResponse { content: content.to_string(), usage, cache_key: None })
 }
 
 fn call_anthropic(config: &Config, system: &str, messages: &[Message], v: Verbosity) -> Result<LlmResponse, String> {
@@ -925,7 +929,7 @@ fn call_anthropic(config: &Config, system: &str, messages: &[Message], v: Verbos
         print_debug(&format!("LLM reply: {}", trimmed));
     }
 
-    Ok(LlmResponse { content: trimmed.to_string(), usage })
+    Ok(LlmResponse { content: trimmed.to_string(), usage, cache_key: None })
 }
 
 // ── #CHECK: tool availability query ─────────────────────────────────────────
@@ -981,7 +985,7 @@ fn check_then_generate(
     messages: &[Message],
     raw: &str,
     v: Verbosity,
-    cache: &mut ResponseCache,
+    cache: &ResponseCache,
 ) -> Result<Option<String>, String> {
     let tools = match parse_check(raw) {
         Some(t) => t,
@@ -1045,7 +1049,7 @@ fn process_response(
     raw: &str,
     ph: &Placeholders,
     v: Verbosity,
-    cache: &mut ResponseCache,
+    cache: &ResponseCache,
 ) -> String {
     let after_check = match check_then_generate(config, system, messages, raw, v, cache) {
         Ok(Some(cmd)) => cmd,
@@ -1076,7 +1080,7 @@ fn explore_then_generate(
     raw: &str,
     ph: &Placeholders,
     v: Verbosity,
-    cache: &mut ResponseCache,
+    cache: &ResponseCache,
 ) -> Result<Option<String>, String> {
     let explore_cmd = match parse_explore(raw) {
         Some(cmd) => cmd,
@@ -1346,14 +1350,31 @@ fn prompt_confirm(msg: &str) -> bool {
     let mut out = stdout.lock();
     let _ = write!(
         out,
-        "{}{}{} [y/N] ",
+        "{}{}{} [y/Ctrl+Enter/N] ",
         SetForegroundColor(Color::Yellow),
         msg,
         ResetColor
     );
     let _ = out.flush();
-    let mut input = String::new();
-    io::stdin().read_line(&mut input).is_ok() && input.trim().eq_ignore_ascii_case("y")
+
+    // Fallback to line-based input when stdin is not a TTY (piped)
+    if !atty::is(atty::Stream::Stdin) {
+        let mut input = String::new();
+        return io::stdin().read_line(&mut input).is_ok() && input.trim().eq_ignore_ascii_case("y");
+    }
+
+    loop {
+        if let Ok(Event::Key(KeyEvent { code, modifiers, .. })) = event::read() {
+            match code {
+                KeyCode::Char('y') | KeyCode::Char('Y') => return true,
+                KeyCode::Enter if modifiers.contains(KeyModifiers::CONTROL) => return true,
+                KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Enter | KeyCode::Esc => {
+                    return false;
+                }
+                _ => {}
+            }
+        }
+    }
 }
 
 fn prompt_input(rl: &mut Editor<FileHelper, DefaultHistory>) -> Option<String> {
@@ -1604,10 +1625,10 @@ fn run_oneshot(config: &Config, system: &str, intent: &str, v: Verbosity) {
     if v.show_debug() {
         print_debug(&format!("Cache: {} entries (max {})", cache.len(), config.cache_size));
     }
-    match call_llm_with_retry(config, system, &messages, v, &mut cache) {
+    match call_llm_with_retry(config, system, &messages, v, &cache) {
         Ok(resp) => {
             print_usage(&resp.usage);
-            let final_raw = process_response(config, system, &messages, &resp.content, &ph, v, &mut cache);
+            let final_raw = process_response(config, system, &messages, &resp.content, &ph, v, &cache);
             let candidates: Vec<String> = parse_candidates(&final_raw)
                 .into_iter()
                 .map(|c| apply_placeholders(&c, &ph))
@@ -1625,12 +1646,25 @@ fn run_oneshot(config: &Config, system: &str, intent: &str, v: Verbosity) {
                 c
             };
 
-            if is_dangerous(&cmd) {
+            let executed = if is_dangerous(&cmd) {
                 if prompt_confirm("Execute this dangerous command?") {
                     execute(&cmd);
+                    true
+                } else {
+                    false
                 }
             } else if prompt_confirm("Execute?") {
                 execute(&cmd);
+                true
+            } else {
+                false
+            };
+
+            // Only cache when user chose to execute
+            if executed {
+                if let Some(ref key) = resp.cache_key {
+                    cache.put(key.clone(), CacheEntry::from(&resp));
+                }
             }
         }
         Err(e) => print_error(&e),
@@ -1660,6 +1694,8 @@ fn run_interactive(config: &Config, system: &str, v: Verbosity) {
 
     let mut messages: Vec<Message> = Vec::new();
     let mut current_cmd = String::new();
+    let mut current_cache_key: Option<String> = None;
+    let mut current_cache_entry: Option<CacheEntry> = None;
 
     loop {
         let input = match rl.as_mut() {
@@ -1678,12 +1714,17 @@ fn run_interactive(config: &Config, system: &str, v: Verbosity) {
                         print_error("No command to execute.");
                         continue;
                     }
-                    if is_dangerous(&current_cmd) {
-                        if prompt_confirm("Execute this dangerous command?") {
-                            execute(&current_cmd);
-                        }
+                    let do_exec = if is_dangerous(&current_cmd) {
+                        prompt_confirm("Execute this dangerous command?")
                     } else {
+                        true
+                    };
+                    if do_exec {
                         execute(&current_cmd);
+                        // Cache on execute
+                        if let (Some(key), Some(entry)) = (current_cache_key.take(), current_cache_entry.take()) {
+                            cache.put(key, entry);
+                        }
                     }
                     continue;
                 }
@@ -1707,10 +1748,10 @@ fn run_interactive(config: &Config, system: &str, v: Verbosity) {
                 if v.show_prompt() {
                     print_debug(&format!("User: {}", messages.last().unwrap().content));
                 }
-                match call_llm_with_retry(config, system, &messages, v, &mut cache) {
+                match call_llm_with_retry(config, system, &messages, v, &cache) {
                     Ok(resp) => {
                         print_usage(&resp.usage);
-                        let final_raw = process_response(config, system, &messages, &resp.content, &ph, v, &mut cache);
+                        let final_raw = process_response(config, system, &messages, &resp.content, &ph, v, &cache);
                         let candidates: Vec<String> = parse_candidates(&final_raw)
                             .into_iter()
                             .map(|c| apply_placeholders(&c, &ph))
@@ -1730,6 +1771,8 @@ fn run_interactive(config: &Config, system: &str, v: Verbosity) {
                             c
                         };
                         current_cmd = cmd;
+                        current_cache_key = resp.cache_key.clone();
+                        current_cache_entry = Some(CacheEntry::from(&resp));
                         messages.push(Message {
                             role: "assistant".into(),
                             content: final_raw,
