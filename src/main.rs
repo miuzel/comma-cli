@@ -734,6 +734,11 @@ fn prompt_input_fallback() -> Option<String> {
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
 
+    if args.iter().any(|a| a == "-V" || a == "--version") {
+        println!("comma {}", env!("CARGO_PKG_VERSION"));
+        return;
+    }
+
     if args.iter().any(|a| a == "-h" || a == "--help") {
         print_help();
         return;
