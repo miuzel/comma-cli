@@ -69,6 +69,26 @@ find . -type f -size +100M -exec ls -lh {} \; | sort -k5 -h -r
 | `q` / `quit` / `exit` | 退出 |
 | 其他任意文本 | 发送给 LLM 改进命令 |
 
+## 探索模式
+
+当模型不确定某个工具的用法时，会返回 `#EXPLORE:` 前缀标记，请求先运行帮助命令学习用法：
+
+```
+$ , compress video to 10mb using ffmpeg
+▸ Model: gemma-4-31b (openai)
+▸ Model wants to explore: ffmpeg -h
+Run to learn usage? [y/N] y
+▸ Learning from output...
+ffmpeg -i input.mp4 -b:v 8M -b:a 128k output.mp4
+Execute? [y/N]
+```
+
+流程：
+1. 模型不确定 → 返回 `#EXPLORE: ffmpeg -h`
+2. comma-cli 提示用户确认运行
+3. 捕获帮助输出，附加到对话上下文
+4. 模型根据帮助输出生成真正的命令
+
 ## 配置
 
 ### 配置优先级
