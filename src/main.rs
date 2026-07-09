@@ -10,6 +10,7 @@ use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use serde::{Deserialize, Serialize};
 use std::borrow::Cow;
 use std::collections::HashMap;
+use std::hash::{DefaultHasher, Hash, Hasher};
 use std::io::{self, Write};
 use std::path::PathBuf;
 
@@ -110,6 +111,7 @@ struct LocalConfig {
     model: Option<String>,
     api_style: Option<String>,
     prefer: Option<HashMap<String, Vec<String>>>,
+    cache_size: Option<usize>,
 }
 
 #[derive(Deserialize)]
@@ -133,6 +135,7 @@ struct Config {
     model: String,
     api_style: ApiStyle,
     prefer: HashMap<String, Vec<String>>,
+    cache_size: usize,
 }
 
 fn home_dir() -> Result<String, String> {
@@ -179,6 +182,7 @@ fn load_config() -> Result<Config, String> {
         .unwrap_or_else(|| ApiStyle::from_url(&base_url));
 
     let prefer = local.prefer.unwrap_or_default();
+    let cache_size = local.cache_size.unwrap_or(1000);
 
     Ok(Config {
         base_url,
@@ -186,6 +190,7 @@ fn load_config() -> Result<Config, String> {
         model,
         api_style,
         prefer,
+        cache_size,
     })
 }
 
@@ -430,11 +435,141 @@ struct Usage {
     cache_creation: u32,
     total_tokens: u32,
     duration_ms: u64,
+    from_cache: bool,
 }
 
 struct LlmResponse {
     content: String,
     usage: Usage,
+}
+
+// ── Response cache ──────────────────────────────────────────────────────────
+
+#[derive(Serialize, Deserialize, Clone)]
+struct CacheEntry {
+    content: String,
+    usage: CacheUsage,
+    ts: u64,
+}
+
+#[derive(Serialize, Deserialize, Clone, Default)]
+struct CacheUsage {
+    input_tokens: u32,
+    output_tokens: u32,
+    cache_read: u32,
+    cache_creation: u32,
+    total_tokens: u32,
+}
+
+struct ResponseCache {
+    entries: HashMap<String, CacheEntry>,
+    max_size: usize,
+    path: PathBuf,
+    dirty: bool,
+}
+
+fn cache_key(model: &str, system: &str, messages: &[Message]) -> String {
+    let mut h = DefaultHasher::new();
+    model.hash(&mut h);
+    system.hash(&mut h);
+    for m in messages {
+        m.role.hash(&mut h);
+        m.content.hash(&mut h);
+    }
+    format!("{:016x}", h.finish())
+}
+
+impl ResponseCache {
+    fn load(max_size: usize) -> Self {
+        let home = home_dir().unwrap_or_default();
+        let path = PathBuf::from(&home).join(".local/bin/,.cache.json");
+        let entries = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|data| serde_json::from_str::<HashMap<String, CacheEntry>>(&data).ok())
+            .unwrap_or_default();
+        Self {
+            entries,
+            max_size,
+            path,
+            dirty: false,
+        }
+    }
+
+    fn get(&self, key: &str) -> Option<&CacheEntry> {
+        self.entries.get(key)
+    }
+
+    fn put(&mut self, key: String, entry: CacheEntry) {
+        self.entries.insert(key, entry);
+        self.dirty = true;
+        // Evict oldest if over capacity
+        if self.entries.len() > self.max_size {
+            let mut oldest_key = String::new();
+            let mut oldest_ts = u64::MAX;
+            for (k, v) in &self.entries {
+                if v.ts < oldest_ts {
+                    oldest_ts = v.ts;
+                    oldest_key = k.clone();
+                }
+            }
+            if !oldest_key.is_empty() {
+                self.entries.remove(&oldest_key);
+            }
+        }
+    }
+
+    fn save(&self) {
+        if !self.dirty {
+            return;
+        }
+        if let Ok(json) = serde_json::to_string(&self.entries) {
+            let _ = std::fs::write(&self.path, json);
+        }
+    }
+
+    fn len(&self) -> usize {
+        self.entries.len()
+    }
+}
+
+fn now_ts() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
+}
+
+impl From<&LlmResponse> for CacheEntry {
+    fn from(resp: &LlmResponse) -> Self {
+        Self {
+            content: resp.content.clone(),
+            usage: CacheUsage {
+                input_tokens: resp.usage.input_tokens,
+                output_tokens: resp.usage.output_tokens,
+                cache_read: resp.usage.cache_read,
+                cache_creation: resp.usage.cache_creation,
+                total_tokens: resp.usage.total_tokens,
+            },
+            ts: now_ts(),
+        }
+    }
+}
+
+impl CacheEntry {
+    fn to_response(&self) -> LlmResponse {
+        LlmResponse {
+            content: self.content.clone(),
+            usage: Usage {
+                input_tokens: self.usage.input_tokens,
+                output_tokens: self.usage.output_tokens,
+                cache_read: self.usage.cache_read,
+                cache_creation: self.usage.cache_creation,
+                total_tokens: self.usage.total_tokens,
+                duration_ms: 0,
+                from_cache: true,
+            },
+        }
+    }
 }
 
 // ── OpenAI-compatible types ─────────────────────────────────────────────────
@@ -535,30 +670,58 @@ const MAX_RETRIES: usize = 3;
 const RETRY_HINT: &str =
     "Your previous response was empty. You MUST output exactly ONE shell command. No explanations, no markdown fences. Just the raw command.";
 
-fn call_llm(config: &Config, system: &str, messages: &[Message], v: Verbosity) -> Result<LlmResponse, String> {
-    match config.api_style {
+fn call_llm(
+    config: &Config,
+    system: &str,
+    messages: &[Message],
+    v: Verbosity,
+    cache: &mut ResponseCache,
+) -> Result<LlmResponse, String> {
+    let key = cache_key(&config.model, system, messages);
+
+    // Check cache
+    if let Some(entry) = cache.get(&key) {
+        if v.show_debug() {
+            print_debug(&format!("Cache hit: {}", &key[..8]));
+        }
+        return Ok(entry.to_response());
+    }
+
+    // Call API
+    let result = match config.api_style {
         ApiStyle::OpenAI => call_openai(config, system, messages, v),
         ApiStyle::Anthropic => call_anthropic(config, system, messages, v),
+    };
+
+    // Store in cache on success
+    if let Ok(ref resp) = result {
+        cache.put(key, CacheEntry::from(resp));
     }
+
+    result
 }
 
 fn print_usage(u: &Usage) {
     let stdout = io::stdout();
     let mut out = stdout.lock();
     let _ = write!(out, "{}", SetForegroundColor(Color::DarkGrey));
-    let total = if u.total_tokens > 0 {
-        u.total_tokens
+    if u.from_cache {
+        let _ = write!(out, "  tokens: {}in + {}out (from cache)", u.input_tokens, u.output_tokens);
     } else {
-        u.input_tokens + u.output_tokens
-    };
-    let _ = write!(out, "  tokens: {}in + {}out = {}", u.input_tokens, u.output_tokens, total);
-    if u.cache_read > 0 {
-        let _ = write!(out, " (cached: {})", u.cache_read);
+        let total = if u.total_tokens > 0 {
+            u.total_tokens
+        } else {
+            u.input_tokens + u.output_tokens
+        };
+        let _ = write!(out, "  tokens: {}in + {}out = {}", u.input_tokens, u.output_tokens, total);
+        if u.cache_read > 0 {
+            let _ = write!(out, " (cached: {})", u.cache_read);
+        }
+        if u.cache_creation > 0 {
+            let _ = write!(out, " (cache_write: {})", u.cache_creation);
+        }
+        let _ = write!(out, " | {}ms", u.duration_ms);
     }
-    if u.cache_creation > 0 {
-        let _ = write!(out, " (cache_write: {})", u.cache_creation);
-    }
-    let _ = write!(out, " | {}ms", u.duration_ms);
     let _ = write!(out, "{}", ResetColor);
     let _ = writeln!(out);
 }
@@ -569,11 +732,12 @@ fn call_llm_with_retry(
     system: &str,
     messages: &[Message],
     v: Verbosity,
+    cache: &mut ResponseCache,
 ) -> Result<LlmResponse, String> {
     let mut attempts = 0;
     loop {
         attempts += 1;
-        let result = call_llm(config, system, messages, v)?;
+        let result = call_llm(config, system, messages, v, cache)?;
         let is_empty = result.content.is_empty();
         if !is_empty {
             return Ok(result);
@@ -597,7 +761,7 @@ fn call_llm_with_retry(
             role: "user".into(),
             content: RETRY_HINT.to_string(),
         });
-        let retry_result = call_llm(config, system, &retry_msgs, v)?;
+        let retry_result = call_llm(config, system, &retry_msgs, v, cache)?;
         if !retry_result.content.is_empty() {
             return Ok(retry_result);
         }
@@ -817,6 +981,7 @@ fn check_then_generate(
     messages: &[Message],
     raw: &str,
     v: Verbosity,
+    cache: &mut ResponseCache,
 ) -> Result<Option<String>, String> {
     let tools = match parse_check(raw) {
         Some(t) => t,
@@ -827,7 +992,6 @@ fn check_then_generate(
     let report = check_tools(&tools);
     print_info(&report);
 
-    // Feed results back
     let mut ext = messages.to_vec();
     ext.push(Message {
         role: "assistant".into(),
@@ -838,7 +1002,7 @@ fn check_then_generate(
         content: format!("{}\n\nTool availability:\n{}", CHECK_HINT, report),
     });
 
-    let resp = call_llm_with_retry(config, system, &ext, v)?;
+    let resp = call_llm_with_retry(config, system, &ext, v, cache)?;
     Ok(Some(resp.content))
 }
 
@@ -881,9 +1045,9 @@ fn process_response(
     raw: &str,
     ph: &Placeholders,
     v: Verbosity,
+    cache: &mut ResponseCache,
 ) -> String {
-    // Step 1: #CHECK: tool availability
-    let after_check = match check_then_generate(config, system, messages, raw, v) {
+    let after_check = match check_then_generate(config, system, messages, raw, v, cache) {
         Ok(Some(cmd)) => cmd,
         Ok(None) => raw.to_string(),
         Err(e) => {
@@ -892,8 +1056,7 @@ fn process_response(
         }
     };
 
-    // Step 2: #EXPLORE: help command
-    match explore_then_generate(config, system, messages, &after_check, ph, v) {
+    match explore_then_generate(config, system, messages, &after_check, ph, v, cache) {
         Ok(Some(cmd)) => cmd,
         Ok(None) => after_check,
         Err(e) => {
@@ -913,6 +1076,7 @@ fn explore_then_generate(
     raw: &str,
     ph: &Placeholders,
     v: Verbosity,
+    cache: &mut ResponseCache,
 ) -> Result<Option<String>, String> {
     let explore_cmd = match parse_explore(raw) {
         Some(cmd) => cmd,
@@ -952,7 +1116,7 @@ fn explore_then_generate(
         content: format!("{}\n\nCommand output:\n```\n{}\n```", EXPLORE_HINT, help_output),
     });
 
-    let resp = call_llm_with_retry(config, system, &ext, v)?;
+    let resp = call_llm_with_retry(config, system, &ext, v, cache)?;
     Ok(Some(resp.content))
 }
 
@@ -1430,16 +1594,20 @@ fn run_oneshot(config: &Config, system: &str, intent: &str, v: Verbosity) {
         content: intent.to_string(),
     }];
     let ph = collect_placeholders();
+    let mut cache = ResponseCache::load(config.cache_size);
 
     print_info(&format!("{} ({})", config.model, style_label(config.api_style)));
     if v.show_prompt() {
         print_debug(&format!("System prompt:\n{}", system));
         print_debug(&format!("User: {}", intent));
     }
-    match call_llm_with_retry(config, system, &messages, v) {
+    if v.show_debug() {
+        print_debug(&format!("Cache: {} entries (max {})", cache.len(), config.cache_size));
+    }
+    match call_llm_with_retry(config, system, &messages, v, &mut cache) {
         Ok(resp) => {
             print_usage(&resp.usage);
-            let final_raw = process_response(config, system, &messages, &resp.content, &ph, v);
+            let final_raw = process_response(config, system, &messages, &resp.content, &ph, v, &mut cache);
             let candidates: Vec<String> = parse_candidates(&final_raw)
                 .into_iter()
                 .map(|c| apply_placeholders(&c, &ph))
@@ -1467,6 +1635,7 @@ fn run_oneshot(config: &Config, system: &str, intent: &str, v: Verbosity) {
         }
         Err(e) => print_error(&e),
     }
+    cache.save();
 }
 
 fn run_interactive(config: &Config, system: &str, v: Verbosity) {
@@ -1477,6 +1646,11 @@ fn run_interactive(config: &Config, system: &str, v: Verbosity) {
     ));
 
     let ph = collect_placeholders();
+    let mut cache = ResponseCache::load(config.cache_size);
+
+    if v.show_debug() {
+        print_debug(&format!("Cache: {} entries (max {})", cache.len(), config.cache_size));
+    }
 
     let mut rl = Editor::<FileHelper, DefaultHistory>::new().ok();
     if let Some(ref mut editor) = rl {
@@ -1533,10 +1707,10 @@ fn run_interactive(config: &Config, system: &str, v: Verbosity) {
                 if v.show_prompt() {
                     print_debug(&format!("User: {}", messages.last().unwrap().content));
                 }
-                match call_llm_with_retry(config, system, &messages, v) {
+                match call_llm_with_retry(config, system, &messages, v, &mut cache) {
                     Ok(resp) => {
                         print_usage(&resp.usage);
-                        let final_raw = process_response(config, system, &messages, &resp.content, &ph, v);
+                        let final_raw = process_response(config, system, &messages, &resp.content, &ph, v, &mut cache);
                         let candidates: Vec<String> = parse_candidates(&final_raw)
                             .into_iter()
                             .map(|c| apply_placeholders(&c, &ph))
@@ -1569,6 +1743,7 @@ fn run_interactive(config: &Config, system: &str, v: Verbosity) {
             }
         }
     }
+    cache.save();
 }
 
 fn style_label(style: ApiStyle) -> &'static str {
