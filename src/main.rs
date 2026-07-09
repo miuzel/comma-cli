@@ -354,6 +354,12 @@ Rules:
 - Output ONLY the command, nothing else. No markdown fences, no prose.
 - Tailor commands to the installed package manager and available tools.
 
+Exploration:
+If you are NOT SURE about a tool's exact usage/flags, prefix your response with #EXPLORE: followed by a help command.
+Example: #EXPLORE: openclaw --help
+The tool will run it, capture the output, and ask you again with that context.
+Use #EXPLORE: ONLY when you genuinely need to learn about a tool. If you already know the command, output it directly.
+
 Private data placeholders — use these when the command references user/host/home:
 - {{USER}} for the current username
 - {{HOSTNAME}} for the machine hostname
@@ -643,6 +649,90 @@ fn call_anthropic(config: &Config, system: &str, messages: &[Message], v: Verbos
     }
 
     Ok(trimmed.to_string())
+}
+
+// ── Exploration: #EXPLORE: prefix ───────────────────────────────────────────
+
+const EXPLORE_PREFIX: &str = "#EXPLORE:";
+
+const EXPLORE_HINT: &str = "\
+The help output is shown above. Now generate the ACTUAL shell command the user originally wanted. \
+Output ONLY the final command. Do NOT prefix with #EXPLORE: again.";
+
+/// If raw starts with `#EXPLORE:`, extract the command after the prefix.
+fn parse_explore(raw: &str) -> Option<&str> {
+    let trimmed = raw.trim();
+    trimmed.strip_prefix(EXPLORE_PREFIX).map(|s| s.trim()).filter(|s| !s.is_empty())
+}
+
+/// Run a command, capture stdout+stderr (up to 4096 chars).
+fn run_and_capture(cmd: &str) -> Result<String, String> {
+    let output = std::process::Command::new("sh")
+        .arg("-c")
+        .arg(cmd)
+        .output()
+        .map_err(|e| format!("Failed to run: {}", e))?;
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+    let mut result = stdout;
+    if !stderr.is_empty() {
+        result.push_str("\n[stderr]\n");
+        result.push_str(&stderr);
+    }
+    Ok(truncate(&result, 4096).to_string())
+}
+
+/// If the model returned `#EXPLORE: <cmd>`, run it with user permission,
+/// feed output back to the LLM, and return the real command.
+/// Returns Ok(None) if user declines or no #EXPLORE: prefix.
+fn explore_then_generate(
+    config: &Config,
+    system: &str,
+    messages: &[Message],
+    raw: &str,
+    ph: &Placeholders,
+    v: Verbosity,
+) -> Result<Option<String>, String> {
+    let explore_cmd = match parse_explore(raw) {
+        Some(cmd) => cmd,
+        None => return Ok(None),
+    };
+    let cmd = apply_placeholders(explore_cmd, ph);
+
+    print_info(&format!("Model wants to explore: {}", cmd));
+    if !prompt_confirm("Run to learn usage?") {
+        return Ok(None);
+    }
+
+    let help_output = run_and_capture(&cmd)?;
+    if help_output.trim().is_empty() {
+        print_info("No output from command.");
+        return Ok(None);
+    }
+
+    if v.show_debug() {
+        print_debug(&format!(
+            "Captured ({} chars):\n{}",
+            help_output.len(),
+            truncate(&help_output, 1000)
+        ));
+    }
+
+    print_info("Learning from output...");
+
+    // Feed help output back: original messages + assistant(#EXPLORE: cmd) + user(hint + output)
+    let mut ext = messages.to_vec();
+    ext.push(Message {
+        role: "assistant".into(),
+        content: raw.to_string(),
+    });
+    ext.push(Message {
+        role: "user".into(),
+        content: format!("{}\n\nCommand output:\n```\n{}\n```", EXPLORE_HINT, help_output),
+    });
+
+    let result = call_llm_with_retry(config, system, &ext, v)?;
+    Ok(Some(result))
 }
 
 // ── Danger detection ────────────────────────────────────────────────────────
@@ -946,6 +1036,13 @@ fn run_tests() {
     check("MAX_RETRIES <= 5", MAX_RETRIES <= 5);
     check("RETRY_HINT is non-empty", !RETRY_HINT.is_empty());
 
+    // Test 11: #EXPLORE: prefix detection
+    check("parse_explore: basic", parse_explore("#EXPLORE: openclaw --help") == Some("openclaw --help"));
+    check("parse_explore: with spaces", parse_explore("  #EXPLORE: man ffmpeg  ") == Some("man ffmpeg"));
+    check("parse_explore: no prefix", parse_explore("ls -la").is_none());
+    check("parse_explore: partial prefix", parse_explore("#EXPLOR ls").is_none());
+    check("parse_explore: just prefix", parse_explore("#EXPLORE:").is_none());
+
     // Summary
     println!("\n{} passed, {} failed", pass, fail);
     if fail > 0 {
@@ -990,7 +1087,16 @@ fn run_oneshot(config: &Config, system: &str, intent: &str, v: Verbosity) {
     }
     match call_llm_with_retry(config, system, &messages, v) {
         Ok(raw) => {
-            let cmd = apply_placeholders(&raw, &ph);
+            // Try exploration: if LLM returned a help command, learn from it
+            let final_raw = match explore_then_generate(config, system, &messages, &raw, &ph, v) {
+                Ok(Some(real_cmd)) => real_cmd,
+                Ok(None) => raw,
+                Err(e) => {
+                    print_error(&format!("Explore: {}", e));
+                    raw
+                }
+            };
+            let cmd = apply_placeholders(&final_raw, &ph);
             print_cmd(&cmd);
             if is_dangerous(&cmd) {
                 if prompt_confirm("Execute this dangerous command?") {
@@ -1070,12 +1176,21 @@ fn run_interactive(config: &Config, system: &str, v: Verbosity) {
                 }
                 match call_llm_with_retry(config, system, &messages, v) {
                     Ok(raw) => {
-                        let cmd = apply_placeholders(&raw, &ph);
+                        // Try exploration: if LLM returned a help command, learn from it
+                        let final_raw = match explore_then_generate(config, system, &messages, &raw, &ph, v) {
+                            Ok(Some(real_cmd)) => real_cmd,
+                            Ok(None) => raw,
+                            Err(e) => {
+                                print_error(&format!("Explore: {}", e));
+                                raw
+                            }
+                        };
+                        let cmd = apply_placeholders(&final_raw, &ph);
                         current_cmd = cmd.clone();
                         print_cmd(&current_cmd);
                         messages.push(Message {
                             role: "assistant".into(),
-                            content: raw, // keep original with placeholders in conversation
+                            content: final_raw, // keep raw in conversation
                         });
                     }
                     Err(e) => {

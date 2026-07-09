@@ -9,6 +9,12 @@ Rules:
 - Output ONLY the command, nothing else. No markdown fences, no prose.
 - Tailor commands to the installed package manager and available tools.
 
+Exploration:
+If you are NOT SURE about a tool's exact usage/flags, prefix your response with #EXPLORE: followed by a help command.
+Example: #EXPLORE: openclaw --help
+The tool will run it, capture the output, and ask you again with that context.
+Use #EXPLORE: ONLY when you genuinely need to learn about a tool. If you already know the command, output it directly.
+
 Private data placeholders — use these when the command references user/host/home:
 - {{USER}} for the current username
 - {{HOSTNAME}} for the machine hostname
