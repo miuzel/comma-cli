@@ -75,11 +75,25 @@ find . -type f -size +100M -exec ls -lh {} \; | sort -k5 -h -r
 
 ### 本地配置 `~/.local/bin/,.config.json`
 
+**Anthropic（Claude）示例：**
+
 ```json
 {
   "base_url": "https://api.anthropic.com",
   "auth_token": "sk-ant-xxx",
-  "model": "claude-sonnet-4-20250514"
+  "model": "claude-sonnet-4-20250514",
+  "api_style": "anthropic"
+}
+```
+
+**OpenAI 兼容示例（Cerebras、Groq、Ollama、vLLM 等）：**
+
+```json
+{
+  "base_url": "https://api.cerebras.ai/v1",
+  "auth_token": "csk-xxx",
+  "model": "llama-3.3-70b",
+  "api_style": "openai"
 }
 ```
 
@@ -88,12 +102,63 @@ find . -type f -size +100M -exec ls -lh {} \; | sort -k5 -h -r
 | `base_url` | API 端点 | `ANTHROPIC_BASE_URL` in settings.json |
 | `auth_token` | API 密钥 | `ANTHROPIC_AUTH_TOKEN` in settings.json |
 | `model` | 模型名称 | `ANTHROPIC_MODEL` in settings.json |
+| `api_style` | API 格式（见下文） | 自动检测（含 `anthropic` 的 URL → anthropic，其余 → openai） |
 
 字段留空字符串 `""` 视为未设置，会回退。
+
+### API 格式 (`api_style`)
+
+| 值 | 格式 | 适用服务 |
+|----|------|----------|
+| `openai` | OpenAI Chat Completions | Cerebras, Groq, Ollama, vLLM, Together, Fireworks, DeepSeek, ... |
+| `anthropic` | Anthropic Messages | Anthropic Claude, 代理转发 |
+
+省略时根据 URL 自动判断：URL 包含 `anthropic` → `anthropic`，否则 → `openai`。
+
+URL 处理规则：
+- 自动去除末尾 `/v1`，由程序拼接正确路径
+- OpenAI：`{base_url}/v1/chat/completions`
+- Anthropic：`{base_url}/v1/messages`
 
 ### 提示词 `~/.local/bin/,.prompt.md`
 
 编辑此文件可自定义 LLM 行为（偏好工具、输出格式、平台等）。删除此文件会使用内置默认提示词。
+
+#### 系统上下文
+
+每次调用 LLM 时，程序会自动采集以下**非私密**信息并注入提示词：
+
+- **发行版**：`/etc/os-release` (`PRETTY_NAME`)
+- **内核**：`uname -srmo`
+- **架构**：`uname -m`
+- **Shell**：`$SHELL`
+- **当前目录**：`cwd`
+- **已安装包列表**：自动检测包管理器（dpkg/rpm/pacman/apk）并列出前 100-200 个包
+- **可用工具**：检测 git、curl、python3、node、docker、rustc 等常用工具
+
+这些信息让 LLM 能根据你的实际环境生成正确的命令（例如用 `apt` 而非 `pacman`）。
+
+#### 隐私保护：占位符
+
+**私密信息（用户名、主机名、家目录）不会发送给 API。** 提示词指示 LLM 在命令中使用占位符，程序收到响应后在本地替换为真实值：
+
+| 占位符 | 替换为 | 示例 |
+|--------|--------|------|
+| `{{USER}}` | 当前用户名 | `miuzel` |
+| `{{HOSTNAME}}` | 主机名 | `myserver` |
+| `{{HOME}}` | 家目录路径 | `/home/miuzel` |
+
+流程：
+```
+用户: "list my home directory"
+        ↓
+LLM 看到: "User: {{USER}}, Home: {{HOME}}"  (不包含真实值)
+LLM 输出: "ls -la {{HOME}}"
+        ↓
+本地替换: "ls -la /home/miuzel"  (仅在本机发生)
+```
+
+提示词中可使用 `{{SYSTEM_CONTEXT}}` 注入完整系统信息块。
 
 ## 危险命令检测
 
