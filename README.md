@@ -5,6 +5,12 @@
 ## 安装
 
 ```bash
+./install.sh
+```
+
+或手动安装：
+
+```bash
 cargo build --release
 cp target/release/comma ~/.local/bin/,
 cp prompt.md ~/.local/bin/,.prompt.md
@@ -189,6 +195,12 @@ LLM 输出: "ls -la {{HOME}}"
 - 编译时：Rust toolchain（`rustup`）
 
 ## 卸载
+
+```bash
+./uninstall.sh
+```
+
+或手动：
 
 ```bash
 rm ~/.local/bin/, ~/.local/bin/,.config.json ~/.local/bin/,.prompt.md
