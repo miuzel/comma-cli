@@ -1215,9 +1215,11 @@ fn select_command(candidates: &[String]) -> Option<usize> {
         print_candidate(&mut out, i, cmd, i == selected, is_dangerous(cmd));
     }
     let _ = out.flush();
+    drop(out);
 
-    // Read key events
-    loop {
+    let _ = crossterm::terminal::enable_raw_mode();
+
+    let result = loop {
         if let Ok(Event::Key(KeyEvent { code, modifiers, .. })) = event::read() {
             match code {
                 KeyCode::Up | KeyCode::Char('k') => {
@@ -1241,33 +1243,31 @@ fn select_command(candidates: &[String]) -> Option<usize> {
                     };
                 }
                 KeyCode::Enter => {
-                    // Clear the candidate lines
                     let _ = crossterm::execute!(
                         io::stdout(),
                         crossterm::cursor::MoveUp(candidates.len() as u16),
                         crossterm::terminal::Clear(crossterm::terminal::ClearType::FromCursorDown),
                     );
-                    return Some(selected);
+                    break Some(selected);
                 }
-                KeyCode::Char('c') if modifiers.contains(KeyModifiers::CONTROL) => {
-                    return None;
-                }
-                KeyCode::Esc | KeyCode::Char('q') => {
-                    return None;
-                }
+                KeyCode::Char('c') if modifiers.contains(KeyModifiers::CONTROL) => break None,
+                KeyCode::Esc | KeyCode::Char('q') => break None,
                 _ => {}
             }
             // Redraw
             let _ = crossterm::execute!(
-                out,
+                io::stdout(),
                 crossterm::cursor::MoveUp(candidates.len() as u16),
             );
             for (i, cmd) in candidates.iter().enumerate() {
-                print_candidate(&mut out, i, cmd, i == selected, is_dangerous(cmd));
+                print_candidate(&mut io::stdout(), i, cmd, i == selected, is_dangerous(cmd));
             }
-            let _ = out.flush();
+            let _ = io::stdout().flush();
         }
-    }
+    };
+
+    let _ = crossterm::terminal::disable_raw_mode();
+    result
 }
 
 fn print_candidate(out: &mut impl Write, _index: usize, cmd: &str, active: bool, dangerous: bool) {
@@ -1356,6 +1356,7 @@ fn prompt_confirm(msg: &str) -> bool {
         ResetColor
     );
     let _ = out.flush();
+    drop(out);
 
     // Fallback to line-based input when stdin is not a TTY (piped)
     if !atty::is(atty::Stream::Stdin) {
@@ -1363,18 +1364,21 @@ fn prompt_confirm(msg: &str) -> bool {
         return io::stdin().read_line(&mut input).is_ok() && input.trim().eq_ignore_ascii_case("y");
     }
 
-    loop {
+    let _ = crossterm::terminal::enable_raw_mode();
+    let result = loop {
         if let Ok(Event::Key(KeyEvent { code, modifiers, .. })) = event::read() {
             match code {
-                KeyCode::Char('y') | KeyCode::Char('Y') => return true,
-                KeyCode::Enter if modifiers.contains(KeyModifiers::CONTROL) => return true,
+                KeyCode::Char('y') | KeyCode::Char('Y') => break true,
+                KeyCode::Enter if modifiers.contains(KeyModifiers::CONTROL) => break true,
                 KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Enter | KeyCode::Esc => {
-                    return false;
+                    break false;
                 }
                 _ => {}
             }
         }
-    }
+    };
+    let _ = crossterm::terminal::disable_raw_mode();
+    result
 }
 
 fn prompt_input(rl: &mut Editor<FileHelper, DefaultHistory>) -> Option<String> {
