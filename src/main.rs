@@ -392,10 +392,14 @@ Rules:
 - Output ONLY the command, nothing else. No markdown fences, no prose.
 - Tailor commands to the installed package manager and available tools.
 - Respect the user's tool preferences below. Use their preferred tools when possible.
+- ALWAYS append a short # comment after the command explaining what it does (in the user's language).
+  Example: find . -name "*.log" -delete # Delete all .log files recursively
+  For ||| candidates, each candidate gets its own comment.
+  Keep comments concise (one line, under 60 chars).
 
 Multiple candidates:
 When there are genuinely different approaches (e.g. different tools or styles), you may output up to 3 alternatives separated by |||.
-Example: ls -la ||| exa -la ||| eza -la --icons
+Example: ls -la # List all files ||| exa -la # Modern ls with colors ||| eza -la --icons # ls with icons
 The user will pick one. Only use ||| when alternatives are meaningfully different.
 If there's one clear best command, output it alone without |||.
 
@@ -1154,7 +1158,8 @@ const DANGER_PATTERNS: &[&str] = &[
 ];
 
 fn is_dangerous(cmd: &str) -> bool {
-    let lower = cmd.to_lowercase();
+    let (command, _) = split_comment(cmd);
+    let lower = command.to_lowercase();
     DANGER_PATTERNS
         .iter()
         .any(|p| lower.contains(&p.to_lowercase()))
@@ -1162,10 +1167,38 @@ fn is_dangerous(cmd: &str) -> bool {
 
 // ── Display helpers ─────────────────────────────────────────────────────────
 
+/// Split "command # comment" into (command, Some(comment)) or (cmd, None).
+/// Handles cases where # appears inside quotes or is the comment marker.
+fn split_comment(raw: &str) -> (&str, Option<&str>) {
+    // Find the first unquoted #
+    let bytes = raw.as_bytes();
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut prev = b'\0';
+    for (i, &b) in bytes.iter().enumerate() {
+        match b {
+            b'\'' if !in_double && prev != b'\\' => in_single = !in_single,
+            b'"' if !in_single && prev != b'\\' => in_double = !in_double,
+            b'#' if !in_single && !in_double => {
+                let comment = raw[i + 1..].trim();
+                if comment.is_empty() {
+                    return (raw.trim(), None);
+                }
+                return (raw[..i].trim(), Some(comment));
+            }
+            _ => {}
+        }
+        prev = b;
+    }
+    (raw.trim(), None)
+}
+
 fn print_cmd(cmd: &str) {
     let stdout = io::stdout();
     let mut out = stdout.lock();
-    if is_dangerous(cmd) {
+    let (command, comment) = split_comment(cmd);
+
+    if is_dangerous(command) {
         let _ = write!(
             out,
             "{}⚠ DANGEROUS COMMAND ⚠{}",
@@ -1178,9 +1211,18 @@ fn print_cmd(cmd: &str) {
         out,
         "{}{}{}",
         SetForegroundColor(Color::Green),
-        cmd,
+        command,
         ResetColor
     );
+    if let Some(cmt) = comment {
+        let _ = write!(
+            out,
+            "  {}# {}{}",
+            SetForegroundColor(Color::DarkGrey),
+            cmt,
+            ResetColor
+        );
+    }
     let _ = writeln!(out);
 }
 
@@ -1275,6 +1317,7 @@ fn print_candidate(out: &mut impl Write, _index: usize, cmd: &str, active: bool,
         out,
         crossterm::terminal::Clear(crossterm::terminal::ClearType::CurrentLine),
     );
+    let (command, comment) = split_comment(cmd);
     let marker = if active { "▸" } else { " " };
     let color = if dangerous {
         Color::Red
@@ -1285,14 +1328,25 @@ fn print_candidate(out: &mut impl Write, _index: usize, cmd: &str, active: bool,
     };
     let _ = write!(
         out,
-        "{}{} {}{}{} {}",
+        "{}{} {}{}{}",
         SetForegroundColor(Color::Cyan),
         marker,
         SetForegroundColor(color),
-        cmd,
+        command,
         ResetColor,
-        if dangerous { "⚠" } else { "" },
     );
+    if let Some(cmt) = comment {
+        let _ = write!(
+            out,
+            "  {}# {}{}",
+            SetForegroundColor(Color::DarkGrey),
+            cmt,
+            ResetColor
+        );
+    }
+    if dangerous {
+        let _ = write!(out, " {}⚠{}", SetForegroundColor(Color::Red), ResetColor);
+    }
     let _ = writeln!(out);
 }
 
@@ -1801,10 +1855,11 @@ fn style_label(style: ApiStyle) -> &'static str {
 }
 
 fn execute(cmd: &str) {
-    print_info(&format!("Running: {}", cmd));
+    let (command, _) = split_comment(cmd);
+    print_info(&format!("Running: {}", command));
     let status = std::process::Command::new("sh")
         .arg("-c")
-        .arg(cmd)
+        .arg(command)
         .status();
     match status {
         Ok(s) if !s.success() => {
