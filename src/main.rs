@@ -1259,16 +1259,13 @@ fn select_command(candidates: &[String]) -> Option<usize> {
     }
 
     let mut selected: usize = 0;
-    let stdout = io::stdout();
-    let mut out = stdout.lock();
 
-    // Print initial state
-    let _ = writeln!(out);
+    // Save cursor position before printing candidates
+    let _ = crossterm::execute!(io::stdout(), crossterm::cursor::SavePosition);
     for (i, cmd) in candidates.iter().enumerate() {
-        print_candidate(&mut out, i, cmd, i == selected, is_dangerous(cmd));
+        print_candidate(&mut io::stdout(), i, cmd, i == selected, is_dangerous(cmd));
     }
-    let _ = out.flush();
-    drop(out);
+    let _ = io::stdout().flush();
 
     let _ = crossterm::terminal::enable_raw_mode();
 
@@ -1298,7 +1295,7 @@ fn select_command(candidates: &[String]) -> Option<usize> {
                 KeyCode::Enter => {
                     let _ = crossterm::execute!(
                         io::stdout(),
-                        crossterm::cursor::MoveUp(candidates.len() as u16),
+                        crossterm::cursor::RestorePosition,
                         crossterm::terminal::Clear(crossterm::terminal::ClearType::FromCursorDown),
                     );
                     break Some(selected);
@@ -1307,10 +1304,11 @@ fn select_command(candidates: &[String]) -> Option<usize> {
                 KeyCode::Esc | KeyCode::Char('q') => break None,
                 _ => {}
             }
-            // Redraw
+            // Restore cursor to saved position, then redraw
             let _ = crossterm::execute!(
                 io::stdout(),
-                crossterm::cursor::MoveUp(candidates.len() as u16),
+                crossterm::cursor::RestorePosition,
+                crossterm::terminal::Clear(crossterm::terminal::ClearType::FromCursorDown),
             );
             for (i, cmd) in candidates.iter().enumerate() {
                 print_candidate(&mut io::stdout(), i, cmd, i == selected, is_dangerous(cmd));
