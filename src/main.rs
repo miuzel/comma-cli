@@ -267,18 +267,41 @@ fn get_packages() -> String {
         }
     }
 
-    // Also list key tools
-    let tools = &[
-        "git", "curl", "wget", "python3", "node", "npm", "cargo", "rustc",
-        "docker", "podman", "make", "cmake", "gcc", "clang", "vim", "nvim",
-        "jq", "rg", "fd", "fzf", "tmux", "htop", "ssh", "rsync",
-    ];
-    let available: Vec<&str> = tools
-        .iter()
-        .filter(|t| run_cmd("which", &[t]).is_some())
-        .copied()
-        .collect();
-    found.push(format!("[Available tools: {}]", available.join(", ")));
+    // List executables in Linux-native $PATH dirs (skip /mnt/ for WSL Windows drives)
+    let path_dirs = std::env::var("PATH").unwrap_or_default();
+    let mut all_execs: Vec<String> = Vec::new();
+    for dir in path_dirs.split(':') {
+        // Skip Windows-mounted drives in WSL
+        if dir.starts_with("/mnt/") {
+            continue;
+        }
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_file() {
+                    use std::os::unix::fs::PermissionsExt;
+                    if let Ok(meta) = path.metadata() {
+                        if meta.permissions().mode() & 0o111 != 0 {
+                            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                                all_execs.push(name.to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    all_execs.sort();
+    all_execs.dedup();
+    let total = all_execs.len();
+    let exec_list = all_execs.join(", ");
+    // Truncate to ~6000 chars to keep prompt size reasonable
+    let exec_display = if exec_list.len() > 6000 {
+        format!("{}...", &exec_list[..6000])
+    } else {
+        exec_list
+    };
+    found.push(format!("[Available tools ({} total):\n{}]", total, exec_display));
 
     found.join("\n")
 }
@@ -377,6 +400,21 @@ struct Message {
     content: String,
 }
 
+#[derive(Default, Debug)]
+struct Usage {
+    input_tokens: u32,
+    output_tokens: u32,
+    cache_read: u32,
+    cache_creation: u32,
+    total_tokens: u32,
+    duration_ms: u64,
+}
+
+struct LlmResponse {
+    content: String,
+    usage: Usage,
+}
+
 // ── OpenAI-compatible types ─────────────────────────────────────────────────
 
 #[derive(Serialize)]
@@ -395,7 +433,15 @@ struct OpenAiMessage {
 #[derive(Deserialize)]
 struct OpenAiResponse {
     choices: Option<Vec<OpenAiChoice>>,
+    usage: Option<OpenAiUsage>,
     error: Option<OpenAiError>,
+}
+
+#[derive(Deserialize)]
+struct OpenAiUsage {
+    prompt_tokens: Option<u32>,
+    completion_tokens: Option<u32>,
+    total_tokens: Option<u32>,
 }
 
 #[derive(Deserialize)]
@@ -426,7 +472,16 @@ struct AnthropicRequest {
 #[derive(Deserialize)]
 struct AnthropicResponse {
     content: Option<Vec<AnthropicContentBlock>>,
+    usage: Option<AnthropicUsage>,
     error: Option<AnthropicApiError>,
+}
+
+#[derive(Deserialize)]
+struct AnthropicUsage {
+    input_tokens: Option<u32>,
+    output_tokens: Option<u32>,
+    cache_creation_input_tokens: Option<u32>,
+    cache_read_input_tokens: Option<u32>,
 }
 
 #[derive(Deserialize)]
@@ -458,11 +513,32 @@ const MAX_RETRIES: usize = 3;
 const RETRY_HINT: &str =
     "Your previous response was empty. You MUST output exactly ONE shell command. No explanations, no markdown fences. Just the raw command.";
 
-fn call_llm(config: &Config, system: &str, messages: &[Message], v: Verbosity) -> Result<String, String> {
+fn call_llm(config: &Config, system: &str, messages: &[Message], v: Verbosity) -> Result<LlmResponse, String> {
     match config.api_style {
         ApiStyle::OpenAI => call_openai(config, system, messages, v),
         ApiStyle::Anthropic => call_anthropic(config, system, messages, v),
     }
+}
+
+fn print_usage(u: &Usage) {
+    let stdout = io::stdout();
+    let mut out = stdout.lock();
+    let _ = write!(out, "{}", SetForegroundColor(Color::DarkGrey));
+    let total = if u.total_tokens > 0 {
+        u.total_tokens
+    } else {
+        u.input_tokens + u.output_tokens
+    };
+    let _ = write!(out, "  tokens: {}in + {}out = {}", u.input_tokens, u.output_tokens, total);
+    if u.cache_read > 0 {
+        let _ = write!(out, " (cached: {})", u.cache_read);
+    }
+    if u.cache_creation > 0 {
+        let _ = write!(out, " (cache_write: {})", u.cache_creation);
+    }
+    let _ = write!(out, " | {}ms", u.duration_ms);
+    let _ = write!(out, "{}", ResetColor);
+    let _ = writeln!(out);
 }
 
 /// Call LLM with retry on empty response. Up to MAX_RETRIES attempts.
@@ -471,14 +547,14 @@ fn call_llm_with_retry(
     system: &str,
     messages: &[Message],
     v: Verbosity,
-) -> Result<String, String> {
+) -> Result<LlmResponse, String> {
     let mut attempts = 0;
     loop {
         attempts += 1;
         let result = call_llm(config, system, messages, v)?;
-        let trimmed = result.trim();
-        if !trimmed.is_empty() {
-            return Ok(trimmed.to_string());
+        let is_empty = result.content.is_empty();
+        if !is_empty {
+            return Ok(result);
         }
         if attempts >= MAX_RETRIES {
             return Err(format!(
@@ -490,8 +566,6 @@ fn call_llm_with_retry(
             "Empty response, retrying ({}/{})...",
             attempts, MAX_RETRIES
         ));
-        // We need to append the retry hint to the conversation.
-        // Since we can't mutate `messages`, we build a temporary extended copy.
         let mut retry_msgs = messages.to_vec();
         retry_msgs.push(Message {
             role: "assistant".into(),
@@ -501,12 +575,10 @@ fn call_llm_with_retry(
             role: "user".into(),
             content: RETRY_HINT.to_string(),
         });
-        // Re-call with extended messages (only affects this attempt)
         let retry_result = call_llm(config, system, &retry_msgs, v)?;
-        if !retry_result.trim().is_empty() {
-            return Ok(retry_result.trim().to_string());
+        if !retry_result.content.is_empty() {
+            return Ok(retry_result);
         }
-        // If still empty, loop will check attempts count
     }
 }
 
@@ -517,7 +589,7 @@ fn make_client() -> Result<reqwest::blocking::Client, String> {
         .map_err(|e| format!("HTTP client: {}", e))
 }
 
-fn call_openai(config: &Config, system: &str, messages: &[Message], v: Verbosity) -> Result<String, String> {
+fn call_openai(config: &Config, system: &str, messages: &[Message], v: Verbosity) -> Result<LlmResponse, String> {
     let base = normalize_base_url(&config.base_url);
     let url = format!("{}/v1/chat/completions", base);
 
@@ -574,6 +646,15 @@ fn call_openai(config: &Config, system: &str, messages: &[Message], v: Verbosity
     if let Some(err) = api_resp.error {
         return Err(err.message.unwrap_or_else(|| "Unknown API error".into()));
     }
+
+    let usage = api_resp.usage.as_ref().map(|u| Usage {
+        input_tokens: u.prompt_tokens.unwrap_or(0),
+        output_tokens: u.completion_tokens.unwrap_or(0),
+        total_tokens: u.total_tokens.unwrap_or(0),
+        duration_ms: elapsed.as_millis() as u64,
+        ..Usage::default()
+    }).unwrap_or(Usage { duration_ms: elapsed.as_millis() as u64, ..Usage::default() });
+
     let choices = api_resp.choices.ok_or("Empty response: no choices")?;
     let content = choices
         .first()
@@ -586,10 +667,10 @@ fn call_openai(config: &Config, system: &str, messages: &[Message], v: Verbosity
         print_debug(&format!("LLM reply: {}", content));
     }
 
-    Ok(content.to_string())
+    Ok(LlmResponse { content: content.to_string(), usage })
 }
 
-fn call_anthropic(config: &Config, system: &str, messages: &[Message], v: Verbosity) -> Result<String, String> {
+fn call_anthropic(config: &Config, system: &str, messages: &[Message], v: Verbosity) -> Result<LlmResponse, String> {
     let base = normalize_base_url(&config.base_url);
     let url = format!("{}/v1/messages", base);
 
@@ -636,6 +717,16 @@ fn call_anthropic(config: &Config, system: &str, messages: &[Message], v: Verbos
     if let Some(err) = api_resp.error {
         return Err(err.message.unwrap_or_else(|| "Unknown API error".into()));
     }
+
+    let usage = api_resp.usage.as_ref().map(|u| Usage {
+        input_tokens: u.input_tokens.unwrap_or(0),
+        output_tokens: u.output_tokens.unwrap_or(0),
+        cache_read: u.cache_read_input_tokens.unwrap_or(0),
+        cache_creation: u.cache_creation_input_tokens.unwrap_or(0),
+        duration_ms: elapsed.as_millis() as u64,
+        ..Usage::default()
+    }).unwrap_or(Usage { duration_ms: elapsed.as_millis() as u64, ..Usage::default() });
+
     let content = api_resp.content.ok_or("Empty response")?;
     let result: String = content
         .iter()
@@ -648,7 +739,7 @@ fn call_anthropic(config: &Config, system: &str, messages: &[Message], v: Verbos
         print_debug(&format!("LLM reply: {}", trimmed));
     }
 
-    Ok(trimmed.to_string())
+    Ok(LlmResponse { content: trimmed.to_string(), usage })
 }
 
 // ── Exploration: #EXPLORE: prefix ───────────────────────────────────────────
@@ -731,8 +822,8 @@ fn explore_then_generate(
         content: format!("{}\n\nCommand output:\n```\n{}\n```", EXPLORE_HINT, help_output),
     });
 
-    let result = call_llm_with_retry(config, system, &ext, v)?;
-    Ok(Some(result))
+    let resp = call_llm_with_retry(config, system, &ext, v)?;
+    Ok(Some(resp.content))
 }
 
 // ── Danger detection ────────────────────────────────────────────────────────
@@ -1082,18 +1173,19 @@ fn run_oneshot(config: &Config, system: &str, intent: &str, v: Verbosity) {
 
     print_info(&format!("{} ({})", config.model, style_label(config.api_style)));
     if v.show_prompt() {
-        print_debug(&format!("System prompt:\n{}", truncate(system, 1000)));
+        print_debug(&format!("System prompt:\n{}", system));
         print_debug(&format!("User: {}", intent));
     }
     match call_llm_with_retry(config, system, &messages, v) {
-        Ok(raw) => {
+        Ok(resp) => {
+            print_usage(&resp.usage);
             // Try exploration: if LLM returned a help command, learn from it
-            let final_raw = match explore_then_generate(config, system, &messages, &raw, &ph, v) {
+            let final_raw = match explore_then_generate(config, system, &messages, &resp.content, &ph, v) {
                 Ok(Some(real_cmd)) => real_cmd,
-                Ok(None) => raw,
+                Ok(None) => resp.content,
                 Err(e) => {
                     print_error(&format!("Explore: {}", e));
-                    raw
+                    resp.content
                 }
             };
             let cmd = apply_placeholders(&final_raw, &ph);
@@ -1175,14 +1267,15 @@ fn run_interactive(config: &Config, system: &str, v: Verbosity) {
                     print_debug(&format!("User: {}", messages.last().unwrap().content));
                 }
                 match call_llm_with_retry(config, system, &messages, v) {
-                    Ok(raw) => {
+                    Ok(resp) => {
+                        print_usage(&resp.usage);
                         // Try exploration: if LLM returned a help command, learn from it
-                        let final_raw = match explore_then_generate(config, system, &messages, &raw, &ph, v) {
+                        let final_raw = match explore_then_generate(config, system, &messages, &resp.content, &ph, v) {
                             Ok(Some(real_cmd)) => real_cmd,
-                            Ok(None) => raw,
+                            Ok(None) => resp.content,
                             Err(e) => {
                                 print_error(&format!("Explore: {}", e));
-                                raw
+                                resp.content
                             }
                         };
                         let cmd = apply_placeholders(&final_raw, &ph);
