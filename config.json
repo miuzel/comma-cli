@@ -2,5 +2,6 @@
   "base_url": "",
   "auth_token": "",
   "model": "",
-  "api_style": ""
+  "api_style": "",
+  "prefer": {}
 }
