@@ -57,6 +57,20 @@ impl Highlighter for FileHelper {
     }
 }
 
+// ── Verbosity ───────────────────────────────────────────────────────────────
+
+#[derive(Clone, Copy)]
+struct Verbosity(u8);
+
+impl Verbosity {
+    fn show_prompt(&self) -> bool {
+        self.0 >= 1
+    }
+    fn show_debug(&self) -> bool {
+        self.0 >= 2
+    }
+}
+
 // ── API style ───────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -438,10 +452,10 @@ const MAX_RETRIES: usize = 3;
 const RETRY_HINT: &str =
     "Your previous response was empty. You MUST output exactly ONE shell command. No explanations, no markdown fences. Just the raw command.";
 
-fn call_llm(config: &Config, system: &str, messages: &[Message]) -> Result<String, String> {
+fn call_llm(config: &Config, system: &str, messages: &[Message], v: Verbosity) -> Result<String, String> {
     match config.api_style {
-        ApiStyle::OpenAI => call_openai(config, system, messages),
-        ApiStyle::Anthropic => call_anthropic(config, system, messages),
+        ApiStyle::OpenAI => call_openai(config, system, messages, v),
+        ApiStyle::Anthropic => call_anthropic(config, system, messages, v),
     }
 }
 
@@ -450,11 +464,12 @@ fn call_llm_with_retry(
     config: &Config,
     system: &str,
     messages: &[Message],
+    v: Verbosity,
 ) -> Result<String, String> {
     let mut attempts = 0;
     loop {
         attempts += 1;
-        let result = call_llm(config, system, messages)?;
+        let result = call_llm(config, system, messages, v)?;
         let trimmed = result.trim();
         if !trimmed.is_empty() {
             return Ok(trimmed.to_string());
@@ -481,7 +496,7 @@ fn call_llm_with_retry(
             content: RETRY_HINT.to_string(),
         });
         // Re-call with extended messages (only affects this attempt)
-        let retry_result = call_llm(config, system, &retry_msgs)?;
+        let retry_result = call_llm(config, system, &retry_msgs, v)?;
         if !retry_result.trim().is_empty() {
             return Ok(retry_result.trim().to_string());
         }
@@ -496,11 +511,10 @@ fn make_client() -> Result<reqwest::blocking::Client, String> {
         .map_err(|e| format!("HTTP client: {}", e))
 }
 
-fn call_openai(config: &Config, system: &str, messages: &[Message]) -> Result<String, String> {
+fn call_openai(config: &Config, system: &str, messages: &[Message], v: Verbosity) -> Result<String, String> {
     let base = normalize_base_url(&config.base_url);
     let url = format!("{}/v1/chat/completions", base);
 
-    // Build messages with system prepended
     let mut oai_messages: Vec<OpenAiMessage> = Vec::new();
     oai_messages.push(OpenAiMessage {
         role: "system".into(),
@@ -519,7 +533,15 @@ fn call_openai(config: &Config, system: &str, messages: &[Message]) -> Result<St
         messages: oai_messages,
     };
 
+    if v.show_debug() {
+        print_debug(&format!("POST {}", url));
+        if let Ok(json) = serde_json::to_string_pretty(&body) {
+            print_debug(&format!("Request body:\n{}", json));
+        }
+    }
+
     let client = make_client()?;
+    let t0 = std::time::Instant::now();
     let resp = client
         .post(&url)
         .header("Authorization", format!("Bearer {}", config.auth_token))
@@ -528,8 +550,15 @@ fn call_openai(config: &Config, system: &str, messages: &[Message]) -> Result<St
         .send()
         .map_err(|e| format!("Request failed: {}", e))?;
 
+    let elapsed = t0.elapsed();
     let status = resp.status();
     let text = resp.text().map_err(|e| format!("Read body: {}", e))?;
+
+    if v.show_debug() {
+        print_debug(&format!("Status: {} ({:.1}s)", status, elapsed.as_secs_f64()));
+        print_debug(&format!("Response:\n{}", truncate(&text, 2000)));
+    }
+
     if !status.is_success() {
         return Err(format!("API error ({}): {}", status, text));
     }
@@ -546,10 +575,15 @@ fn call_openai(config: &Config, system: &str, messages: &[Message]) -> Result<St
         .and_then(|m| m.content.as_deref())
         .unwrap_or("")
         .trim();
+
+    if v.show_prompt() {
+        print_debug(&format!("LLM reply: {}", content));
+    }
+
     Ok(content.to_string())
 }
 
-fn call_anthropic(config: &Config, system: &str, messages: &[Message]) -> Result<String, String> {
+fn call_anthropic(config: &Config, system: &str, messages: &[Message], v: Verbosity) -> Result<String, String> {
     let base = normalize_base_url(&config.base_url);
     let url = format!("{}/v1/messages", base);
 
@@ -560,7 +594,15 @@ fn call_anthropic(config: &Config, system: &str, messages: &[Message]) -> Result
         messages: messages.to_vec(),
     };
 
+    if v.show_debug() {
+        print_debug(&format!("POST {}", url));
+        if let Ok(json) = serde_json::to_string_pretty(&body) {
+            print_debug(&format!("Request body:\n{}", json));
+        }
+    }
+
     let client = make_client()?;
+    let t0 = std::time::Instant::now();
     let resp = client
         .post(&url)
         .header("x-api-key", &config.auth_token)
@@ -570,8 +612,15 @@ fn call_anthropic(config: &Config, system: &str, messages: &[Message]) -> Result
         .send()
         .map_err(|e| format!("Request failed: {}", e))?;
 
+    let elapsed = t0.elapsed();
     let status = resp.status();
     let text = resp.text().map_err(|e| format!("Read body: {}", e))?;
+
+    if v.show_debug() {
+        print_debug(&format!("Status: {} ({:.1}s)", status, elapsed.as_secs_f64()));
+        print_debug(&format!("Response:\n{}", truncate(&text, 2000)));
+    }
+
     if !status.is_success() {
         return Err(format!("API error ({}): {}", status, text));
     }
@@ -587,7 +636,13 @@ fn call_anthropic(config: &Config, system: &str, messages: &[Message]) -> Result
         .filter_map(|b| b.text.as_deref())
         .collect::<Vec<_>>()
         .join("");
-    Ok(result.trim().to_string())
+    let trimmed = result.trim();
+
+    if v.show_prompt() {
+        print_debug(&format!("LLM reply: {}", trimmed));
+    }
+
+    Ok(trimmed.to_string())
 }
 
 // ── Danger detection ────────────────────────────────────────────────────────
@@ -676,6 +731,29 @@ fn print_error(msg: &str) {
     let _ = writeln!(out);
 }
 
+fn print_debug(msg: &str) {
+    let stdout = io::stdout();
+    let mut out = stdout.lock();
+    for line in msg.lines() {
+        let _ = write!(
+            out,
+            "{}│{} {}",
+            SetForegroundColor(Color::DarkGrey),
+            ResetColor,
+            line
+        );
+        let _ = writeln!(out);
+    }
+}
+
+fn truncate(s: &str, max: usize) -> &str {
+    if s.len() <= max {
+        s
+    } else {
+        &s[..max]
+    }
+}
+
 fn prompt_confirm(msg: &str) -> bool {
     let stdout = io::stdout();
     let mut out = stdout.lock();
@@ -749,6 +827,19 @@ fn main() {
         return;
     }
 
+    // Count -v flags (supports -v, -vv, -vvv)
+    let verbosity = Verbosity(
+        args.iter()
+            .filter(|a| a.starts_with("-v") && a.chars().skip(1).all(|c| c == 'v'))
+            .map(|a| a.len() as u8 - 1)
+            .sum(),
+    );
+
+    // Filter out -v flags from args (remaining = intent words)
+    let args: Vec<&String> = args.iter().filter(|a| {
+        !(a.starts_with("-v") && a.chars().skip(1).all(|c| c == 'v'))
+    }).collect();
+
     let config = match load_config() {
         Ok(c) => c,
         Err(e) => {
@@ -760,10 +851,10 @@ fn main() {
     let system = load_prompt();
 
     if args.is_empty() {
-        run_interactive(&config, &system);
+        run_interactive(&config, &system, verbosity);
     } else {
-        let intent = args.join(" ");
-        run_oneshot(&config, &system, &intent);
+        let intent = args.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(" ");
+        run_oneshot(&config, &system, &intent, verbosity);
     }
 }
 
@@ -867,6 +958,8 @@ fn print_help() {
     println!("  , <intent>   Generate shell command from natural language");
     println!("  ,            Interactive mode (refine commands with conversation)");
     println!("  , -h         Show this help");
+    println!("  , -v         Verbose: show prompt and LLM reply");
+    println!("  , -vv        Very verbose: add request logs and timing");
     println!();
     println!("Interactive commands:");
     println!("  x / exec     Execute the current command");
@@ -883,7 +976,7 @@ fn print_help() {
     println!("  (auto-detected from URL if omitted; anthropic URLs → anthropic, rest → openai)");
 }
 
-fn run_oneshot(config: &Config, system: &str, intent: &str) {
+fn run_oneshot(config: &Config, system: &str, intent: &str, v: Verbosity) {
     let messages = vec![Message {
         role: "user".into(),
         content: intent.to_string(),
@@ -891,7 +984,11 @@ fn run_oneshot(config: &Config, system: &str, intent: &str) {
     let ph = collect_placeholders();
 
     print_info(&format!("{} ({})", config.model, style_label(config.api_style)));
-    match call_llm_with_retry(config, system, &messages) {
+    if v.show_prompt() {
+        print_debug(&format!("System prompt:\n{}", truncate(system, 1000)));
+        print_debug(&format!("User: {}", intent));
+    }
+    match call_llm_with_retry(config, system, &messages, v) {
         Ok(raw) => {
             let cmd = apply_placeholders(&raw, &ph);
             print_cmd(&cmd);
@@ -907,7 +1004,7 @@ fn run_oneshot(config: &Config, system: &str, intent: &str) {
     }
 }
 
-fn run_interactive(config: &Config, system: &str) {
+fn run_interactive(config: &Config, system: &str, v: Verbosity) {
     print_info(&format!(
         "{} ({}). Tab completes filenames. 'q' to quit, 'x' to exec, 'c' to copy.",
         config.model,
@@ -968,7 +1065,10 @@ fn run_interactive(config: &Config, system: &str) {
                 });
 
                 print_info("Thinking...");
-                match call_llm_with_retry(config, system, &messages) {
+                if v.show_prompt() {
+                    print_debug(&format!("User: {}", messages.last().unwrap().content));
+                }
+                match call_llm_with_retry(config, system, &messages, v) {
                     Ok(raw) => {
                         let cmd = apply_placeholders(&raw, &ph);
                         current_cmd = cmd.clone();
