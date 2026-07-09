@@ -3,5 +3,6 @@
   "auth_token": "",
   "model": "",
   "api_style": "",
-  "prefer": {}
+  "prefer": {},
+  "cache_size": 1000
 }
