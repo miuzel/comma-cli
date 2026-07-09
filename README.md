@@ -1,8 +1,50 @@
-# `,` — LLM-Powered Shell Command Generator
+# `,`
 
-Describe what you want in natural language, get an executable shell command. Supports interactive refinement, dangerous command detection, and tool discovery.
+> **Small is big.** A comma is the smallest punctuation — yet it changes everything.
+
+LLM-powered shell command generator. Describe what you want, get the command, run it.
 
 [中文文档](README.zh-CN.md)
+
+## Why?
+
+You know the feeling: you want to do something in the terminal, but can't remember the exact flags. `tar` with compression? `ffmpeg` encoding options? `find` with size filters? You end up opening a browser, searching, reading man pages, or copy-pasting from Stack Overflow.
+
+**`,` is a single-character command that turns intent into shell commands.** Type what you want, get the command, run it. That's it.
+
+### vs. Codex / OpenCode / Claude Code
+
+| | `,` | Codex / Claude Code / OpenCode |
+|---|---|---|
+| **Weight** | Single 3MB binary, no runtime | Node.js / Python runtime, 100MB+ |
+| **Session** | Stateless — no sessions, no history, no files | Heavy session management, conversation state |
+| **Startup** | Instant (no warmup) | 2-5s cold start |
+| **Scope** | One command at a time | Multi-file editing, code generation, agentic loops |
+| **Dependencies** | None (static binary) | Node.js, Python, npm, etc. |
+| **Config** | 3 fields in JSON | Complex config, API keys, project setup |
+| **Privacy** | No personal data sent to API (placeholders) | Full context sent |
+
+**When to use `,`:**
+- You need a quick shell command, not a coding assistant
+- You want something that starts instantly and exits cleanly
+- You're on a remote server and don't want to install Node.js
+- You prefer the terminal over a chat interface
+- You want to keep your workflow minimal
+
+**When to use Codex / Claude Code:**
+- You need multi-file code generation or refactoring
+- You want agentic task execution (read files, run tests, iterate)
+- You need conversation context across multiple turns
+- You're doing complex debugging or architecture work
+
+Think of `,` as the `curl` of LLM tools — minimal, focused, does one thing well. Claude Code is the IDE — powerful but heavy.
+
+### Who needs this?
+
+- **Sysadmins**: "find all files modified today larger than 100MB" → `fd --changed-today --size +100M`
+- **Developers**: "compress this video for Slack" → `ffmpeg -i input.mp4 -b:v 1M ...`
+- **DevOps**: "check which ports are in use" → `ss -tlnp`
+- **Anyone** who occasionally needs a terminal command but can't remember the syntax
 
 ## Install
 
