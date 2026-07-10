@@ -773,7 +773,7 @@ fn call_llm_with_retry(
         let mut retry_msgs = messages.to_vec();
         retry_msgs.push(Message {
             role: "assistant".into(),
-            content: String::new(),
+            content: "(no response)".to_string(),
         });
         retry_msgs.push(Message {
             role: "user".into(),
