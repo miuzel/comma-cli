@@ -112,6 +112,7 @@ struct LocalConfig {
     api_style: Option<String>,
     prefer: Option<HashMap<String, Vec<String>>>,
     cache_size: Option<usize>,
+    reasoning: Option<u32>,
 }
 
 #[derive(Deserialize)]
@@ -136,6 +137,7 @@ struct Config {
     api_style: ApiStyle,
     prefer: HashMap<String, Vec<String>>,
     cache_size: usize,
+    reasoning: u32,
 }
 
 fn home_dir() -> Result<String, String> {
@@ -183,6 +185,7 @@ fn load_config() -> Result<Config, String> {
 
     let prefer = local.prefer.unwrap_or_default();
     let cache_size = local.cache_size.unwrap_or(1000);
+    let reasoning = local.reasoning.unwrap_or(0);
 
     Ok(Config {
         base_url,
@@ -191,6 +194,7 @@ fn load_config() -> Result<Config, String> {
         api_style,
         prefer,
         cache_size,
+        reasoning,
     })
 }
 
@@ -630,11 +634,20 @@ struct OpenAiError {
 // ── Anthropic types ─────────────────────────────────────────────────────────
 
 #[derive(Serialize)]
+struct ThinkingConfig {
+    #[serde(rename = "type")]
+    thinking_type: String,
+    budget_tokens: u32,
+}
+
+#[derive(Serialize)]
 struct AnthropicRequest {
     model: String,
     max_tokens: u32,
     system: String,
     messages: Vec<Message>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    thinking: Option<ThinkingConfig>,
 }
 
 #[derive(Deserialize)]
@@ -654,7 +667,10 @@ struct AnthropicUsage {
 
 #[derive(Deserialize)]
 struct AnthropicContentBlock {
+    #[serde(rename = "type")]
+    block_type: Option<String>,
     text: Option<String>,
+    thinking: Option<String>,
 }
 
 #[derive(Deserialize)]
@@ -878,11 +894,21 @@ fn call_anthropic(config: &Config, system: &str, messages: &[Message], v: Verbos
     let base = normalize_base_url(&config.base_url);
     let url = format!("{}/v1/messages", base);
 
+    let thinking = if config.reasoning > 0 {
+        Some(ThinkingConfig {
+            thinking_type: "enabled".to_string(),
+            budget_tokens: config.reasoning,
+        })
+    } else {
+        None
+    };
+
     let body = AnthropicRequest {
         model: config.model.clone(),
         max_tokens: 1024,
         system: system.to_string(),
         messages: messages.to_vec(),
+        thinking,
     };
 
     if v.show_debug() {
@@ -932,8 +958,22 @@ fn call_anthropic(config: &Config, system: &str, messages: &[Message], v: Verbos
     }).unwrap_or(Usage { duration_ms: elapsed.as_millis() as u64, ..Usage::default() });
 
     let content = api_resp.content.ok_or("Empty response")?;
+
+    // Show thinking blocks in verbose mode
+    if v.show_prompt() {
+        for block in &content {
+            if block.block_type.as_deref() == Some("thinking") {
+                if let Some(ref t) = block.thinking {
+                    print_debug(&format!("Thinking:\n{}", truncate(t, 500)));
+                }
+            }
+        }
+    }
+
+    // Only use text blocks for the response
     let result: String = content
         .iter()
+        .filter(|b| b.block_type.as_deref().unwrap_or("text") == "text")
         .filter_map(|b| b.text.as_deref())
         .collect::<Vec<_>>()
         .join("");

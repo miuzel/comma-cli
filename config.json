@@ -4,5 +4,6 @@
   "model": "",
   "api_style": "",
   "prefer": {},
-  "cache_size": 1000
+  "cache_size": 1000,
+  "reasoning": 0
 }
