@@ -205,6 +205,7 @@ Fields left as empty string `""` fall back to the next source.
 | `api_style` | API format (see below) | Auto-detect (URL contains `anthropic` → anthropic, else → openai) |
 | `prefer` | Tool preference map | `{}` |
 | `cache_size` | Response cache size | `1000` |
+| `reasoning` | Extended thinking budget (tokens, 0=off) | `0` |
 
 ### Tool Preferences (`prefer`)
 
@@ -258,6 +259,18 @@ Responses are cached and reused when the same request is made again. Only cached
 ```
 
 Cache stored at `~/.local/bin/,.cache.json`.
+
+### Reasoning Mode (`reasoning`)
+
+Enable extended thinking for Anthropic models. Set to a token budget (e.g. `10000`):
+
+```json
+{
+  "reasoning": 10000
+}
+```
+
+When enabled, the model thinks step-by-step before responding. Thinking output is shown with `-v`. Set to `0` or omit to disable.
 
 ## System Context
 
