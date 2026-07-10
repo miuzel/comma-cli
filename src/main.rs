@@ -957,7 +957,9 @@ fn parse_check(raw: &str) -> Option<Vec<&str>> {
     if rest.is_empty() {
         return None;
     }
-    let tools: Vec<&str> = rest.split_whitespace().collect();
+    // Strip # comment before parsing tool names
+    let (tool_str, _) = split_comment(rest);
+    let tools: Vec<&str> = tool_str.split_whitespace().collect();
     if tools.is_empty() {
         None
     } else {
