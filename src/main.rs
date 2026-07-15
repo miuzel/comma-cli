@@ -2058,9 +2058,13 @@ fn run_oneshot(config: &Config, system: &str, intent: &str, v: Verbosity, auto_c
 
         // Show selector if multiple candidates, otherwise just print
         let cmd = if candidates.len() > 1 {
-            match select_command(&candidates) {
-                Some(i) => candidates[i].clone(),
-                None => break,
+            if auto_confirm {
+                candidates[0].clone()
+            } else {
+                match select_command(&candidates) {
+                    Some(i) => candidates[i].clone(),
+                    None => break,
+                }
             }
         } else {
             candidates[0].clone()
