@@ -1272,36 +1272,49 @@ fn explore_then_generate(
         .filter(|s| parse_explore(s).is_some())
         .collect();
 
-    let explore_cmd = if candidates.len() > 1 {
-        // Multiple explore candidates — let user select (Enter=confirm, Esc=cancel)
+    let explore_cmds: Vec<&str> = if candidates.len() > 1 {
+        // Multiple explore candidates — run all of them
         print_info("Model wants to explore:");
-        let display: Vec<String> = candidates.iter()
-            .map(|c| parse_explore(c).unwrap_or(c).to_string())
-            .collect();
-        match select_command(&display) {
-            Some(i) => parse_explore(candidates[i]).unwrap_or(candidates[i]),
-            None => return Ok(None),
-        }
+        candidates.iter()
+            .map(|c| parse_explore(c).unwrap_or(c))
+            .collect()
     } else {
         match parse_explore(raw) {
-            Some(cmd) => cmd,
+            Some(cmd) => vec![cmd],
             None => return Ok(None),
         }
     };
-    let cmd = apply_placeholders(explore_cmd, ph);
-    print_info(&format!("Exploring: {}", cmd));
 
-    let help_output = run_and_capture(&cmd)?;
-    if help_output.trim().is_empty() {
-        print_info("No output from command.");
+    // Run all explore commands and collect outputs
+    let mut all_output = String::new();
+    for cmd_str in &explore_cmds {
+        let cmd = apply_placeholders(cmd_str, ph);
+        print_info(&format!("Exploring: {}", cmd));
+        match run_and_capture(&cmd) {
+            Ok(output) => {
+                if !output.trim().is_empty() {
+                    if !all_output.is_empty() {
+                        all_output.push_str("\n\n");
+                    }
+                    all_output.push_str(&format!("$ {}\n{}", cmd, output));
+                }
+            }
+            Err(e) => {
+                print_error(&format!("Explore failed: {}", e));
+            }
+        }
+    }
+
+    if all_output.trim().is_empty() {
+        print_info("No output from explore commands.");
         return Ok(None);
     }
 
     if v.show_debug() {
         print_debug(&format!(
             "Captured ({} chars):\n{}",
-            help_output.len(),
-            truncate(&help_output, 1000)
+            all_output.len(),
+            truncate(&all_output, 1000)
         ));
     }
 
@@ -1315,7 +1328,7 @@ fn explore_then_generate(
     });
     ext.push(Message {
         role: "user".into(),
-        content: format!("{}\n\nCommand output:\n```\n{}\n```", EXPLORE_HINT, help_output),
+        content: format!("{}\n\nCommand output:\n```\n{}\n```", EXPLORE_HINT, all_output),
     });
 
     let resp = call_llm_with_retry(config, system, &ext, v, cache)?;
