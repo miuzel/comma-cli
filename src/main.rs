@@ -1236,6 +1236,10 @@ fn process_response(
                 current = cmd;
             }
             Ok(None) => {
+                // Explore was attempted (or not applicable), mark as explored
+                if parse_explore(&after_check).is_some() {
+                    explored = true;
+                }
                 if after_check == current {
                     return current; // No change from either step
                 }
@@ -1275,7 +1279,7 @@ fn explore_then_generate(
             .map(|c| parse_explore(c).unwrap_or(c).to_string())
             .collect();
         match select_command(&display) {
-            Some(i) => candidates[i],
+            Some(i) => parse_explore(candidates[i]).unwrap_or(candidates[i]),
             None => return Ok(None),
         }
     } else {
