@@ -8,7 +8,7 @@
 
 ```bash
 # 10 秒安装
-curl -sSL https://raw.githubusercontent.com/miuzel/comma-cli/main/install.sh | bash
+curl -sSL https://github.com/miuzel/comma-cli/releases/latest/download/install.sh | bash
 ```
 
 ```bash
