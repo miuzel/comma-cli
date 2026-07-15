@@ -1299,6 +1299,8 @@ fn explore_then_generate(
         match run_and_capture(&cmd) {
             Ok(output) => {
                 if !output.trim().is_empty() {
+                    // Show output to user
+                    print_debug(&output);
                     if !all_output.is_empty() {
                         all_output.push_str("\n\n");
                     }
