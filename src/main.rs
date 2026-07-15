@@ -192,6 +192,7 @@ fn home_dir() -> Result<String, String> {
 fn load_config() -> Result<Config, String> {
     let home = home_dir()?;
 
+    // Read config files
     let local_path = PathBuf::from(&home).join(".local/bin/,.config.json");
     let local: LocalConfig = match std::fs::read_to_string(&local_path) {
         Ok(data) => serde_json::from_str(&data)
@@ -210,31 +211,37 @@ fn load_config() -> Result<Config, String> {
     };
 
     let non_empty = |o: Option<String>| o.filter(|s| !s.is_empty());
+    let env_or = |key: &str| non_empty(std::env::var(key).ok());
 
     let prefer = local.prefer.unwrap_or_default();
     let cache_size = local.cache_size.unwrap_or(1000);
     let reasoning = local.reasoning.unwrap_or(0);
 
-    // Build model entries: new providers/models format, or legacy single-model format
+    // Build model entries
+    // Priority: COMMA_* env > ,.config.json legacy > ,.config.json providers/models > claude settings
     let entries = if let Some(models) = local.models {
+        // New providers/models format — provider fields are required, no claude fallback
         let providers = local.providers.unwrap_or_default();
         let mut entries = Vec::new();
         for m in models {
             let p = providers.get(&m.provider)
                 .ok_or(format!("Provider '{}' not found in providers", m.provider))?;
-            let base_url = non_empty(p.base_url.clone())
-                .or_else(|| claude_env.as_ref().and_then(|e| e.base_url.clone()))
-                .ok_or(format!("No base_url for provider '{}'", m.provider))?;
-            let auth_token = non_empty(p.auth_token.clone())
-                .or_else(|| claude_env.as_ref().and_then(|e| e.auth_token.clone()))
-                .ok_or(format!("No auth_token for provider '{}'", m.provider))?;
-            let api_style = non_empty(p.api_style.clone())
+            let base_url = env_or("COMMA_BASE_URL")
+                .or_else(|| non_empty(p.base_url.clone()))
+                .ok_or(format!("Provider '{}' missing base_url", m.provider))?;
+            let auth_token = env_or("COMMA_API_KEY")
+                .or_else(|| non_empty(p.auth_token.clone()))
+                .ok_or(format!("Provider '{}' missing auth_token", m.provider))?;
+            let api_style = env_or("COMMA_API_STYLE")
                 .and_then(|s| ApiStyle::from_str(&s))
+                .or_else(|| non_empty(p.api_style.clone()).and_then(|s| ApiStyle::from_str(&s)))
                 .unwrap_or_else(|| ApiStyle::from_url(&base_url));
+            let model = env_or("COMMA_MODEL")
+                .unwrap_or(m.model.clone());
             entries.push(ModelEntry {
                 base_url,
                 auth_token,
-                model: m.model,
+                model,
                 api_style,
                 retries: m.retries.unwrap_or(1),
             });
@@ -244,18 +251,22 @@ fn load_config() -> Result<Config, String> {
         }
         entries
     } else {
-        // Legacy single-model format
-        let base_url = non_empty(local.base_url)
+        // Legacy single-model format — falls back to claude settings
+        let base_url = env_or("COMMA_BASE_URL")
+            .or_else(|| non_empty(local.base_url.clone()))
             .or_else(|| claude_env.as_ref().and_then(|e| e.base_url.clone()))
             .unwrap_or_else(|| "https://api.anthropic.com".into());
-        let auth_token = non_empty(local.auth_token)
+        let auth_token = env_or("COMMA_API_KEY")
+            .or_else(|| non_empty(local.auth_token.clone()))
             .or_else(|| claude_env.as_ref().and_then(|e| e.auth_token.clone()))
             .ok_or("No auth_token: set in ,.config.json or ANTHROPIC_AUTH_TOKEN in ~/.claude/settings.json")?;
-        let model = non_empty(local.model)
+        let model = env_or("COMMA_MODEL")
+            .or_else(|| non_empty(local.model.clone()))
             .or_else(|| claude_env.as_ref().and_then(|e| e.model.clone()))
             .unwrap_or_else(|| "claude-sonnet-4-20250514".into());
-        let api_style = non_empty(local.api_style)
+        let api_style = env_or("COMMA_API_STYLE")
             .and_then(|s| ApiStyle::from_str(&s))
+            .or_else(|| non_empty(local.api_style.clone()).and_then(|s| ApiStyle::from_str(&s)))
             .unwrap_or_else(|| ApiStyle::from_url(&base_url));
         vec![ModelEntry {
             base_url,
