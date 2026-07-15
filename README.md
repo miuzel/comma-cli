@@ -154,6 +154,87 @@ ffmpeg -i input.mp4 -b:v 8M output.mp4
 
 ---
 
+## Recommended Models
+
+`,` works with any OpenAI or Anthropic compatible API. Here are some great options:
+
+### 🚀 Fast & Free
+
+| Provider | Model | Speed | Cost | Best for |
+|----------|-------|-------|------|----------|
+| [Cerebras](https://cerebras.ai) | `gemma-4-31b` | ⚡ Ultra-fast | Free tier | Quick commands, high throughput |
+| [Groq](https://groq.com) | `llama-3.1-8b-instant` | ⚡ Ultra-fast | Free tier | Low latency, real-time use |
+
+### 💻 Coding-Optimized
+
+| Provider | Model | Best for |
+|----------|-------|----------|
+| [Moonshot](https://kimi.moonshot.cn) | `kimi-k2.7-coding` | Shell commands, code generation |
+| [DeepSeek](https://deepseek.com) | `deepseek-v4-flash` | Fast inference, coding tasks |
+
+### 🏠 Local (No API key needed)
+
+| Tool | Model | Best for |
+|------|-------|----------|
+| [Ollama](https://ollama.ai) | `qwen3.6-35b-a3b` | Privacy, offline use |
+| [vLLM](https://vllm.ai) | Any model | Self-hosted, high throughput |
+
+### Example configs
+
+**Cerebras (fast, free):**
+```json
+{
+  "base_url": "https://api.cerebras.ai/v1",
+  "auth_token": "your-api-key",
+  "model": "gemma-4-31b"
+}
+```
+
+**Ollama (local):**
+```json
+{
+  "base_url": "http://localhost:11434/v1",
+  "auth_token": "ollama",
+  "model": "qwen3.6-35b-a3b"
+}
+```
+
+**DeepSeek:**
+```json
+{
+  "base_url": "https://api.deepseek.com/v1",
+  "auth_token": "your-api-key",
+  "model": "deepseek-v4-flash"
+}
+```
+
+**Multi-provider fallback:**
+```json
+{
+  "providers": {
+    "cerebras": {
+      "base_url": "https://api.cerebras.ai/v1",
+      "auth_token": "csk-xxx"
+    },
+    "deepseek": {
+      "base_url": "https://api.deepseek.com/v1",
+      "auth_token": "sk-xxx"
+    },
+    "ollama": {
+      "base_url": "http://localhost:11434/v1",
+      "auth_token": "ollama"
+    }
+  },
+  "models": [
+    {"provider": "cerebras", "model": "gemma-4-31b", "retries": 2},
+    {"provider": "deepseek", "model": "deepseek-v4-flash", "retries": 1},
+    {"provider": "ollama", "model": "qwen3.6-35b-a3b", "retries": 1}
+  ]
+}
+```
+
+---
+
 ## Quick start
 
 ### One-shot mode

@@ -154,6 +154,87 @@ ffmpeg -i input.mp4 -b:v 8M output.mp4
 
 ---
 
+## 推荐模型
+
+`,` 支持任何 OpenAI 或 Anthropic 兼容 API。以下是一些推荐：
+
+### 🚀 快速 & 免费
+
+| 提供商 | 模型 | 速度 | 费用 | 适用场景 |
+|--------|------|------|------|----------|
+| [Cerebras](https://cerebras.ai) | `gemma-4-31b` | ⚡ 超快 | 免费额度 | 快速命令、高吞吐 |
+| [Groq](https://groq.com) | `llama-3.1-8b-instant` | ⚡ 超快 | 免费额度 | 低延迟、实时使用 |
+
+### 💻 编程优化
+
+| 提供商 | 模型 | 适用场景 |
+|--------|------|----------|
+| [Moonshot](https://kimi.moonshot.cn) | `kimi-k2.7-coding` | Shell 命令、代码生成 |
+| [DeepSeek](https://deepseek.com) | `deepseek-v4-flash` | 快速推理、编程任务 |
+
+### 🏠 本地运行（无需 API Key）
+
+| 工具 | 模型 | 适用场景 |
+|------|------|----------|
+| [Ollama](https://ollama.ai) | `qwen3.6-35b-a3b` | 隐私保护、离线使用 |
+| [vLLM](https://vllm.ai) | 任意模型 | 自托管、高吞吐 |
+
+### 配置示例
+
+**Cerebras（快速、免费）：**
+```json
+{
+  "base_url": "https://api.cerebras.ai/v1",
+  "auth_token": "your-api-key",
+  "model": "gemma-4-31b"
+}
+```
+
+**Ollama（本地）：**
+```json
+{
+  "base_url": "http://localhost:11434/v1",
+  "auth_token": "ollama",
+  "model": "qwen3.6-35b-a3b"
+}
+```
+
+**DeepSeek：**
+```json
+{
+  "base_url": "https://api.deepseek.com/v1",
+  "auth_token": "your-api-key",
+  "model": "deepseek-v4-flash"
+}
+```
+
+**多 Provider Fallback：**
+```json
+{
+  "providers": {
+    "cerebras": {
+      "base_url": "https://api.cerebras.ai/v1",
+      "auth_token": "csk-xxx"
+    },
+    "deepseek": {
+      "base_url": "https://api.deepseek.com/v1",
+      "auth_token": "sk-xxx"
+    },
+    "ollama": {
+      "base_url": "http://localhost:11434/v1",
+      "auth_token": "ollama"
+    }
+  },
+  "models": [
+    {"provider": "cerebras", "model": "gemma-4-31b", "retries": 2},
+    {"provider": "deepseek", "model": "deepseek-v4-flash", "retries": 1},
+    {"provider": "ollama", "model": "qwen3.6-35b-a3b", "retries": 1}
+  ]
+}
+```
+
+---
+
 ## 快速开始
 
 ### 一次性模式
