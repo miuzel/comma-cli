@@ -1666,7 +1666,7 @@ fn prompt_confirm(msg: &str) -> bool {
     let mut out = stdout.lock();
     let _ = write!(
         out,
-        "{}{}{} [Ctrl+Enter/N] ",
+        "{}{}{} [Enter/N] ",
         SetForegroundColor(Color::Yellow),
         msg,
         ResetColor
@@ -1682,11 +1682,12 @@ fn prompt_confirm(msg: &str) -> bool {
 
     let _ = crossterm::terminal::enable_raw_mode();
     let result = loop {
-        if let Ok(Event::Key(KeyEvent { code, modifiers, .. })) = event::read() {
+        if let Ok(Event::Key(KeyEvent { code, .. })) = event::read() {
             match code {
-                KeyCode::Enter if modifiers.contains(KeyModifiers::CONTROL) => break true,
+                KeyCode::Enter => break true,
                 KeyCode::Char('y') | KeyCode::Char('Y') => break true,
-                _ => break false,
+                KeyCode::Esc => break false,
+                _ => {}
             }
         }
     };
@@ -1702,9 +1703,9 @@ fn edit_or_execute(cmd: &str, rl: &mut Editor<FileHelper, DefaultHistory>) -> Ed
     }
 
     let prompt_text = if is_dangerous(cmd) {
-        "Execute this dangerous command? [Ctrl+Enter] exec / [e]dit / [r]efine / [Enter] cancel "
+        "Execute this dangerous command? [Enter] exec / [e]dit / [r]efine / [Esc] cancel "
     } else {
-        "Execute? [Ctrl+Enter] exec / [e]dit / [r]efine / [Enter] cancel "
+        "Execute? [Enter] exec / [e]dit / [r]efine / [Esc] cancel "
     };
     let stdout = io::stdout();
     let mut out = stdout.lock();
@@ -1720,9 +1721,9 @@ fn edit_or_execute(cmd: &str, rl: &mut Editor<FileHelper, DefaultHistory>) -> Ed
 
     let _ = crossterm::terminal::enable_raw_mode();
     let action = loop {
-        if let Ok(Event::Key(KeyEvent { code, modifiers, .. })) = event::read() {
+        if let Ok(Event::Key(KeyEvent { code, .. })) = event::read() {
             match code {
-                KeyCode::Enter if modifiers.contains(KeyModifiers::CONTROL) => {
+                KeyCode::Enter => {
                     break EditAction::Execute(cmd.to_string());
                 }
                 KeyCode::Char('y') | KeyCode::Char('Y') => {
