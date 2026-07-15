@@ -1263,6 +1263,7 @@ fn explore_then_generate(
 
     let explore_cmd = if candidates.len() > 1 {
         // Multiple explore candidates — let user select
+        print_info("Model wants to explore:");
         let display: Vec<String> = candidates.iter()
             .map(|c| parse_explore(c).unwrap_or(c).to_string())
             .collect();
@@ -1278,7 +1279,9 @@ fn explore_then_generate(
     };
     let cmd = apply_placeholders(explore_cmd, ph);
 
-    print_info(&format!("Model wants to explore: {}", cmd));
+    if candidates.len() <= 1 {
+        print_info(&format!("Model wants to explore: {}", cmd));
+    }
     if !prompt_confirm("Run to learn usage?") {
         return Ok(None);
     }
