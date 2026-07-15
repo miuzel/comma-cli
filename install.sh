@@ -6,33 +6,11 @@ REPO="miuzel/comma-cli"
 
 echo "Installing comma to ${PREFIX} ..."
 
-# If Cargo.toml exists in script's directory, build from source
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd || true)"
-if [ -n "$SCRIPT_DIR" ] && [ -f "$SCRIPT_DIR/Cargo.toml" ]; then
-    echo "Building from source..."
-    command -v cargo >/dev/null 2>&1 || { echo "Error: cargo not found. Install Rust: https://rustup.rs"; exit 1; }
-    (cd "$SCRIPT_DIR" && cargo build --release 2>&1)
-    mkdir -p "$PREFIX"
-    cp "$SCRIPT_DIR/target/release/comma" "$PREFIX/,"
-
-    if [ ! -f "$PREFIX/,.config.json" ]; then
-        cp "$SCRIPT_DIR/config.json" "$PREFIX/,.config.json"
-        echo "  Created $PREFIX/,.config.json (edit to set your API key)"
-    else
-        echo "  Skipped $PREFIX/,.config.json (already exists)"
-    fi
-
-    if [ ! -f "$PREFIX/,.prompt.md" ]; then
-        cp "$SCRIPT_DIR/prompt.md" "$PREFIX/,.prompt.md"
-        echo "  Created $PREFIX/,.prompt.md"
-    else
-        echo "  Skipped $PREFIX/,.prompt.md (already exists)"
-    fi
-else
-    # Download pre-built binary from GitHub releases
+# Detect if stdin is a pipe (curl | bash) or a file (./install.sh)
+if [ ! -t 0 ]; then
+    # Piped: download from GitHub
     echo "Downloading from GitHub releases..."
     LATEST_URL="https://github.com/${REPO}/releases/latest/download/comma"
-
     mkdir -p "$PREFIX"
 
     if command -v curl >/dev/null 2>&1; then
@@ -47,18 +25,37 @@ else
     mv "$PREFIX/comma.tmp" "$PREFIX/,"
     chmod +x "$PREFIX/,"
 
-    if [ ! -f "$PREFIX/,.config.json" ]; then
-        curl -sSL "https://raw.githubusercontent.com/${REPO}/main/config.json" -o "$PREFIX/,.config.json" 2>/dev/null || true
-        echo "  Created $PREFIX/,.config.json (edit to set your API key)"
-    else
-        echo "  Skipped $PREFIX/,.config.json (already exists)"
-    fi
+    # Download config files
+    for f in ",.config.json" ",.prompt.md"; do
+        if [ ! -f "$PREFIX/$f" ]; then
+            curl -sSL "https://raw.githubusercontent.com/${REPO}/main/${f#,}" -o "$PREFIX/$f" 2>/dev/null || true
+            echo "  Created $PREFIX/$f"
+        else
+            echo "  Skipped $PREFIX/$f (already exists)"
+        fi
+    done
+else
+    # Local file: build from source
+    SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+    if [ -f "$SCRIPT_DIR/Cargo.toml" ]; then
+        echo "Building from source..."
+        command -v cargo >/dev/null 2>&1 || { echo "Error: cargo not found. Install Rust: https://rustup.rs"; exit 1; }
+        (cd "$SCRIPT_DIR" && cargo build --release 2>&1)
+        mkdir -p "$PREFIX"
+        cp "$SCRIPT_DIR/target/release/comma" "$PREFIX/,"
 
-    if [ ! -f "$PREFIX/,.prompt.md" ]; then
-        curl -sSL "https://raw.githubusercontent.com/${REPO}/main/prompt.md" -o "$PREFIX/,.prompt.md" 2>/dev/null || true
-        echo "  Created $PREFIX/,.prompt.md"
+        for f in "config.json" "prompt.md"; do
+            target="$PREFIX/,.${f}"
+            if [ ! -f "$target" ]; then
+                cp "$SCRIPT_DIR/$f" "$target"
+                echo "  Created $target"
+            else
+                echo "  Skipped $target (already exists)"
+            fi
+        done
     else
-        echo "  Skipped $PREFIX/,.prompt.md (already exists)"
+        echo "Error: Cargo.toml not found in $SCRIPT_DIR"
+        exit 1
     fi
 fi
 
