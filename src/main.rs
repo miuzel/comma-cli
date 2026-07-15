@@ -1269,31 +1269,23 @@ fn explore_then_generate(
         .collect();
 
     let explore_cmd = if candidates.len() > 1 {
-        // Multiple explore candidates — let user select
+        // Multiple explore candidates — let user select (Enter=confirm, Esc=cancel)
         print_info("Model wants to explore:");
         let display: Vec<String> = candidates.iter()
             .map(|c| parse_explore(c).unwrap_or(c).to_string())
             .collect();
         match select_command(&display) {
-            Some(i) => {
-                print_cmd(&display[i]);
-                candidates[i]
-            },
+            Some(i) => candidates[i],
             None => return Ok(None),
         }
     } else {
         match parse_explore(raw) {
-            Some(cmd) => {
-                print_info(&format!("Model wants to explore: {}", cmd));
-                cmd
-            },
+            Some(cmd) => cmd,
             None => return Ok(None),
         }
     };
     let cmd = apply_placeholders(explore_cmd, ph);
-    if !prompt_confirm("Run to learn usage?") {
-        return Ok(None);
-    }
+    print_info(&format!("Exploring: {}", cmd));
 
     let help_output = run_and_capture(&cmd)?;
     if help_output.trim().is_empty() {
