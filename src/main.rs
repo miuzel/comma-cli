@@ -1268,20 +1268,22 @@ fn explore_then_generate(
             .map(|c| parse_explore(c).unwrap_or(c).to_string())
             .collect();
         match select_command(&display) {
-            Some(i) => candidates[i],
+            Some(i) => {
+                print_cmd(&display[i]);
+                candidates[i]
+            },
             None => return Ok(None),
         }
     } else {
         match parse_explore(raw) {
-            Some(cmd) => cmd,
+            Some(cmd) => {
+                print_info(&format!("Model wants to explore: {}", cmd));
+                cmd
+            },
             None => return Ok(None),
         }
     };
     let cmd = apply_placeholders(explore_cmd, ph);
-
-    if candidates.len() <= 1 {
-        print_info(&format!("Model wants to explore: {}", cmd));
-    }
     if !prompt_confirm("Run to learn usage?") {
         return Ok(None);
     }
