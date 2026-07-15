@@ -1449,7 +1449,6 @@ fn select_command(candidates: &[String]) -> Option<usize> {
                         crossterm::terminal::Clear(crossterm::terminal::ClearType::FromCursorDown),
                     );
                     let _ = crossterm::terminal::disable_raw_mode();
-                    print_cmd(&candidates[selected]);
                     return Some(selected);
                 }
                 KeyCode::Char('c') if modifiers.contains(KeyModifiers::CONTROL) => break None,
@@ -1935,7 +1934,7 @@ fn print_help() {
     println!("  q / quit     Exit");
     println!("  Tab          Complete filename from current directory");
     println!();
-    println!("Config priority: ~/.local/bin/,.config.json > ~/.claude/settings.json");
+    println!("Config priority: COMMA_* env > ,.config.json > claude settings");
     println!("Prompt file:     ~/.local/bin/,.prompt.md");
     println!();
     println!("API style (api_style):");
