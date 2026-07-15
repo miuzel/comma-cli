@@ -1255,9 +1255,26 @@ fn explore_then_generate(
     v: Verbosity,
     cache: &ResponseCache,
 ) -> Result<Option<String>, String> {
-    let explore_cmd = match parse_explore(raw) {
-        Some(cmd) => cmd,
-        None => return Ok(None),
+    // Handle multiple #EXPLORE candidates separated by |||
+    let candidates: Vec<&str> = raw.split("|||")
+        .map(|s| s.trim())
+        .filter(|s| parse_explore(s).is_some())
+        .collect();
+
+    let explore_cmd = if candidates.len() > 1 {
+        // Multiple explore candidates — let user select
+        let display: Vec<String> = candidates.iter()
+            .map(|c| parse_explore(c).unwrap_or(c).to_string())
+            .collect();
+        match select_command(&display) {
+            Some(i) => candidates[i],
+            None => return Ok(None),
+        }
+    } else {
+        match parse_explore(raw) {
+            Some(cmd) => cmd,
+            None => return Ok(None),
+        }
     };
     let cmd = apply_placeholders(explore_cmd, ph);
 
