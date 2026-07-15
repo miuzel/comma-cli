@@ -1199,7 +1199,8 @@ fn run_and_capture(cmd: &str) -> Result<String, String> {
     Ok(truncate(&result, 4096).to_string())
 }
 
-/// Chain: #CHECK → #EXPLORE → final command.
+/// Chain: #CHECK ↔ #EXPLORE → final command.
+/// Loops until the response is neither #CHECK nor #EXPLORE (max 5 rounds).
 fn process_response(
     config: &Config,
     system: &str,
@@ -1209,23 +1210,37 @@ fn process_response(
     v: Verbosity,
     cache: &ResponseCache,
 ) -> String {
-    let after_check = match check_then_generate(config, system, messages, raw, v, cache) {
-        Ok(Some(cmd)) => cmd,
-        Ok(None) => raw.to_string(),
-        Err(e) => {
-            print_error(&format!("Check: {}", e));
-            raw.to_string()
-        }
-    };
+    let mut current = raw.to_string();
+    for _ in 0..5 {
+        let after_check = match check_then_generate(config, system, messages, &current, v, cache) {
+            Ok(Some(cmd)) => cmd,
+            Ok(None) => current.clone(),
+            Err(e) => {
+                print_error(&format!("Check: {}", e));
+                current.clone()
+            }
+        };
 
-    match explore_then_generate(config, system, messages, &after_check, ph, v, cache) {
-        Ok(Some(cmd)) => cmd,
-        Ok(None) => after_check,
-        Err(e) => {
-            print_error(&format!("Explore: {}", e));
-            after_check
+        match explore_then_generate(config, system, messages, &after_check, ph, v, cache) {
+            Ok(Some(cmd)) => {
+                if cmd == current {
+                    return cmd; // No change, stop looping
+                }
+                current = cmd;
+            }
+            Ok(None) => {
+                if after_check == current {
+                    return current; // No change from either step
+                }
+                current = after_check;
+            }
+            Err(e) => {
+                print_error(&format!("Explore: {}", e));
+                return after_check;
+            }
         }
     }
+    current
 }
 
 /// If the model returned `#EXPLORE: <cmd>`, run it with user permission,
