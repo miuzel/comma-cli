@@ -1273,8 +1273,14 @@ fn explore_then_generate(
         .collect();
 
     let explore_cmds: Vec<&str> = if candidates.len() > 1 {
-        // Multiple explore candidates — run all of them
+        // Multiple explore candidates — show them and ask to run all
         print_info("Model wants to explore:");
+        for c in &candidates {
+            print_cmd(parse_explore(c).unwrap_or(c));
+        }
+        if !prompt_confirm("Run all to learn usage?") {
+            return Ok(None);
+        }
         candidates.iter()
             .map(|c| parse_explore(c).unwrap_or(c))
             .collect()
@@ -1717,6 +1723,9 @@ fn edit_or_execute(cmd: &str, rl: &mut Editor<FileHelper, DefaultHistory>) -> Ed
         if let Ok(Event::Key(KeyEvent { code, modifiers, .. })) = event::read() {
             match code {
                 KeyCode::Enter if modifiers.contains(KeyModifiers::CONTROL) => {
+                    break EditAction::Execute(cmd.to_string());
+                }
+                KeyCode::Char('y') | KeyCode::Char('Y') => {
                     break EditAction::Execute(cmd.to_string());
                 }
                 KeyCode::Char('e') => {
