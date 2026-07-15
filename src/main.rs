@@ -1622,7 +1622,7 @@ fn prompt_confirm(msg: &str) -> bool {
     let mut out = stdout.lock();
     let _ = write!(
         out,
-        "{}{}{} [y/Space/N] ",
+        "{}{}{} [Ctrl+Enter/N] ",
         SetForegroundColor(Color::Yellow),
         msg,
         ResetColor
@@ -1640,12 +1640,9 @@ fn prompt_confirm(msg: &str) -> bool {
     let result = loop {
         if let Ok(Event::Key(KeyEvent { code, modifiers, .. })) = event::read() {
             match code {
-                KeyCode::Char('y') | KeyCode::Char('Y') | KeyCode::Char(' ') => break true,
                 KeyCode::Enter if modifiers.contains(KeyModifiers::CONTROL) => break true,
-                KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Enter | KeyCode::Esc => {
-                    break false;
-                }
-                _ => {}
+                KeyCode::Char('y') | KeyCode::Char('Y') => break true,
+                _ => break false,
             }
         }
     };
@@ -1661,9 +1658,9 @@ fn edit_or_execute(cmd: &str, rl: &mut Editor<FileHelper, DefaultHistory>) -> Ed
     }
 
     let prompt_text = if is_dangerous(cmd) {
-        "Execute this dangerous command? [Enter] / [e]dit / [r]efine / [Esc] cancel "
+        "Execute this dangerous command? [Ctrl+Enter] exec / [e]dit / [r]efine / [Enter] cancel "
     } else {
-        "Execute? [Enter] / [e]dit / [r]efine / [Esc] cancel "
+        "Execute? [Ctrl+Enter] exec / [e]dit / [r]efine / [Enter] cancel "
     };
     let stdout = io::stdout();
     let mut out = stdout.lock();
@@ -1681,10 +1678,7 @@ fn edit_or_execute(cmd: &str, rl: &mut Editor<FileHelper, DefaultHistory>) -> Ed
     let action = loop {
         if let Ok(Event::Key(KeyEvent { code, modifiers, .. })) = event::read() {
             match code {
-                KeyCode::Enter if !modifiers.contains(KeyModifiers::CONTROL) => {
-                    break EditAction::Execute(cmd.to_string());
-                }
-                KeyCode::Char(' ') => {
+                KeyCode::Enter if modifiers.contains(KeyModifiers::CONTROL) => {
                     break EditAction::Execute(cmd.to_string());
                 }
                 KeyCode::Char('e') => {
@@ -1717,8 +1711,7 @@ fn edit_or_execute(cmd: &str, rl: &mut Editor<FileHelper, DefaultHistory>) -> Ed
                         Err(_) => break EditAction::Cancel,
                     }
                 }
-                KeyCode::Esc | KeyCode::Char('q') => break EditAction::Cancel,
-                _ => {}
+                _ => break EditAction::Cancel,
             }
         }
     };
