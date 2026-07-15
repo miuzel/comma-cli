@@ -1173,8 +1173,10 @@ fn check_then_generate(
 const EXPLORE_PREFIX: &str = "#EXPLORE:";
 
 const EXPLORE_HINT: &str = "\
-The help output is shown above. Now generate the ACTUAL shell command the user originally wanted. \
-Output ONLY the final command. Do NOT prefix with #EXPLORE: again.";
+The command output is shown above. You have already explored this tool. \
+DO NOT use #EXPLORE: or #CHECK: again. \
+Now generate the FINAL shell command the user originally wanted. \
+Output ONLY the command, nothing else.";
 
 /// If raw starts with `#EXPLORE:`, extract the command after the prefix.
 fn parse_explore(raw: &str) -> Option<&str> {
@@ -1199,8 +1201,8 @@ fn run_and_capture(cmd: &str) -> Result<String, String> {
     Ok(truncate(&result, 4096).to_string())
 }
 
-/// Chain: #CHECK ↔ #EXPLORE → final command.
-/// Loops until the response is neither #CHECK nor #EXPLORE (max 5 rounds).
+/// Chain: #CHECK → #EXPLORE → final command.
+/// #CHECK can loop (to handle #CHECK after #EXPLORE), but #EXPLORE runs only once.
 fn process_response(
     config: &Config,
     system: &str,
@@ -1211,6 +1213,8 @@ fn process_response(
     cache: &ResponseCache,
 ) -> String {
     let mut current = raw.to_string();
+    let mut explored = false;
+
     for _ in 0..5 {
         let after_check = match check_then_generate(config, system, messages, &current, v, cache) {
             Ok(Some(cmd)) => cmd,
@@ -1221,11 +1225,14 @@ fn process_response(
             }
         };
 
+        if explored {
+            // Already explored once, stop here
+            return after_check;
+        }
+
         match explore_then_generate(config, system, messages, &after_check, ph, v, cache) {
             Ok(Some(cmd)) => {
-                if cmd == current {
-                    return cmd; // No change, stop looping
-                }
+                explored = true;
                 current = cmd;
             }
             Ok(None) => {
