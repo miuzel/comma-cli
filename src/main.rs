@@ -1211,6 +1211,7 @@ fn process_response(
     ph: &Placeholders,
     v: Verbosity,
     cache: &ResponseCache,
+    auto_confirm: bool,
 ) -> String {
     let mut current = raw.to_string();
     let mut explored = false;
@@ -1230,7 +1231,7 @@ fn process_response(
             return after_check;
         }
 
-        match explore_then_generate(config, system, messages, &after_check, ph, v, cache) {
+        match explore_then_generate(config, system, messages, &after_check, ph, v, cache, auto_confirm) {
             Ok(Some(cmd)) => {
                 explored = true;
                 current = cmd;
@@ -1265,6 +1266,7 @@ fn explore_then_generate(
     ph: &Placeholders,
     v: Verbosity,
     cache: &ResponseCache,
+    auto_confirm: bool,
 ) -> Result<Option<String>, String> {
     // Handle multiple #EXPLORE candidates separated by |||
     let candidates: Vec<&str> = raw.split("|||")
@@ -1278,7 +1280,7 @@ fn explore_then_generate(
         for c in &candidates {
             print_cmd(parse_explore(c).unwrap_or(c));
         }
-        if !prompt_confirm("Run all to learn usage?") {
+        if !auto_confirm && !prompt_confirm("Run all to learn usage?") {
             return Ok(None);
         }
         candidates.iter()
@@ -1851,10 +1853,16 @@ fn main() {
     let system = load_prompt(&config);
 
     if args.is_empty() {
-        run_interactive(&config, &system, verbosity);
+        run_interactive(&config, &system, verbosity, false);
     } else {
         let intent = args.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(" ");
-        run_oneshot(&config, &system, &intent, verbosity);
+        // Check for auto-confirm flag: , install fenster !
+        let (intent, auto_confirm) = if intent.ends_with('!') {
+            (intent[..intent.len()-1].trim().to_string(), true)
+        } else {
+            (intent, false)
+        };
+        run_oneshot(&config, &system, &intent, verbosity, auto_confirm);
     }
 }
 
@@ -2001,7 +2009,7 @@ fn print_help() {
     println!("  (auto-detected from URL if omitted; anthropic URLs → anthropic, rest → openai)");
 }
 
-fn run_oneshot(config: &Config, system: &str, intent: &str, v: Verbosity) {
+fn run_oneshot(config: &Config, system: &str, intent: &str, v: Verbosity, auto_confirm: bool) {
     let mut messages = vec![Message {
         role: "user".into(),
         content: intent.to_string(),
@@ -2028,7 +2036,7 @@ fn run_oneshot(config: &Config, system: &str, intent: &str, v: Verbosity) {
     let (final_raw, resp) = match result {
         Ok(resp) => {
             print_usage(&resp.usage);
-            let final_raw = process_response(config, system, &messages, &resp.content, &ph, v, &cache);
+            let final_raw = process_response(config, system, &messages, &resp.content, &ph, v, &cache, auto_confirm);
             (final_raw, resp)
         }
         Err(e) => {
@@ -2058,14 +2066,18 @@ fn run_oneshot(config: &Config, system: &str, intent: &str, v: Verbosity) {
             candidates[0].clone()
         };
 
-        let action = match rl.as_mut() {
-            Some(editor) => edit_or_execute(&cmd, editor),
-            None => {
-                // No editor (unlikely in oneshot), fall back to confirm
-                if prompt_confirm("Execute?") {
-                    EditAction::Execute(cmd)
-                } else {
-                    EditAction::Cancel
+        let action = if auto_confirm {
+            EditAction::Execute(cmd)
+        } else {
+            match rl.as_mut() {
+                Some(editor) => edit_or_execute(&cmd, editor),
+                None => {
+                    // No editor (unlikely in oneshot), fall back to confirm
+                    if prompt_confirm("Execute?") {
+                        EditAction::Execute(cmd)
+                    } else {
+                        EditAction::Cancel
+                    }
                 }
             }
         };
@@ -2097,7 +2109,7 @@ fn run_oneshot(config: &Config, system: &str, intent: &str, v: Verbosity) {
                 match result {
                     Ok(resp) => {
                         print_usage(&resp.usage);
-                        current_raw = process_response(config, system, &messages, &resp.content, &ph, v, &cache);
+                        current_raw = process_response(config, system, &messages, &resp.content, &ph, v, &cache, auto_confirm);
                         last_cache_key = resp.cache_key.clone();
                         last_cache_entry = CacheEntry::from(&resp);
                         // Loop back to show new candidates
@@ -2118,7 +2130,7 @@ fn run_oneshot(config: &Config, system: &str, intent: &str, v: Verbosity) {
     cache.save();
 }
 
-fn run_interactive(config: &Config, system: &str, v: Verbosity) {
+fn run_interactive(config: &Config, system: &str, v: Verbosity, auto_confirm: bool) {
     print_info(&format!(
         "{} ({}). Tab completes filenames. 'q' quit, 'x' exec/edit/refine, 'c' copy.",
         config.model(),
@@ -2197,7 +2209,7 @@ fn run_interactive(config: &Config, system: &str, v: Verbosity) {
                             match result {
                                 Ok(resp) => {
                                     print_usage(&resp.usage);
-                                    let final_raw = process_response(config, system, &messages, &resp.content, &ph, v, &cache);
+                                    let final_raw = process_response(config, system, &messages, &resp.content, &ph, v, &cache, auto_confirm);
                                     let candidates: Vec<String> = parse_candidates(&final_raw)
                                         .into_iter()
                                         .map(|c| apply_placeholders(&c, &ph))
@@ -2258,7 +2270,7 @@ fn run_interactive(config: &Config, system: &str, v: Verbosity) {
                 match result {
                     Ok(resp) => {
                         print_usage(&resp.usage);
-                        let final_raw = process_response(config, system, &messages, &resp.content, &ph, v, &cache);
+                        let final_raw = process_response(config, system, &messages, &resp.content, &ph, v, &cache, auto_confirm);
                         let candidates: Vec<String> = parse_candidates(&final_raw)
                             .into_iter()
                             .map(|c| apply_placeholders(&c, &ph))
