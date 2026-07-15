@@ -113,11 +113,39 @@ impl ApiStyle {
 // ── Config ──────────────────────────────────────────────────────────────────
 
 #[derive(Deserialize, Default)]
+struct ProviderConfig {
+    base_url: Option<String>,
+    auth_token: Option<String>,
+    api_style: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct LocalModelEntry {
+    provider: String,
+    model: String,
+    retries: Option<usize>,
+}
+
+#[derive(Clone)]
+struct ModelEntry {
+    base_url: String,
+    auth_token: String,
+    model: String,
+    api_style: ApiStyle,
+    retries: usize,
+}
+
+#[derive(Deserialize, Default)]
 struct LocalConfig {
+    // Legacy single-model format (still supported)
     base_url: Option<String>,
     auth_token: Option<String>,
     model: Option<String>,
     api_style: Option<String>,
+    // New multi-provider format
+    providers: Option<HashMap<String, ProviderConfig>>,
+    models: Option<Vec<LocalModelEntry>>,
+    // Shared settings
     prefer: Option<HashMap<String, Vec<String>>>,
     cache_size: Option<usize>,
     reasoning: Option<u32>,
@@ -139,13 +167,22 @@ struct ClaudeEnv {
 }
 
 struct Config {
-    base_url: String,
-    auth_token: String,
-    model: String,
-    api_style: ApiStyle,
+    entries: Vec<ModelEntry>,
     prefer: HashMap<String, Vec<String>>,
     cache_size: usize,
     reasoning: u32,
+}
+
+impl Config {
+    fn primary(&self) -> &ModelEntry {
+        &self.entries[0]
+    }
+    fn model(&self) -> &str {
+        &self.primary().model
+    }
+    fn api_style(&self) -> ApiStyle {
+        self.primary().api_style
+    }
 }
 
 fn home_dir() -> Result<String, String> {
@@ -174,32 +211,63 @@ fn load_config() -> Result<Config, String> {
 
     let non_empty = |o: Option<String>| o.filter(|s| !s.is_empty());
 
-    let base_url = non_empty(local.base_url)
-        .or_else(|| claude_env.as_ref().and_then(|e| e.base_url.clone()))
-        .unwrap_or_else(|| "https://api.anthropic.com".into());
-
-    let auth_token = non_empty(local.auth_token)
-        .or_else(|| claude_env.as_ref().and_then(|e| e.auth_token.clone()))
-        .ok_or("No auth_token: set in ,.config.json or ANTHROPIC_AUTH_TOKEN in ~/.claude/settings.json")?;
-
-    let model = non_empty(local.model)
-        .or_else(|| claude_env.as_ref().and_then(|e| e.model.clone()))
-        .unwrap_or_else(|| "claude-sonnet-4-20250514".into());
-
-    // api_style: explicit > auto-detect from URL
-    let api_style = non_empty(local.api_style)
-        .and_then(|s| ApiStyle::from_str(&s))
-        .unwrap_or_else(|| ApiStyle::from_url(&base_url));
-
     let prefer = local.prefer.unwrap_or_default();
     let cache_size = local.cache_size.unwrap_or(1000);
     let reasoning = local.reasoning.unwrap_or(0);
 
+    // Build model entries: new providers/models format, or legacy single-model format
+    let entries = if let Some(models) = local.models {
+        let providers = local.providers.unwrap_or_default();
+        let mut entries = Vec::new();
+        for m in models {
+            let p = providers.get(&m.provider)
+                .ok_or(format!("Provider '{}' not found in providers", m.provider))?;
+            let base_url = non_empty(p.base_url.clone())
+                .or_else(|| claude_env.as_ref().and_then(|e| e.base_url.clone()))
+                .ok_or(format!("No base_url for provider '{}'", m.provider))?;
+            let auth_token = non_empty(p.auth_token.clone())
+                .or_else(|| claude_env.as_ref().and_then(|e| e.auth_token.clone()))
+                .ok_or(format!("No auth_token for provider '{}'", m.provider))?;
+            let api_style = non_empty(p.api_style.clone())
+                .and_then(|s| ApiStyle::from_str(&s))
+                .unwrap_or_else(|| ApiStyle::from_url(&base_url));
+            entries.push(ModelEntry {
+                base_url,
+                auth_token,
+                model: m.model,
+                api_style,
+                retries: m.retries.unwrap_or(1),
+            });
+        }
+        if entries.is_empty() {
+            return Err("models list is empty".into());
+        }
+        entries
+    } else {
+        // Legacy single-model format
+        let base_url = non_empty(local.base_url)
+            .or_else(|| claude_env.as_ref().and_then(|e| e.base_url.clone()))
+            .unwrap_or_else(|| "https://api.anthropic.com".into());
+        let auth_token = non_empty(local.auth_token)
+            .or_else(|| claude_env.as_ref().and_then(|e| e.auth_token.clone()))
+            .ok_or("No auth_token: set in ,.config.json or ANTHROPIC_AUTH_TOKEN in ~/.claude/settings.json")?;
+        let model = non_empty(local.model)
+            .or_else(|| claude_env.as_ref().and_then(|e| e.model.clone()))
+            .unwrap_or_else(|| "claude-sonnet-4-20250514".into());
+        let api_style = non_empty(local.api_style)
+            .and_then(|s| ApiStyle::from_str(&s))
+            .unwrap_or_else(|| ApiStyle::from_url(&base_url));
+        vec![ModelEntry {
+            base_url,
+            auth_token,
+            model,
+            api_style,
+            retries: MAX_RETRIES,
+        }]
+    };
+
     Ok(Config {
-        base_url,
-        auth_token,
-        model,
-        api_style,
+        entries,
         prefer,
         cache_size,
         reasoning,
@@ -706,21 +774,22 @@ const RETRY_HINT: &str =
     "Your previous response was empty. You MUST output exactly ONE shell command. No explanations, no markdown fences. Just the raw command.";
 
 fn call_llm(
-    config: &Config,
+    entry: &ModelEntry,
     system: &str,
     messages: &[Message],
     v: Verbosity,
     cache: &ResponseCache,
+    reasoning: u32,
 ) -> Result<LlmResponse, String> {
-    let key = cache_key(&config.model, system, messages);
+    let key = cache_key(&entry.model, system, messages);
 
     // Check cache — only return non-empty cached responses
-    if let Some(entry) = cache.get(&key) {
-        if !entry.content.is_empty() {
+    if let Some(cached) = cache.get(&key) {
+        if !cached.content.is_empty() {
             if v.show_debug() {
                 print_debug(&format!("Cache hit: {}", &key[..8]));
             }
-            let mut resp = entry.to_response();
+            let mut resp = cached.to_response();
             resp.cache_key = Some(key);
             return Ok(resp);
         }
@@ -730,9 +799,9 @@ fn call_llm(
     if v.show_debug() {
         print_debug(&format!("Cache miss: {}", &key[..8]));
     }
-    let mut result = match config.api_style {
-        ApiStyle::OpenAI => call_openai(config, system, messages, v),
-        ApiStyle::Anthropic => call_anthropic(config, system, messages, v),
+    let mut result = match entry.api_style {
+        ApiStyle::OpenAI => call_openai(entry, system, messages, v),
+        ApiStyle::Anthropic => call_anthropic(entry, system, messages, v, reasoning),
     };
 
     // Attach cache key (caller decides whether to store)
@@ -776,37 +845,51 @@ fn call_llm_with_retry(
     v: Verbosity,
     cache: &ResponseCache,
 ) -> Result<LlmResponse, String> {
-    let mut attempts = 0;
-    loop {
-        attempts += 1;
-        let result = call_llm(config, system, messages, v, cache)?;
-        let is_empty = result.content.is_empty();
-        if !is_empty {
-            return Ok(result);
+    let mut last_err = String::new();
+    for (idx, entry) in config.entries.iter().enumerate() {
+        if idx > 0 {
+            print_info(&format!("Trying fallback: {} ({})...", entry.model, style_label(entry.api_style)));
         }
-        if attempts >= MAX_RETRIES {
-            return Err(format!(
-                "Model returned empty response after {} attempts.",
-                MAX_RETRIES
-            ));
+        for attempt in 0..entry.retries {
+            let result = call_llm(entry, system, messages, v, cache, config.reasoning);
+            match result {
+                Ok(resp) if !resp.content.is_empty() => return Ok(resp),
+                Ok(_) => {
+                    // Empty response — retry with hint
+                    if attempt + 1 < entry.retries {
+                        print_info(&format!(
+                            "Empty response from {}, retrying ({}/{})...",
+                            entry.model, attempt + 1, entry.retries
+                        ));
+                        let mut retry_msgs = messages.to_vec();
+                        retry_msgs.push(Message {
+                            role: "assistant".into(),
+                            content: "(no response)".to_string(),
+                        });
+                        retry_msgs.push(Message {
+                            role: "user".into(),
+                            content: RETRY_HINT.to_string(),
+                        });
+                        let retry_result = call_llm(entry, system, &retry_msgs, v, cache, config.reasoning);
+                        if let Ok(resp) = retry_result {
+                            if !resp.content.is_empty() {
+                                return Ok(resp);
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    last_err = e;
+                    print_info(&format!("{} failed: {}", entry.model, last_err));
+                    break; // Move to next model entry
+                }
+            }
         }
-        print_info(&format!(
-            "Empty response, retrying ({}/{})...",
-            attempts, MAX_RETRIES
-        ));
-        let mut retry_msgs = messages.to_vec();
-        retry_msgs.push(Message {
-            role: "assistant".into(),
-            content: "(no response)".to_string(),
-        });
-        retry_msgs.push(Message {
-            role: "user".into(),
-            content: RETRY_HINT.to_string(),
-        });
-        let retry_result = call_llm(config, system, &retry_msgs, v, cache)?;
-        if !retry_result.content.is_empty() {
-            return Ok(retry_result);
-        }
+    }
+    if last_err.is_empty() {
+        Err("All models returned empty responses.".into())
+    } else {
+        Err(format!("All models failed. Last error: {}", last_err))
     }
 }
 
@@ -817,8 +900,8 @@ fn make_client() -> Result<reqwest::blocking::Client, String> {
         .map_err(|e| format!("HTTP client: {}", e))
 }
 
-fn call_openai(config: &Config, system: &str, messages: &[Message], v: Verbosity) -> Result<LlmResponse, String> {
-    let base = normalize_base_url(&config.base_url);
+fn call_openai(entry: &ModelEntry, system: &str, messages: &[Message], v: Verbosity) -> Result<LlmResponse, String> {
+    let base = normalize_base_url(&entry.base_url);
     let url = format!("{}/v1/chat/completions", base);
 
     let mut oai_messages: Vec<OpenAiMessage> = Vec::new();
@@ -834,7 +917,7 @@ fn call_openai(config: &Config, system: &str, messages: &[Message], v: Verbosity
     }
 
     let body = OpenAiRequest {
-        model: config.model.clone(),
+        model: entry.model.clone(),
         max_tokens: 1024,
         messages: oai_messages,
     };
@@ -850,7 +933,7 @@ fn call_openai(config: &Config, system: &str, messages: &[Message], v: Verbosity
     let t0 = std::time::Instant::now();
     let resp = client
         .post(&url)
-        .header("Authorization", format!("Bearer {}", config.auth_token))
+        .header("Authorization", format!("Bearer {}", entry.auth_token))
         .header("content-type", "application/json")
         .json(&body)
         .send()
@@ -898,21 +981,21 @@ fn call_openai(config: &Config, system: &str, messages: &[Message], v: Verbosity
     Ok(LlmResponse { content: content.to_string(), usage, cache_key: None })
 }
 
-fn call_anthropic(config: &Config, system: &str, messages: &[Message], v: Verbosity) -> Result<LlmResponse, String> {
-    let base = normalize_base_url(&config.base_url);
+fn call_anthropic(entry: &ModelEntry, system: &str, messages: &[Message], v: Verbosity, reasoning: u32) -> Result<LlmResponse, String> {
+    let base = normalize_base_url(&entry.base_url);
     let url = format!("{}/v1/messages", base);
 
-    let thinking = if config.reasoning > 0 {
+    let thinking = if reasoning > 0 {
         Some(ThinkingConfig {
             thinking_type: "enabled".to_string(),
-            budget_tokens: config.reasoning,
+            budget_tokens: reasoning,
         })
     } else {
         None
     };
 
     let body = AnthropicRequest {
-        model: config.model.clone(),
+        model: entry.model.clone(),
         max_tokens: 1024,
         system: system.to_string(),
         messages: messages.to_vec(),
@@ -930,7 +1013,7 @@ fn call_anthropic(config: &Config, system: &str, messages: &[Message], v: Verbos
     let t0 = std::time::Instant::now();
     let resp = client
         .post(&url)
-        .header("x-api-key", &config.auth_token)
+        .header("x-api-key", &entry.auth_token)
         .header("anthropic-version", "2023-06-01")
         .header("content-type", "application/json")
         .json(&body)
@@ -1858,7 +1941,7 @@ fn run_oneshot(config: &Config, system: &str, intent: &str, v: Verbosity) {
     let ph = collect_placeholders();
     let mut cache = ResponseCache::load(config.cache_size);
 
-    print_info(&format!("{} ({})", config.model, style_label(config.api_style)));
+    print_info(&format!("{} ({})", config.model(), style_label(config.api_style())));
     if v.show_prompt() {
         print_debug(&format!("System prompt:\n{}", system));
         print_debug(&format!("User: {}", intent));
@@ -1870,7 +1953,7 @@ fn run_oneshot(config: &Config, system: &str, intent: &str, v: Verbosity) {
     let mut rl = Editor::<FileHelper, DefaultHistory>::new().ok();
 
     // Initial LLM call
-    let mut spinner = Spinner::start(&format!("{} thinking...", config.model));
+    let mut spinner = Spinner::start(&format!("{} thinking...", config.model()));
     let result = call_llm_with_retry(config, system, &messages, v, &cache);
     spinner.stop();
 
@@ -1939,7 +2022,7 @@ fn run_oneshot(config: &Config, system: &str, intent: &str, v: Verbosity) {
                     content: text,
                 });
 
-                let mut spinner = Spinner::start(&format!("{} thinking...", config.model));
+                let mut spinner = Spinner::start(&format!("{} thinking...", config.model()));
                 let result = call_llm_with_retry(config, system, &messages, v, &cache);
                 spinner.stop();
 
@@ -1970,8 +2053,8 @@ fn run_oneshot(config: &Config, system: &str, intent: &str, v: Verbosity) {
 fn run_interactive(config: &Config, system: &str, v: Verbosity) {
     print_info(&format!(
         "{} ({}). Tab completes filenames. 'q' quit, 'x' exec/edit/refine, 'c' copy.",
-        config.model,
-        style_label(config.api_style),
+        config.model(),
+        style_label(config.api_style()),
     ));
 
     let ph = collect_placeholders();
