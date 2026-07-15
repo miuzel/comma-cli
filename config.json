@@ -1,9 +1,22 @@
 {
+  "_comment": "Legacy single-model format (still supported):",
   "base_url": "",
   "auth_token": "",
   "model": "",
   "api_style": "",
-  "prefer": {},
+
+  "_comment2": "New multi-provider format (overrides legacy when present):",
+  "providers": {
+  },
+  "models": [
+  ],
+
+  "prefer": {
+    "package_manager": ["apt", "brew"],
+    "editor": ["vim", "nano"],
+    "file_list": ["ls", "exa"],
+    "search": ["grep", "rg"]
+  },
   "cache_size": 1000,
   "reasoning": 0
 }
