@@ -74,6 +74,14 @@ impl Verbosity {
     }
 }
 
+// ── Edit action ─────────────────────────────────────────────────────────────
+
+enum EditAction {
+    Execute(String),
+    Refine(String),
+    Cancel,
+}
+
 // ── API style ───────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -1537,6 +1545,79 @@ fn prompt_confirm(msg: &str) -> bool {
     result
 }
 
+fn edit_or_execute(cmd: &str, rl: &mut Editor<FileHelper, DefaultHistory>) -> EditAction {
+    print_cmd(cmd);
+
+    if !atty::is(atty::Stream::Stdin) {
+        return EditAction::Execute(cmd.to_string());
+    }
+
+    let prompt_text = if is_dangerous(cmd) {
+        "Execute this dangerous command? [Enter] / [e]dit / [r]efine / [Esc] cancel "
+    } else {
+        "Execute? [Enter] / [e]dit / [r]efine / [Esc] cancel "
+    };
+    let stdout = io::stdout();
+    let mut out = stdout.lock();
+    let _ = write!(
+        out,
+        "{}{}{}",
+        SetForegroundColor(Color::Yellow),
+        prompt_text,
+        ResetColor
+    );
+    let _ = out.flush();
+    drop(out);
+
+    let _ = crossterm::terminal::enable_raw_mode();
+    let action = loop {
+        if let Ok(Event::Key(KeyEvent { code, modifiers, .. })) = event::read() {
+            match code {
+                KeyCode::Enter if !modifiers.contains(KeyModifiers::CONTROL) => {
+                    break EditAction::Execute(cmd.to_string());
+                }
+                KeyCode::Char(' ') => {
+                    break EditAction::Execute(cmd.to_string());
+                }
+                KeyCode::Char('e') => {
+                    let _ = crossterm::terminal::disable_raw_mode();
+                    let edit_prompt = format!("{}edit> {}", SetForegroundColor(Color::Yellow), ResetColor);
+                    match rl.readline_with_initial(&edit_prompt, (cmd, "")) {
+                        Ok(edited) => {
+                            let trimmed = edited.trim().to_string();
+                            if trimmed.is_empty() || trimmed == cmd {
+                                break EditAction::Execute(cmd.to_string());
+                            }
+                            let _ = rl.add_history_entry(&trimmed);
+                            break EditAction::Execute(trimmed);
+                        }
+                        Err(_) => break EditAction::Cancel,
+                    }
+                }
+                KeyCode::Char('r') => {
+                    let _ = crossterm::terminal::disable_raw_mode();
+                    let refine_prompt = format!("{}refine> {}", SetForegroundColor(Color::Yellow), ResetColor);
+                    match rl.readline(&refine_prompt) {
+                        Ok(text) => {
+                            let trimmed = text.trim().to_string();
+                            if trimmed.is_empty() {
+                                break EditAction::Cancel;
+                            }
+                            let _ = rl.add_history_entry(&trimmed);
+                            break EditAction::Refine(trimmed);
+                        }
+                        Err(_) => break EditAction::Cancel,
+                    }
+                }
+                KeyCode::Esc | KeyCode::Char('q') => break EditAction::Cancel,
+                _ => {}
+            }
+        }
+    };
+    let _ = crossterm::terminal::disable_raw_mode();
+    action
+}
+
 fn prompt_input(rl: &mut Editor<FileHelper, DefaultHistory>) -> Option<String> {
     let prompt = format!("{}> {}", SetForegroundColor(Color::Cyan), ResetColor);
     match rl.readline(&prompt) {
@@ -1770,7 +1851,7 @@ fn print_help() {
 }
 
 fn run_oneshot(config: &Config, system: &str, intent: &str, v: Verbosity) {
-    let messages = vec![Message {
+    let mut messages = vec![Message {
         role: "user".into(),
         content: intent.to_string(),
     }];
@@ -1785,59 +1866,110 @@ fn run_oneshot(config: &Config, system: &str, intent: &str, v: Verbosity) {
     if v.show_debug() {
         print_debug(&format!("Cache: {} entries (max {})", cache.len(), config.cache_size));
     }
+
+    let mut rl = Editor::<FileHelper, DefaultHistory>::new().ok();
+
+    // Initial LLM call
     let mut spinner = Spinner::start(&format!("{} thinking...", config.model));
     let result = call_llm_with_retry(config, system, &messages, v, &cache);
     spinner.stop();
-    match result {
+
+    let (final_raw, resp) = match result {
         Ok(resp) => {
             print_usage(&resp.usage);
             let final_raw = process_response(config, system, &messages, &resp.content, &ph, v, &cache);
-            let candidates: Vec<String> = parse_candidates(&final_raw)
-                .into_iter()
-                .map(|c| apply_placeholders(&c, &ph))
-                .collect();
+            (final_raw, resp)
+        }
+        Err(e) => {
+            print_error(&e);
+            cache.save();
+            return;
+        }
+    };
 
-            // Show selector if multiple candidates, otherwise just print
-            let cmd = if candidates.len() > 1 {
-                match select_command(&candidates) {
-                    Some(i) => candidates[i].clone(),
-                    None => return,
-                }
-            } else {
-                let c = candidates[0].clone();
-                print_cmd(&c);
-                c
-            };
+    let mut current_raw = final_raw;
+    let mut last_cache_key = resp.cache_key.clone();
+    let mut last_cache_entry = CacheEntry::from(&resp);
 
-            let executed = if is_dangerous(&cmd) {
-                if prompt_confirm("Execute this dangerous command?") {
-                    execute(&cmd);
-                    true
+    loop {
+        let candidates: Vec<String> = parse_candidates(&current_raw)
+            .into_iter()
+            .map(|c| apply_placeholders(&c, &ph))
+            .collect();
+
+        // Show selector if multiple candidates, otherwise just print
+        let cmd = if candidates.len() > 1 {
+            match select_command(&candidates) {
+                Some(i) => candidates[i].clone(),
+                None => break,
+            }
+        } else {
+            candidates[0].clone()
+        };
+
+        let action = match rl.as_mut() {
+            Some(editor) => edit_or_execute(&cmd, editor),
+            None => {
+                // No editor (unlikely in oneshot), fall back to confirm
+                if prompt_confirm("Execute?") {
+                    EditAction::Execute(cmd)
                 } else {
-                    false
-                }
-            } else if prompt_confirm("Execute?") {
-                execute(&cmd);
-                true
-            } else {
-                false
-            };
-
-            // Only cache when user chose to execute
-            if executed {
-                if let Some(ref key) = resp.cache_key {
-                    cache.put(key.clone(), CacheEntry::from(&resp));
+                    EditAction::Cancel
                 }
             }
+        };
+
+        match action {
+            EditAction::Execute(final_cmd) => {
+                execute(&final_cmd);
+                // Cache on execute
+                if let Some(ref key) = last_cache_key {
+                    cache.put(key.clone(), last_cache_entry.clone());
+                }
+                break;
+            }
+            EditAction::Refine(text) => {
+                // Add assistant response + user refinement to conversation
+                messages.push(Message {
+                    role: "assistant".into(),
+                    content: current_raw.clone(),
+                });
+                messages.push(Message {
+                    role: "user".into(),
+                    content: text,
+                });
+
+                let mut spinner = Spinner::start(&format!("{} thinking...", config.model));
+                let result = call_llm_with_retry(config, system, &messages, v, &cache);
+                spinner.stop();
+
+                match result {
+                    Ok(resp) => {
+                        print_usage(&resp.usage);
+                        current_raw = process_response(config, system, &messages, &resp.content, &ph, v, &cache);
+                        last_cache_key = resp.cache_key.clone();
+                        last_cache_entry = CacheEntry::from(&resp);
+                        // Loop back to show new candidates
+                    }
+                    Err(e) => {
+                        print_error(&e);
+                        // Remove the two messages we just added
+                        messages.pop();
+                        messages.pop();
+                        // Loop back with previous candidates
+                    }
+                }
+            }
+            EditAction::Cancel => break,
         }
-        Err(e) => print_error(&e),
     }
+
     cache.save();
 }
 
 fn run_interactive(config: &Config, system: &str, v: Verbosity) {
     print_info(&format!(
-        "{} ({}). Tab completes filenames. 'q' to quit, 'x' to exec, 'c' to copy.",
+        "{} ({}). Tab completes filenames. 'q' quit, 'x' exec/edit/refine, 'c' copy.",
         config.model,
         style_label(config.api_style),
     ));
@@ -1877,17 +2009,76 @@ fn run_interactive(config: &Config, system: &str, v: Verbosity) {
                         print_error("No command to execute.");
                         continue;
                     }
-                    let do_exec = if is_dangerous(&current_cmd) {
-                        prompt_confirm("Execute this dangerous command?")
-                    } else {
-                        true
-                    };
-                    if do_exec {
-                        execute(&current_cmd);
-                        // Cache on execute
-                        if let (Some(key), Some(entry)) = (current_cache_key.take(), current_cache_entry.take()) {
-                            cache.put(key, entry);
+                    let action = match rl.as_mut() {
+                        Some(editor) => edit_or_execute(&current_cmd, editor),
+                        None => {
+                            if prompt_confirm("Execute?") {
+                                EditAction::Execute(current_cmd.clone())
+                            } else {
+                                EditAction::Cancel
+                            }
                         }
+                    };
+                    match action {
+                        EditAction::Execute(final_cmd) => {
+                            execute(&final_cmd);
+                            // Cache on execute
+                            if let (Some(key), Some(entry)) = (current_cache_key.take(), current_cache_entry.take()) {
+                                cache.put(key, entry);
+                            }
+                        }
+                        EditAction::Refine(text) => {
+                            // Push current cmd as assistant, refinement as user
+                            messages.push(Message {
+                                role: "assistant".into(),
+                                content: current_cmd.clone(),
+                            });
+                            messages.push(Message {
+                                role: "user".into(),
+                                content: text,
+                            });
+                            if v.show_prompt() {
+                                print_debug(&format!("Refine: {}", messages.last().unwrap().content));
+                            }
+                            let mut spinner = Spinner::start("thinking...");
+                            let result = call_llm_with_retry(config, system, &messages, v, &cache);
+                            spinner.stop();
+                            match result {
+                                Ok(resp) => {
+                                    print_usage(&resp.usage);
+                                    let final_raw = process_response(config, system, &messages, &resp.content, &ph, v, &cache);
+                                    let candidates: Vec<String> = parse_candidates(&final_raw)
+                                        .into_iter()
+                                        .map(|c| apply_placeholders(&c, &ph))
+                                        .collect();
+                                    let cmd = if candidates.len() > 1 {
+                                        match select_command(&candidates) {
+                                            Some(i) => candidates[i].clone(),
+                                            None => {
+                                                messages.pop();
+                                                messages.pop();
+                                                continue;
+                                            }
+                                        }
+                                    } else {
+                                        candidates[0].clone()
+                                    };
+                                    current_cmd = cmd;
+                                    current_cache_key = resp.cache_key.clone();
+                                    current_cache_entry = Some(CacheEntry::from(&resp));
+                                    messages.push(Message {
+                                        role: "assistant".into(),
+                                        content: final_raw,
+                                    });
+                                }
+                                Err(e) => {
+                                    print_error(&e);
+                                    messages.pop();
+                                    messages.pop();
+                                }
+                            }
+                        }
+                        EditAction::Cancel => {}
                     }
                     continue;
                 }
