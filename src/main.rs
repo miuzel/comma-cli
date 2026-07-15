@@ -1394,6 +1394,64 @@ fn draw_candidates(candidates: &[String], selected: usize) {
     let _ = out.flush();
 }
 
+// ── Spinner ─────────────────────────────────────────────────────────────────
+
+struct Spinner {
+    handle: Option<std::thread::JoinHandle<()>>,
+    running: std::sync::Arc<std::sync::atomic::AtomicBool>,
+}
+
+impl Spinner {
+    fn start(msg: &str) -> Self {
+        let running = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
+        let frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+        let msg = msg.to_string();
+        let running_clone = running.clone();
+
+        let handle = std::thread::spawn(move || {
+            let mut i = 0;
+            while running_clone.load(std::sync::atomic::Ordering::Relaxed) {
+                let _ = crossterm::execute!(
+                    io::stdout(),
+                    crossterm::cursor::SavePosition,
+                    crossterm::terminal::Clear(crossterm::terminal::ClearType::CurrentLine),
+                );
+                let _ = write!(
+                    io::stdout(),
+                    "\r{}{} {}{}",
+                    SetForegroundColor(Color::Cyan),
+                    frames[i % frames.len()],
+                    msg,
+                    ResetColor,
+                );
+                let _ = io::stdout().flush();
+                i += 1;
+                std::thread::sleep(std::time::Duration::from_millis(80));
+            }
+            // Clear the spinner line
+            let _ = crossterm::execute!(
+                io::stdout(),
+                crossterm::terminal::Clear(crossterm::terminal::ClearType::CurrentLine),
+            );
+            let _ = write!(io::stdout(), "\r");
+            let _ = io::stdout().flush();
+        });
+
+        Self {
+            handle: Some(handle),
+            running,
+        }
+    }
+
+    fn stop(&mut self) {
+        self.running
+            .store(false, std::sync::atomic::Ordering::Relaxed);
+        if let Some(h) = self.handle.take() {
+            let _ = h.join();
+        }
+    }
+}
+
 fn print_info(msg: &str) {
     let stdout = io::stdout();
     let mut out = stdout.lock();
@@ -1727,7 +1785,10 @@ fn run_oneshot(config: &Config, system: &str, intent: &str, v: Verbosity) {
     if v.show_debug() {
         print_debug(&format!("Cache: {} entries (max {})", cache.len(), config.cache_size));
     }
-    match call_llm_with_retry(config, system, &messages, v, &cache) {
+    let mut spinner = Spinner::start(&format!("{} thinking...", config.model));
+    let result = call_llm_with_retry(config, system, &messages, v, &cache);
+    spinner.stop();
+    match result {
         Ok(resp) => {
             print_usage(&resp.usage);
             let final_raw = process_response(config, system, &messages, &resp.content, &ph, v, &cache);
@@ -1846,11 +1907,13 @@ fn run_interactive(config: &Config, system: &str, v: Verbosity) {
                     content: input,
                 });
 
-                print_info("Thinking...");
                 if v.show_prompt() {
                     print_debug(&format!("User: {}", messages.last().unwrap().content));
                 }
-                match call_llm_with_retry(config, system, &messages, v, &cache) {
+                let mut spinner = Spinner::start("thinking...");
+                let result = call_llm_with_retry(config, system, &messages, v, &cache);
+                spinner.stop();
+                match result {
                     Ok(resp) => {
                         print_usage(&resp.usage);
                         let final_raw = process_response(config, system, &messages, &resp.content, &ph, v, &cache);
