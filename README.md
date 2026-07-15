@@ -45,22 +45,44 @@ You know *what* you want, but can't remember the exact flags. So you:
 
 ---
 
-## Why `,` instead of Codex/Claude Code?
+## `,` vs ChatGPT / Codex / Claude Code
 
-| | `,` | Codex / Claude Code |
+**The key difference:** `,` is a **command generator**, not an **agent**.
+
+| | `,` | ChatGPT / Codex / Claude Code |
 |---|---|---|
-| **Size** | 3MB binary | 100MB+ runtime |
+| **What it does** | Generates ONE shell command | Has conversations, writes code, executes tasks |
+| **State** | Stateless — no memory between calls | Maintains conversation history |
+| **Scope** | Single command | Multi-file editing, refactoring, debugging |
+| **Size** | 3MB binary | 100MB+ runtime (Node.js, Python) |
 | **Startup** | Instant | 2-5s cold start |
-| **Session** | Stateless | Heavy state management |
-| **Scope** | One command | Multi-file editing |
-| **Dependencies** | None | Node.js, Python, npm |
+| **Dependencies** | None | Node.js, Python, npm, etc. |
 | **Privacy** | Placeholders (no personal data sent) | Full context sent |
+| **Use case** | "I need a command" | "I need to build a feature" |
 
-**Use `,` when:** You need a quick shell command, not a coding assistant.
+### When to use `,`
 
-**Use Claude Code when:** You need multi-file refactoring or agentic task execution.
+```bash
+# You know what you want, just need the command
+, find all TODO comments in python files
+, compress video to 10mb
+, check which ports are in use
+```
 
-Think of `,` as the `curl` of LLM tools — minimal, focused, does one thing well.
+### When to use ChatGPT/Claude
+
+```
+# You need a conversation, not just a command
+"Help me refactor this function to be more efficient"
+"Debug why this test is failing"
+"Write a Python script that processes CSV files"
+```
+
+**Think of it this way:**
+- ChatGPT is a **conversation partner** — you talk back and forth
+- `,` is a **command translator** — you say what you want, get the command, done
+
+**The `,` philosophy:** The terminal is for *doing*, not *talking*. One intent → one command → execute → done.
 
 ---
 
