@@ -1,277 +1,253 @@
-# `,`
+# `,` — 最小的 CLI，改变一切
 
-> **小就是大。** 逗号是最小的标点 — 却能改变一切。
+> **别再搜 shell 命令了。** 输入你想要的，得到命令，执行。
 
-LLM 驱动的 Shell 命令生成器。输入意图，得到命令，执行。
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Version](https://img.shields.io/github/v/release/miuzel/comma-cli)](https://github.com/miuzel/comma-cli/releases)
+[![Platform](https://img.shields.io/badge/platform-linux%20%7C%20macos-lightgrey)]()
 
-[English](README.md)
+```bash
+# 10 秒安装
+curl -sSL https://raw.githubusercontent.com/miuzel/comma-cli/main/install.sh | bash
+```
 
-## 为什么？
+```bash
+# 使用
+, find all TODO comments in python files
+# → rg -n TODO --type py  # Find TODO comments in Python files
+# → [Enter] 执行
+```
 
-你一定遇到过这种情况：想在终端做点什么，但记不住具体参数。`tar` 的压缩选项？`ffmpeg` 的编码参数？`find` 的大小过滤？最后只能打开浏览器搜索，翻 man 页面，或者从 Stack Overflow 复制粘贴。
+**就这样。** 无会话、无运行时、无依赖。只有一个 3MB 的二进制，把意图变成 shell 命令。
 
-**`,` 是一个单字符命令，把意图变成 shell 命令。** 输入你想要的，得到命令，执行。就这样。
+---
 
-### vs. Codex / OpenCode / Claude Code
+## 问题
 
-| | `,` | Codex / Claude Code / OpenCode |
+你在终端里。你想：
+- 把视频压缩到适合 Slack 发送
+- 找出今天修改的大于 100MB 的文件
+- 检查哪些端口被占用
+- 从视频中提取音频
+
+你知道*想要什么*，但记不住具体参数。所以你：
+1. 打开浏览器
+2. 搜索 "ffmpeg 压缩视频"
+3. 读 3 个 Stack Overflow 回答
+4. 复制粘贴一个可能能用的命令
+5. 调试 5 分钟
+
+**或者你可以直接输入：**
+```bash
+, compress video to 10mb
+# → ffmpeg -i input.mp4 -b:v 8M -b:a 128k output.mp4
+```
+
+---
+
+## `,` vs ChatGPT / Codex / Claude Code
+
+**核心区别：** `,` 是**命令生成器**，不是 **Agent**。
+
+| | `,` | ChatGPT / Codex / Claude Code |
 |---|---|---|
-| **体积** | 单个 3MB 二进制，无运行时 | Node.js/Python 运行时，100MB+ |
-| **会话** | 无状态 — 无会话、无历史、无文件 | 重量级会话管理，对话状态 |
-| **启动** | 即时（无预热） | 2-5 秒冷启动 |
-| **范围** | 一次一条命令 | 多文件编辑、代码生成、代理循环 |
-| **依赖** | 无（静态链接） | Node.js、Python、npm 等 |
-| **配置** | JSON 中 3 个字段 | 复杂配置、API 密钥、项目设置 |
-| **隐私** | 无个人数据发送（占位符替换） | 发送完整上下文 |
+| **做什么** | 生成一条 shell 命令 | 对话、写代码、执行任务 |
+| **状态** | 无状态 — 每次调用独立 | 维护对话历史 |
+| **范围** | 单条命令 | 多文件编辑、重构、调试 |
+| **体积** | 3MB 二进制 | 100MB+ 运行时（Node.js、Python） |
+| **启动** | 即时 | 2-5 秒冷启动 |
+| **依赖** | 无 | Node.js、Python、npm 等 |
+| **隐私** | 占位符（不发送个人数据） | 发送完整上下文 |
+| **使用场景** | "我需要一条命令" | "我需要构建一个功能" |
 
-**什么时候用 `,`：**
-- 你需要一条快速 shell 命令，不需要编程助手
-- 你想要即时启动、干净退出的工具
-- 你在远程服务器上，不想装 Node.js
-- 你偏好终端而非聊天界面
-- 你想保持工作流最小化
-
-**什么时候用 Codex / Claude Code：**
-- 你需要多文件代码生成或重构
-- 你需要代理式任务执行（读文件、跑测试、迭代）
-- 你需要跨多轮的对话上下文
-- 你在做复杂的调试或架构工作
-
-把 `,` 想象成 LLM 工具中的 `curl` — 最小化、专注、做好一件事。Claude Code 是 IDE — 强大但沉重。
-
-### 谁需要这个？
-
-- **运维**："找出今天修改的大于 100MB 的文件" → `fd --changed-today --size +100M`
-- **开发者**："把这个视频压缩到适合 Slack 发送" → `ffmpeg -i input.mp4 -b:v 1M ...`
-- **DevOps**："检查哪些端口被占用" → `ss -tlnp`
-- **任何人**：偶尔需要终端命令但记不住语法
-
-## 安装
+### 什么时候用 `,`
 
 ```bash
-./install.sh
+# 你知道要什么，只需要命令
+, find all TODO comments in python files
+, compress video to 10mb
+, check which ports are in use
 ```
 
-或手动安装：
-
-```bash
-cargo build --release
-cp target/release/comma ~/.local/bin/,
-cp prompt.md ~/.local/bin/,.prompt.md
-cp config.json ~/.local/bin/,.config.json
-```
-
-安装后文件布局：
+### 什么时候用 ChatGPT/Claude
 
 ```
-~/.local/bin/
-├── ,              # 二进制
-├── ,.config.json  # 配置（可选，优先级高于 Claude 设置）
-└── ,.prompt.md    # 系统提示词（可编辑）
+# 你需要对话，不只是命令
+"帮我重构这个函数，让它更高效"
+"调试为什么这个测试失败了"
+"写一个处理 CSV 文件的 Python 脚本"
 ```
 
-## 用法
+**这样理解：**
+- ChatGPT 是**对话伙伴** — 你来我往地交流
+- `,` 是**命令翻译器** — 你说想要什么，得到命令，完事
 
-```bash
-, what is my ip              # 一次性：生成命令 → 确认/执行
-, list files larger than 1G  # 生成 du/find 命令
-,                            # 交互模式：多轮对话改进命令
-, -h                         # 帮助
-```
+**`,` 的哲学：** 终端是用来*做事*的，不是*聊天*的。一个意图 → 一条命令 → 执行 → 完成。
 
-### 一次性模式
+---
 
-```
-$ , find all TODO comments in python files
-▸ Model: mimo-v2.5-pro
-grep -rn "TODO" --include="*.py" .
-Execute? [y/N]
-```
+## 功能
 
-输入 `y` 执行，其他任意输入取消。
+### 🔄 多 Provider Fallback
 
-### 交互模式
-
-```
-$ ,
-▸ Interactive mode (model: mimo-v2.5-pro). Tab completes filenames. 'q' to quit, 'x' to exec, 'c' to copy.
-> find large files
-find . -type f -size +100M -exec ls -lh {} \;
-> sort by size descending
-find . -type f -size +100M -exec ls -lh {} \; | sort -k5 -h -r
-> x
-▸ Running: find . -type f -size +100M -exec ls -lh {} \; | sort -k5 -h -r
-```
-
-输入时按 **Tab** 键可自动补全当前目录下的文件/目录名。支持路径补全（如 `./src/m` → `./src/main.rs`）。
-
-| 命令 | 作用 |
-|------|------|
-| `Tab` | 补全文件名 |
-| `x` / `exec` | 执行当前命令 |
-| `c` / `copy` | 复制到剪贴板 |
-| `q` / `quit` / `exit` | 退出 |
-| 其他任意文本 | 发送给 LLM 改进命令 |
-
-## 探索模式
-
-当模型不确定某个工具的用法时，会返回 `#EXPLORE:` 前缀标记，请求先运行帮助命令学习用法：
-
-```
-$ , compress video to 10mb using ffmpeg
-▸ Model: gemma-4-31b (openai)
-▸ Model wants to explore: ffmpeg -h
-Run to learn usage? [y/N] y
-▸ Learning from output...
-ffmpeg -i input.mp4 -b:v 8M -b:a 128k output.mp4
-Execute? [y/N]
-```
-
-流程：
-1. 模型不确定 → 返回 `#EXPLORE: ffmpeg -h`
-2. comma-cli 提示用户确认运行
-3. 捕获帮助输出，附加到对话上下文
-4. 模型根据帮助输出生成真正的命令
-
-## 工具发现：#CHECK:
-
-模型不确定装了什么工具时，可以输出 `#CHECK:` 查询可用性：
-
-```
-$ , "compress this image"
-▸ Model wants to check: convert magick ffmpeg
-  Available: ffmpeg
-  Not found: convert, magick
-ffmpeg -i input.png -quality 85 output.jpg
-Execute? [y/N]
-```
-
-## 候选命令选择
-
-模型可以输出多个候选命令（用 `|||` 分隔），用户通过 ↑↓/Tab 选择：
-
-```
-$ , "list files"
-▸ ls -la
-  exa -la
-  eza -la --icons
-```
-
-- `↑`/`↓`/`j`/`k` — 上下移动
-- `Tab`/`Shift+Tab` — 循环切换
-- `Enter` — 确认选择
-- `Esc`/`q` — 取消
-
-## 配置
-
-### 配置优先级
-
-```
-~/.local/bin/,.config.json  >  ~/.claude/settings.json  >  内置默认值
-```
-
-只有当本地配置文件中某个字段为空字符串或缺失时，才回退到 Claude 的设置。
-
-### 本地配置 `~/.local/bin/,.config.json`
-
-**Anthropic（Claude）示例：**
+配置多个 provider，自动 fallback：
 
 ```json
 {
-  "base_url": "https://api.anthropic.com",
-  "auth_token": "sk-ant-xxx",
-  "model": "claude-sonnet-4-20250514",
-  "api_style": "anthropic"
+  "providers": {
+    "cerebras": {
+      "base_url": "https://api.cerebras.ai/v1",
+      "auth_token": "csk-xxx",
+      "api_style": "openai"
+    },
+    "anthropic": {
+      "base_url": "https://api.anthropic.com",
+      "auth_token": "sk-ant-xxx"
+    }
+  },
+  "models": [
+    {"provider": "cerebras", "model": "llama-3.3-70b", "retries": 2},
+    {"provider": "anthropic", "model": "claude-sonnet-4-20250514", "retries": 1}
+  ]
 }
 ```
 
-**OpenAI 兼容示例（Cerebras、Groq、Ollama、vLLM 等）：**
+### ✏️ 执行前编辑
+
+得到命令后，你可以：
+- **Enter** — 直接执行
+- **e** — 内联编辑（预填充，用方向键修改）
+- **r** — 通过 LLM 微调（"加 --dry-run"）
+- **Esc** — 取消
+
+### 🤖 自动确认模式
+
+用于脚本和 Agent，加 `!` 跳过所有确认：
+
+```bash
+, find large files !          # 自动执行
+, compress video to 10mb !    # 自动探索 + 自动执行
+```
+
+### 🔍 智能工具发现
+
+模型会先检查装了什么工具：
+
+```
+$ , compress this image
+▸ Checking: convert magick ffmpeg
+  Available: ffmpeg
+  Not found: convert, magick
+ffmpeg -i input.png -quality 85 output.jpg
+```
+
+### 📚 探索模式
+
+不确定工具用法时，模型会先运行帮助：
+
+```
+$ , compress video using ffmpeg
+▸ Exploring: ffmpeg -h
+▸ Learning from output...
+ffmpeg -i input.mp4 -b:v 8M output.mp4
+```
+
+---
+
+## 快速开始
+
+### 一次性模式
+
+```bash
+, find all TODO comments in python files
+# → rg -n TODO --type py  # Find TODO comments in Python files
+
+, list files larger than 1G
+# → fd --size +1G  # Find files larger than 1GB
+
+, what is my ip
+# → curl -s ifconfig.me  # Get public IP address
+```
+
+### 交互模式
+
+```bash
+,
+> find large files
+fd --size +100M  # Find files larger than 100MB
+> sort by size descending
+fd --size +100M -x ls -lh {} + | sort -k5 -h -r
+> x  # 执行
+```
+
+### 快捷键
+
+| 按键 | 作用 |
+|------|------|
+| `Tab` | 补全文件名 |
+| `↑`/`↓` | 选择候选 |
+| `Enter` | 确认 / 执行 |
+| `Esc` | 取消 |
+| `e` | 编辑命令 |
+| `r` | 通过 LLM 微调 |
+| `x` | 执行（交互模式） |
+| `c` | 复制到剪贴板 |
+| `q` | 退出 |
+
+---
+
+## 配置
+
+### 优先级
+
+```
+COMMA_* 环境变量
+  ↓
+~/.local/bin/,.config.json
+  ↓
+~/.claude/settings.json
+  ↓
+内置默认值
+```
+
+### 环境变量
+
+```bash
+export COMMA_BASE_URL="https://api.cerebras.ai/v1"
+export COMMA_API_KEY="csk-xxx"
+export COMMA_MODEL="llama-3.3-70b"
+export COMMA_API_STYLE="openai"
+```
+
+### 最小配置
 
 ```json
 {
   "base_url": "https://api.cerebras.ai/v1",
   "auth_token": "csk-xxx",
-  "model": "llama-3.3-70b",
-  "api_style": "openai"
+  "model": "llama-3.3-70b"
 }
 ```
 
-| 字段 | 说明 | 回退来源 |
-|------|------|----------|
-| `base_url` | API 端点 | `ANTHROPIC_BASE_URL` in settings.json |
-| `auth_token` | API 密钥 | `ANTHROPIC_AUTH_TOKEN` in settings.json |
-| `model` | 模型名称 | `ANTHROPIC_MODEL` in settings.json |
-| `api_style` | API 格式（见下文） | 自动检测（含 `anthropic` 的 URL → anthropic，其余 → openai） |
-| `prefer` | 工具偏好映射 | `{}`（空） |
-
-字段留空字符串 `""` 视为未设置，会回退。
-
-### 工具偏好 (`prefer`)
-
-配置首选工具，模型会优先使用：
+### 工具偏好
 
 ```json
 {
   "prefer": {
-    "editor": ["nvim", "vim", "vi"],
-    "list": ["eza", "exa", "ls"],
-    "cat": ["bat", "batcat", "cat"],
-    "find": ["fd", "find"],
+    "editor": ["nvim", "vim"],
+    "list": ["eza", "ls"],
     "grep": ["rg", "grep"],
-    "top": ["btop", "htop", "top"]
+    "find": ["fd", "find"]
   }
 }
 ```
 
-键是功能描述（自由命名），值是按偏好排序的工具列表。提示词中会显示为：
-```
-- editor: nvim > vim > vi
-- list: eza > exa > ls
-```
+---
 
-### API 格式 (`api_style`)
+## 隐私
 
-| 值 | 格式 | 适用服务 |
-|----|------|----------|
-| `openai` | OpenAI Chat Completions | Cerebras, Groq, Ollama, vLLM, Together, Fireworks, DeepSeek, ... |
-| `anthropic` | Anthropic Messages | Anthropic Claude, 代理转发 |
+**不发送个人数据。** 模型使用占位符：
 
-省略时根据 URL 自动判断：URL 包含 `anthropic` → `anthropic`，否则 → `openai`。
-
-URL 处理规则：
-- 自动去除末尾 `/v1`，由程序拼接正确路径
-- OpenAI：`{base_url}/v1/chat/completions`
-- Anthropic：`{base_url}/v1/messages`
-
-### 提示词 `~/.local/bin/,.prompt.md`
-
-编辑此文件可自定义 LLM 行为（偏好工具、输出格式、平台等）。删除此文件会使用内置默认提示词。
-
-#### 系统上下文
-
-每次调用 LLM 时，程序会自动采集以下**非私密**信息并注入提示词：
-
-- **发行版**：`/etc/os-release` (`PRETTY_NAME`)
-- **内核**：`uname -srmo`
-- **架构**：`uname -m`
-- **Shell**：`$SHELL`
-- **当前目录**：`cwd`
-- **已安装包列表**：自动检测包管理器（dpkg/rpm/pacman/apk）并列出前 100-200 个包
-- **可用工具**：检测 git、curl、python3、node、docker、rustc 等常用工具
-
-这些信息让 LLM 能根据你的实际环境生成正确的命令（例如用 `apt` 而非 `pacman`）。
-
-#### 隐私保护：占位符
-
-**私密信息（用户名、主机名、家目录）不会发送给 API。** 提示词指示 LLM 在命令中使用占位符，程序收到响应后在本地替换为真实值：
-
-| 占位符 | 替换为 | 示例 |
-|--------|--------|------|
-| `{{USER}}` | 当前用户名 | `miuzel` |
-| `{{HOSTNAME}}` | 主机名 | `myserver` |
-| `{{HOME}}` | 家目录路径 | `/home/miuzel` |
-
-流程：
 ```
 用户: "list my home directory"
         ↓
@@ -281,44 +257,55 @@ LLM 输出: "ls -la {{HOME}}"
 本地替换: "ls -la /home/miuzel"  (仅在本机发生)
 ```
 
-提示词中可使用 `{{SYSTEM_CONTEXT}}` 注入完整系统信息块。
+---
 
-## 危险命令检测
+## 系统上下文
 
-以下命令会触发红色 `⚠ DANGEROUS COMMAND ⚠` 警告，执行前需要明确输入 `y` 确认：
+每次调用，comma-cli 会注入：
+- 发行版、内核、架构
+- Shell、当前目录
+- 用户安装的包
 
-- `rm -rf /`、`rm -rf ~`
-- `dd if=... of=/dev/`
-- `mkfs.*`
-- Fork bomb `:(){ :|:& };:`
-- `chmod -R 777 /`
-- `shutdown`、`reboot`
-- `curl/wget | sh/bash`
-- `sudo rm`
-- `git push --force`
-- SQL `DROP TABLE` / `DROP DATABASE`
+确保生成适合你平台的命令（`apt` vs `pacman`，`brew` vs `port`）。
 
-## 无状态设计
+---
 
-- 不保存任何会话、历史、日志
-- 每次调用都是独立的 HTTP 请求
-- 交互模式的对话仅存在于内存中，退出即消失
-- 不写入临时文件，不创建 session 目录
+## 安装
 
-## 依赖
+```bash
+curl -sSL https://raw.githubusercontent.com/miuzel/comma-cli/main/install.sh | bash
+```
 
-- 运行时：无（静态链接）
-- 剪贴板功能（可选）：`wl-clipboard`、`xclip`、`xsel` 或 `pbcopy`
-- 编译时：Rust toolchain（`rustup`）
+或从源码构建：
 
-## 卸载
+```bash
+git clone https://github.com/miuzel/comma-cli.git
+cd comma-cli
+cargo build --release
+./install.sh
+```
+
+### 卸载
 
 ```bash
 ./uninstall.sh
 ```
 
-或手动：
+---
 
-```bash
-rm ~/.local/bin/, ~/.local/bin/,.config.json ~/.local/bin/,.prompt.md
-```
+## 谁需要这个？
+
+- **运维**：快速一行命令，不用翻 man 手册
+- **开发者**：把意图转成 `ffmpeg`、`find`、`tar` 命令
+- **DevOps**：检查端口、进程、磁盘使用
+- **任何人**：用终端但讨厌记参数
+
+---
+
+## 许可证
+
+[MIT](LICENSE)
+
+---
+
+> **小就是大。** 逗号是最小的标点 — 却能改变一切。
