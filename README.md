@@ -1,301 +1,231 @@
-# `,`
+# `,` — The smallest CLI that changes everything
 
-> **Small is big.** A comma is the smallest punctuation — yet it changes everything.
+> **Stop googling shell commands.** Type what you want, get the command, run it.
 
-LLM-powered shell command generator. Describe what you want, get the command, run it.
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![Version](https://img.shields.io/github/v/release/miuzel/comma-cli)](https://github.com/miuzel/comma-cli/releases)
+[![Platform](https://img.shields.io/badge/platform-linux%20%7C%20macos-lightgrey)]()
 
-[中文文档](README.zh-CN.md)
+```bash
+# Install in 10 seconds
+curl -sSL https://raw.githubusercontent.com/miuzel/comma-cli/main/install.sh | bash
+```
 
-## Why?
+```bash
+# Use it
+, find all TODO comments in python files
+# → rg -n TODO --type py  # Find TODO comments in Python files
+# → [Enter] to execute
+```
 
-You know the feeling: you want to do something in the terminal, but can't remember the exact flags. `tar` with compression? `ffmpeg` encoding options? `find` with size filters? You end up opening a browser, searching, reading man pages, or copy-pasting from Stack Overflow.
+**That's it.** No sessions, no runtime, no dependencies. Just a 3MB binary that turns intent into shell commands.
 
-**`,` is a single-character command that turns intent into shell commands.** Type what you want, get the command, run it. That's it.
+---
 
-### vs. Codex / OpenCode / Claude Code
+## The problem
 
-| | `,` | Codex / Claude Code / OpenCode |
+You're in the terminal. You want to:
+- Compress a video for Slack
+- Find files modified today larger than 100MB
+- Check which ports are in use
+- Extract audio from a video file
+
+You know *what* you want, but can't remember the exact flags. So you:
+1. Open a browser
+2. Search "ffmpeg compress video"
+3. Read 3 Stack Overflow answers
+4. Copy-paste something that might work
+5. Debug it for 5 minutes
+
+**Or you could just type:**
+```bash
+, compress video to 10mb
+# → ffmpeg -i input.mp4 -b:v 8M -b:a 128k output.mp4
+```
+
+---
+
+## Why `,` instead of Codex/Claude Code?
+
+| | `,` | Codex / Claude Code |
 |---|---|---|
-| **Weight** | Single 3MB binary, no runtime | Node.js / Python runtime, 100MB+ |
-| **Session** | Stateless — no sessions, no history, no files | Heavy session management, conversation state |
-| **Startup** | Instant (no warmup) | 2-5s cold start |
-| **Scope** | One command at a time | Multi-file editing, code generation, agentic loops |
-| **Dependencies** | None (static binary) | Node.js, Python, npm, etc. |
-| **Config** | 3 fields in JSON | Complex config, API keys, project setup |
-| **Privacy** | No personal data sent to API (placeholders) | Full context sent |
+| **Size** | 3MB binary | 100MB+ runtime |
+| **Startup** | Instant | 2-5s cold start |
+| **Session** | Stateless | Heavy state management |
+| **Scope** | One command | Multi-file editing |
+| **Dependencies** | None | Node.js, Python, npm |
+| **Privacy** | Placeholders (no personal data sent) | Full context sent |
 
-**When to use `,`:**
-- You need a quick shell command, not a coding assistant
-- You want something that starts instantly and exits cleanly
-- You're on a remote server and don't want to install Node.js
-- You prefer the terminal over a chat interface
-- You want to keep your workflow minimal
+**Use `,` when:** You need a quick shell command, not a coding assistant.
 
-**When to use Codex / Claude Code:**
-- You need multi-file code generation or refactoring
-- You want agentic task execution (read files, run tests, iterate)
-- You need conversation context across multiple turns
-- You're doing complex debugging or architecture work
+**Use Claude Code when:** You need multi-file refactoring or agentic task execution.
 
-Think of `,` as the `curl` of LLM tools — minimal, focused, does one thing well. Claude Code is the IDE — powerful but heavy.
+Think of `,` as the `curl` of LLM tools — minimal, focused, does one thing well.
 
-### Who needs this?
+---
 
-- **Sysadmins**: "find all files modified today larger than 100MB" → `fd --changed-today --size +100M`
-- **Developers**: "compress this video for Slack" → `ffmpeg -i input.mp4 -b:v 1M ...`
-- **DevOps**: "check which ports are in use" → `ss -tlnp`
-- **Anyone** who occasionally needs a terminal command but can't remember the syntax
+## Features
 
-## Install
+### 🔄 Multi-provider fallback
 
-```bash
-./install.sh
-```
-
-Or manually:
-
-```bash
-cargo build --release
-cp target/release/comma ~/.local/bin/,
-cp prompt.md ~/.local/bin/,.prompt.md
-cp config.json ~/.local/bin/,.config.json
-```
-
-Installed files:
-
-```
-~/.local/bin/
-├── ,              # binary
-├── ,.config.json  # config (optional, overrides Claude settings)
-└── ,.prompt.md    # system prompt (editable)
-```
-
-## Usage
-
-```bash
-, what is my ip              # one-shot: generate command → confirm/execute
-, list files larger than 1G  # generate du/find command
-,                            # interactive mode: multi-turn refinement
-, -h                         # help
-, -V                         # version
-```
-
-### One-shot mode
-
-```
-$ , find all TODO comments in python files
-▸ mimo-v2.5-pro (anthropic)
-  tokens: 73in + 263out = 336 | 6124ms
-rg -n TODO --type py  # Find TODO comments in Python files
-Execute? [y/Ctrl+Enter/N]
-```
-
-Type `y` or `Ctrl+Enter` to execute, anything else to cancel.
-
-### Interactive mode
-
-```
-$ ,
-▸ Interactive mode (model: mimo-v2.5-pro). Tab completes filenames. 'q' to quit, 'x' to exec, 'c' to copy.
-> find large files
-fd --size +100M  # Find files larger than 100MB
-> sort by size descending
-fd --size +100M -x ls -lh {} + | sort -k5 -h -r  # Sort large files by size
-> x
-▸ Running: fd --size +100M -x ls -lh {} + | sort -k5 -h -r
-```
-
-Press **Tab** to autocomplete filenames from the current directory.
-
-| Command | Action |
-|---------|--------|
-| `Tab` | Autocomplete filename |
-| `x` / `exec` | Execute current command |
-| `c` / `copy` | Copy to clipboard |
-| `q` / `quit` / `exit` | Exit |
-| Any other text | Send to LLM to refine command |
-
-## Exploration: #EXPLORE:
-
-When the model is unsure about a tool's usage, it returns `#EXPLORE:` to run the help command first:
-
-```
-$ , compress video to 10mb using ffmpeg
-▸ Model wants to explore: ffmpeg -h
-Run to learn usage? [y/N] y
-▸ Learning from output...
-ffmpeg -i input.mp4 -b:v 8M -b:a 128k output.mp4  # Compress video to ~10MB
-Execute? [y/Ctrl+Enter/N]
-```
-
-Flow:
-1. Model unsure → returns `#EXPLORE: ffmpeg -h`
-2. comma-cli asks user to confirm
-3. Captures help output, appends to conversation context
-4. Model generates the real command with full context
-
-## Tool Discovery: #CHECK:
-
-When unsure what's installed, the model can query tool availability:
-
-```
-$ , "compress this image"
-▸ Model wants to check: convert magick ffmpeg
-  Available: ffmpeg
-  Not found: convert, magick
-ffmpeg -i input.png -quality 85 output.jpg  # Compress image using ffmpeg
-Execute? [y/Ctrl+Enter/N]
-```
-
-## Multi-candidate Selection
-
-The model can output multiple candidates separated by `|||`. Use ↑↓/Tab to select:
-
-```
-$ , "list files"
-▸ ls -la  # Classic listing
-  exa -la  # Modern ls replacement
-  eza -la --icons  # ls with icons
-```
-
-- `↑`/`↓`/`j`/`k` — Move up/down
-- `Tab`/`Shift+Tab` — Cycle through
-- `Enter` — Confirm selection
-- `Esc`/`q` — Cancel
-
-## Config
-
-### Config priority
-
-```
-~/.local/bin/,.config.json  >  ~/.claude/settings.json  >  built-in defaults
-```
-
-Fields left as empty string `""` fall back to the next source.
-
-### Local config `~/.local/bin/,.config.json`
-
-**Anthropic (Claude) example:**
+Configure multiple providers with automatic fallback:
 
 ```json
 {
-  "base_url": "https://api.anthropic.com",
-  "auth_token": "sk-ant-xxx",
-  "model": "claude-sonnet-4-20250514",
-  "api_style": "anthropic"
+  "providers": {
+    "cerebras": {
+      "base_url": "https://api.cerebras.ai/v1",
+      "auth_token": "csk-xxx",
+      "api_style": "openai"
+    },
+    "anthropic": {
+      "base_url": "https://api.anthropic.com",
+      "auth_token": "sk-ant-xxx"
+    }
+  },
+  "models": [
+    {"provider": "cerebras", "model": "llama-3.3-70b", "retries": 2},
+    {"provider": "anthropic", "model": "claude-sonnet-4-20250514", "retries": 1}
+  ]
 }
 ```
 
-**OpenAI-compatible example (Cerebras, Groq, Ollama, vLLM, etc.):**
+### ✏️ Edit before execution
+
+After getting a command, you can:
+- **Enter** — Execute as-is
+- **e** — Edit inline (pre-filled, use arrow keys)
+- **r** — Refine via LLM ("add --dry-run")
+- **Esc** — Cancel
+
+### 🤖 Auto-confirm mode
+
+For scripts and agents, add `!` to skip all confirmations:
+
+```bash
+, find large files !          # auto-execute
+, compress video to 10mb !    # auto-explore + auto-execute
+```
+
+### 🔍 Smart tool discovery
+
+The model checks what's installed before suggesting commands:
+
+```
+$ , compress this image
+▸ Checking: convert magick ffmpeg
+  Available: ffmpeg
+  Not found: convert, magick
+ffmpeg -i input.png -quality 85 output.jpg
+```
+
+### 📚 Exploration mode
+
+When unsure about a tool, the model runs help first:
+
+```
+$ , compress video using ffmpeg
+▸ Exploring: ffmpeg -h
+▸ Learning from output...
+ffmpeg -i input.mp4 -b:v 8M output.mp4
+```
+
+---
+
+## Quick start
+
+### One-shot mode
+
+```bash
+, find all TODO comments in python files
+# → rg -n TODO --type py  # Find TODO comments in Python files
+
+, list files larger than 1G
+# → fd --size +1G  # Find files larger than 1GB
+
+, what is my ip
+# → curl -s ifconfig.me  # Get public IP address
+```
+
+### Interactive mode
+
+```bash
+,
+> find large files
+fd --size +100M  # Find files larger than 100MB
+> sort by size descending
+fd --size +100M -x ls -lh {} + | sort -k5 -h -r
+> x  # execute
+```
+
+### Keyboard shortcuts
+
+| Key | Action |
+|-----|--------|
+| `Tab` | Autocomplete filename |
+| `↑`/`↓` | Select candidate |
+| `Enter` | Confirm / Execute |
+| `Esc` | Cancel |
+| `e` | Edit command |
+| `r` | Refine via LLM |
+| `x` | Execute (interactive mode) |
+| `c` | Copy to clipboard |
+| `q` | Quit |
+
+---
+
+## Configuration
+
+### Priority
+
+```
+COMMA_* environment variables
+  ↓
+~/.local/bin/,.config.json
+  ↓
+~/.claude/settings.json
+  ↓
+Built-in defaults
+```
+
+### Environment variables
+
+```bash
+export COMMA_BASE_URL="https://api.cerebras.ai/v1"
+export COMMA_API_KEY="csk-xxx"
+export COMMA_MODEL="llama-3.3-70b"
+export COMMA_API_STYLE="openai"
+```
+
+### Minimal config
 
 ```json
 {
   "base_url": "https://api.cerebras.ai/v1",
   "auth_token": "csk-xxx",
-  "model": "llama-3.3-70b",
-  "api_style": "openai"
+  "model": "llama-3.3-70b"
 }
 ```
 
-| Field | Description | Fallback |
-|-------|-------------|----------|
-| `base_url` | API endpoint | `ANTHROPIC_BASE_URL` in settings.json |
-| `auth_token` | API key | `ANTHROPIC_AUTH_TOKEN` in settings.json |
-| `model` | Model name | `ANTHROPIC_MODEL` in settings.json |
-| `api_style` | API format (see below) | Auto-detect (URL contains `anthropic` → anthropic, else → openai) |
-| `prefer` | Tool preference map | `{}` |
-| `cache_size` | Response cache size | `1000` |
-| `reasoning` | Extended thinking budget (tokens, 0=off) | `0` |
-
-### Tool Preferences (`prefer`)
-
-Configure preferred tools — the model will use them preferentially:
+### Tool preferences
 
 ```json
 {
   "prefer": {
-    "editor": ["nvim", "vim", "vi"],
-    "list": ["eza", "exa", "ls"],
-    "cat": ["bat", "batcat", "cat"],
-    "find": ["fd", "find"],
+    "editor": ["nvim", "vim"],
+    "list": ["eza", "ls"],
     "grep": ["rg", "grep"],
-    "top": ["btop", "htop", "top"]
+    "find": ["fd", "find"]
   }
 }
 ```
 
-Keys are free-form category names, values are tool lists ordered by preference. Shown in prompt as:
-```
-- editor: nvim > vim > vi
-- list: eza > exa > ls
-```
+---
 
-### API Format (`api_style`)
+## Privacy
 
-| Value | Format | Services |
-|-------|--------|----------|
-| `openai` | OpenAI Chat Completions | Cerebras, Groq, Ollama, vLLM, Together, Fireworks, DeepSeek, ... |
-| `anthropic` | Anthropic Messages | Anthropic Claude, proxy forwarding |
+**No personal data is sent to the API.** The model uses placeholders:
 
-When omitted, auto-detected from URL: contains `anthropic` → `anthropic`, otherwise → `openai`.
-
-URL handling:
-- Trailing `/v1` is stripped automatically
-- OpenAI: `{base_url}/v1/chat/completions`
-- Anthropic: `{base_url}/v1/messages`
-
-### Prompt `~/.local/bin/,.prompt.md`
-
-Edit to customize LLM behavior (preferred tools, output format, platform, etc.). Delete to use built-in defaults.
-
-### Response Cache
-
-Responses are cached and reused when the same request is made again. Only cached when the user chooses to execute (not when declined).
-
-```json
-{
-  "cache_size": 1000
-}
-```
-
-Cache stored at `~/.local/bin/,.cache.json`.
-
-### Reasoning Mode (`reasoning`)
-
-Enable extended thinking for Anthropic models. Set to a token budget (e.g. `10000`):
-
-```json
-{
-  "reasoning": 10000
-}
-```
-
-When enabled, the model thinks step-by-step before responding. Thinking output is shown with `-v`. Set to `0` or omit to disable.
-
-## System Context
-
-On each call, comma-cli injects non-private system info into the prompt:
-
-- **Distro**: `/etc/os-release` (`PRETTY_NAME`)
-- **Kernel**: `uname -srmo`
-- **Arch**: `uname -m`
-- **Shell**: `$SHELL`
-- **CWD**: current working directory (sanitized)
-- **User-installed packages**: detected via package manager
-
-This lets the LLM generate correct commands for your platform (e.g. `apt` vs `pacman`).
-
-## Privacy: Placeholders
-
-**Private data (username, hostname, home path) is never sent to the API.** The prompt instructs the LLM to use placeholders, which are replaced locally after the response:
-
-| Placeholder | Replaced with | Example |
-|-------------|---------------|---------|
-| `{{USER}}` | Current username | `miuzel` |
-| `{{HOSTNAME}}` | Hostname | `myserver` |
-| `{{HOME}}` | Home directory | `/home/miuzel` |
-
-Flow:
 ```
 User: "list my home directory"
         ↓
@@ -305,46 +235,55 @@ LLM outputs: "ls -la {{HOME}}"
 Local replace: "ls -la /home/miuzel"  (local only)
 ```
 
-## Dangerous Command Detection
+---
 
-These trigger a red `⚠ DANGEROUS COMMAND ⚠` warning and require explicit confirmation:
+## System context
 
-- `rm -rf /`, `rm -rf ~`
-- `dd if=... of=/dev/`
-- `mkfs.*`
-- Fork bomb `:(){ :|:& };:`
-- `chmod -R 777 /`
-- `shutdown`, `reboot`
-- `curl/wget | sh/bash`
-- `sudo rm`
-- `git push --force`
-- SQL `DROP TABLE` / `DROP DATABASE`
+On each call, comma-cli injects:
+- Distro, kernel, architecture
+- Shell, current directory
+- User-installed packages
 
-## Verbose Modes
+This ensures correct commands for your platform (`apt` vs `pacman`, `brew` vs `port`).
 
-```
-, -v  "list files"     # show system prompt and LLM reply
-, -vv "list files"     # add request URL, body, status, timing, raw response
+---
+
+## Install
+
+```bash
+curl -sSL https://raw.githubusercontent.com/miuzel/comma-cli/main/install.sh | bash
 ```
 
-## Dependencies
+Or build from source:
 
-- Runtime: none (statically linked)
-- Clipboard (optional): `wl-clipboard`, `xclip`, `xsel`, or `pbcopy`
-- Build: Rust toolchain (`rustup`)
+```bash
+git clone https://github.com/miuzel/comma-cli.git
+cd comma-cli
+cargo build --release
+./install.sh
+```
 
-## Uninstall
+### Uninstall
 
 ```bash
 ./uninstall.sh
 ```
 
-Or manually:
+---
 
-```bash
-rm ~/.local/bin/, ~/.local/bin/,.config.json ~/.local/bin/,.prompt.md ~/.local/bin/,.cache.json
-```
+## Who needs this?
+
+- **Sysadmins**: Quick one-liners without man page archaeology
+- **Developers**: Convert intent to `ffmpeg`, `find`, `tar` commands
+- **DevOps**: Check ports, processes, disk usage
+- **Anyone** who uses the terminal and hates memorizing flags
+
+---
 
 ## License
 
 [MIT](LICENSE)
+
+---
+
+> **Small is big.** A comma is the smallest punctuation — yet it changes everything.
