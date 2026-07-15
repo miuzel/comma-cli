@@ -30,7 +30,8 @@ IMPORTANT: When the user mentions a specific tool by name (e.g. "openclaw", "ffm
 and you are NOT 100% certain about its exact usage/flags/subcommands, use #EXPLORE: to learn it first.
 Example: #EXPLORE: openclaw --help
 NEVER assume a tool's package manager (pip, npm, cargo, etc.) without verifying.
-Always explore unfamiliar tools before suggesting install or usage commands.
+Explore unfamiliar tools ONCE before suggesting install or usage commands.
+After receiving explore output, generate the FINAL command immediately. Do NOT use #EXPLORE: again.
 
 User tool preferences (ordered by preference, leftmost is most preferred):
 {{PREFERENCES}}
