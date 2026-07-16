@@ -354,7 +354,7 @@ LLM 输出: "ls -la {{HOME}}"
 ## 安装
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/miuzel/comma-cli/main/install.sh | bash
+curl -sSL https://github.com/miuzel/comma-cli/releases/latest/download/install.sh | bash
 ```
 
 或从源码构建：
@@ -362,9 +362,33 @@ curl -sSL https://raw.githubusercontent.com/miuzel/comma-cli/main/install.sh | b
 ```bash
 git clone https://github.com/miuzel/comma-cli.git
 cd comma-cli
-cargo build --release
-./install.sh
+./build.sh
 ```
+
+### 首次配置
+
+安装后需要配置模型。编辑 `~/.local/bin/,.config.json`：
+
+```json
+{
+  "base_url": "https://api.cerebras.ai/v1",
+  "auth_token": "your-api-key-here",
+  "model": "gemma-4-31b"
+}
+```
+
+或使用环境变量：
+
+```bash
+export COMMA_BASE_URL="https://api.cerebras.ai/v1"
+export COMMA_API_KEY="your-api-key-here"
+export COMMA_MODEL="gemma-4-31b"
+```
+
+**免费选项：**
+- [Cerebras](https://cerebras.ai) — 免费额度，超快，无需信用卡
+- [Groq](https://groq.com) — 免费额度，低延迟
+- [Ollama](https://ollama.ai) — 本地运行，无需 API Key，需要 8GB+ 内存
 
 ### 卸载
 

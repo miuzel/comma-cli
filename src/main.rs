@@ -231,7 +231,7 @@ fn load_config() -> Result<Config, String> {
                 .ok_or(format!("Provider '{}' missing base_url", m.provider))?;
             let auth_token = env_or("COMMA_API_KEY")
                 .or_else(|| non_empty(p.auth_token.clone()))
-                .ok_or(format!("Provider '{}' missing auth_token", m.provider))?;
+                .ok_or(format!("Provider '{}' missing auth_token. Set COMMA_API_KEY or add auth_token to providers.{}", m.provider, m.provider))?;
             let api_style = env_or("COMMA_API_STYLE")
                 .and_then(|s| ApiStyle::from_str(&s))
                 .or_else(|| non_empty(p.api_style.clone()).and_then(|s| ApiStyle::from_str(&s)))
@@ -259,7 +259,7 @@ fn load_config() -> Result<Config, String> {
         let auth_token = env_or("COMMA_API_KEY")
             .or_else(|| non_empty(local.auth_token.clone()))
             .or_else(|| claude_env.as_ref().and_then(|e| e.auth_token.clone()))
-            .ok_or("No auth_token: set in ,.config.json or ANTHROPIC_AUTH_TOKEN in ~/.claude/settings.json")?;
+            .ok_or("No API key found. Configure one:\n  1. Edit ~/.local/bin/,.config.json\n  2. Set COMMA_API_KEY env var\n  3. Or set ANTHROPIC_AUTH_TOKEN in ~/.claude/settings.json")?;
         let model = env_or("COMMA_MODEL")
             .or_else(|| non_empty(local.model.clone()))
             .or_else(|| claude_env.as_ref().and_then(|e| e.model.clone()))

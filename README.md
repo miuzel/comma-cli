@@ -354,7 +354,7 @@ This ensures correct commands for your platform (`apt` vs `pacman`, `brew` vs `p
 ## Install
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/miuzel/comma-cli/main/install.sh | bash
+curl -sSL https://github.com/miuzel/comma-cli/releases/latest/download/install.sh | bash
 ```
 
 Or build from source:
@@ -362,9 +362,33 @@ Or build from source:
 ```bash
 git clone https://github.com/miuzel/comma-cli.git
 cd comma-cli
-cargo build --release
-./install.sh
+./build.sh
 ```
+
+### First-time setup
+
+After install, configure a model. Edit `~/.local/bin/,.config.json`:
+
+```json
+{
+  "base_url": "https://api.cerebras.ai/v1",
+  "auth_token": "your-api-key-here",
+  "model": "gemma-4-31b"
+}
+```
+
+Or use environment variables:
+
+```bash
+export COMMA_BASE_URL="https://api.cerebras.ai/v1"
+export COMMA_API_KEY="your-api-key-here"
+export COMMA_MODEL="gemma-4-31b"
+```
+
+**Free options to get started:**
+- [Cerebras](https://cerebras.ai) — Free tier, ultra-fast, no credit card needed
+- [Groq](https://groq.com) — Free tier, low latency
+- [Ollama](https://ollama.ai) — Local, no API key, requires 8GB+ RAM
 
 ### Uninstall
 
