@@ -39,5 +39,23 @@ echo "Installed files:"
 ls -lh "$PREFIX/," 2>/dev/null || true
 [ -f "$PREFIX/,.config.json" ] && ls -lh "$PREFIX/,.config.json"
 [ -f "$PREFIX/,.prompt.md" ] && ls -lh "$PREFIX/,.prompt.md"
+
+# Check if model is configured
+if [ -f "$PREFIX/,.config.json" ]; then
+    if ! grep -q '"auth_token"' "$PREFIX/,.config.json" || grep -q '"auth_token": ""' "$PREFIX/,.config.json"; then
+        echo ""
+        echo "⚠  No API key configured!"
+        echo "Edit ~/.local/bin/,.config.json and set your API key:"
+        echo ""
+        echo '  {'
+        echo '    "base_url": "https://api.cerebras.ai/v1",'
+        echo '    "auth_token": "your-api-key",'
+        echo '    "model": "gemma-4-31b"'
+        echo '  }'
+        echo ""
+        echo "Free options: Cerebras (cerebras.ai), Groq (groq.com), Ollama (local)"
+    fi
+fi
+
 echo ""
 echo "Done. Run ', -h' for usage."
