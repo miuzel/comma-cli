@@ -251,17 +251,21 @@ fn load_config() -> Result<Config, String> {
         }
         entries
     } else {
-        // Legacy single-model format — falls back to claude settings
+        // Legacy single-model format
+        // Priority: COMMA_* env > ,.config.json > ANTHROPIC_* env > claude settings
         let base_url = env_or("COMMA_BASE_URL")
             .or_else(|| non_empty(local.base_url.clone()))
+            .or_else(|| env_or("ANTHROPIC_BASE_URL"))
             .or_else(|| claude_env.as_ref().and_then(|e| e.base_url.clone()))
             .unwrap_or_else(|| "https://api.anthropic.com".into());
         let auth_token = env_or("COMMA_API_KEY")
             .or_else(|| non_empty(local.auth_token.clone()))
+            .or_else(|| env_or("ANTHROPIC_API_KEY"))
             .or_else(|| claude_env.as_ref().and_then(|e| e.auth_token.clone()))
-            .ok_or("No API key found. Configure one:\n  1. Edit ~/.local/bin/,.config.json\n  2. Set COMMA_API_KEY env var\n  3. Or set ANTHROPIC_AUTH_TOKEN in ~/.claude/settings.json")?;
+            .ok_or("No API key found. Configure one:\n  1. Edit ~/.local/bin/,.config.json\n  2. Set COMMA_API_KEY or ANTHROPIC_API_KEY env var")?;
         let model = env_or("COMMA_MODEL")
             .or_else(|| non_empty(local.model.clone()))
+            .or_else(|| env_or("ANTHROPIC_MODEL"))
             .or_else(|| claude_env.as_ref().and_then(|e| e.model.clone()))
             .unwrap_or_else(|| "claude-sonnet-4-20250514".into());
         let api_style = env_or("COMMA_API_STYLE")
