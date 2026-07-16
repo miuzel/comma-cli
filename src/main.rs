@@ -2372,6 +2372,7 @@ fn run_interactive(config: &Config, system: &str, v: Verbosity, auto_confirm: bo
                                     current_cmd = cmd;
                                     current_cache_key = resp.cache_key.clone();
                                     current_cache_entry = Some(CacheEntry::from(&resp));
+                                    print_cmd(&current_cmd);
                                     messages.push(Message {
                                         role: "assistant".into(),
                                         content: final_raw,
