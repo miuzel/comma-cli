@@ -41,20 +41,17 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
-      - name: Install cross
-        if: matrix.cross
-        run: |
-          curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cross-rs/cross/master/ci.sh | bash
-          echo "CROSS=1" >> "$GITHUB_ENV"
-
-      - name: Build
+      - name: Build (native)
+        if: "!matrix.cross"
         shell: bash
-        run: |
-          if [ "${CROSS:-}" = "1" ]; then
-            cross build --release --target ${{ matrix.target }}
-          else
-            cargo build --release --target ${{ matrix.target }}
-          fi
+        run: cargo build --release --target ${{ matrix.target }}
+
+      - name: Build (cross)
+        if: matrix.cross
+        uses: cross-rs/action@v2
+        with:
+          command: build
+          args: --release --target ${{ matrix.target }}
 
       - name: Package (unix)
         if: runner.os != 'Windows'
