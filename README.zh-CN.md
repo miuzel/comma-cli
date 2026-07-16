@@ -141,6 +141,17 @@ $ , compress this image
 ffmpeg -i input.png -quality 85 output.jpg
 ```
 
+### 📦 自动更新
+
+检查更新并从 GitHub releases 更新二进制：
+
+```bash
+, --update
+# ▸ Checking for updates (current: 0.14.0)...
+#   Update available: 0.14.0 → 0.15.0
+# ▸ Updated to 0.15.0
+```
+
 ### 📚 探索模式
 
 不确定工具用法时，模型会先运行帮助：
@@ -355,6 +366,12 @@ LLM 输出: "ls -la {{HOME}}"
 
 ```bash
 curl -sSL https://github.com/miuzel/comma-cli/releases/latest/download/install.sh | bash
+```
+
+更新到最新版本：
+
+```bash
+, --update
 ```
 
 或从源码构建：
