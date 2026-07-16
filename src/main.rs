@@ -1386,6 +1386,12 @@ fn is_dangerous(cmd: &str) -> bool {
 
 /// Split "command # comment" into (command, Some(comment)) or (cmd, None).
 /// Handles cases where # appears inside quotes or is the comment marker.
+/// Check if a command is comment-only (no actual command, just a # comment)
+fn is_comment_only(cmd: &str) -> bool {
+    let (command, _) = split_comment(cmd);
+    command.is_empty()
+}
+
 fn split_comment(raw: &str) -> (&str, Option<&str>) {
     // Find the first unquoted #
     let bytes = raw.as_bytes();
@@ -2070,6 +2076,12 @@ fn run_oneshot(config: &Config, system: &str, intent: &str, v: Verbosity, auto_c
             candidates[0].clone()
         };
 
+        // If command is comment-only (no actual command), just display and exit
+        if is_comment_only(&cmd) {
+            print_cmd(&cmd);
+            break;
+        }
+
         let action = if auto_confirm {
             EditAction::Execute(cmd)
         } else {
@@ -2290,9 +2302,20 @@ fn run_interactive(config: &Config, system: &str, v: Verbosity, auto_confirm: bo
                             }
                         } else {
                             let c = candidates[0].clone();
-                            print_cmd(&c);
                             c
                         };
+
+                        // If command is comment-only, just display and don't store
+                        if is_comment_only(&cmd) {
+                            print_cmd(&cmd);
+                            messages.push(Message {
+                                role: "assistant".into(),
+                                content: final_raw,
+                            });
+                            continue;
+                        }
+
+                        print_cmd(&cmd);
                         current_cmd = cmd;
                         current_cache_key = resp.cache_key.clone();
                         current_cache_entry = Some(CacheEntry::from(&resp));
