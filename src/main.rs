@@ -678,6 +678,112 @@ impl CacheEntry {
     }
 }
 
+// ── Version check & self-update ─────────────────────────────────────────────
+
+fn get_latest_version() -> Result<(String, String), String> {
+    let client = make_client()?;
+    let resp = client
+        .get("https://api.github.com/repos/miuzel/comma-cli/releases/latest")
+        .header("User-Agent", format!("comma/{}", env!("CARGO_PKG_VERSION")))
+        .send()
+        .map_err(|e| format!("GitHub API: {}", e))?;
+    if !resp.status().is_success() {
+        return Err(format!("GitHub API: HTTP {}", resp.status()));
+    }
+    let body: serde_json::Value = resp
+        .json()
+        .map_err(|e| format!("GitHub API: {}", e))?;
+    let tag = body["tag_name"]
+        .as_str()
+        .ok_or("GitHub API: missing tag_name")?;
+    let version = tag.strip_prefix('v').unwrap_or(tag).to_string();
+    Ok((version, tag.to_string()))
+}
+
+fn version_newer(latest: &str, current: &str) -> bool {
+    let parse = |v: &str| -> Vec<u32> {
+        v.split('.').filter_map(|s| s.parse().ok()).collect()
+    };
+    let l = parse(latest);
+    let c = parse(current);
+    for i in 0..l.len().max(c.len()) {
+        let lv = l.get(i).copied().unwrap_or(0);
+        let cv = c.get(i).copied().unwrap_or(0);
+        if lv > cv { return true; }
+        if lv < cv { return false; }
+    }
+    false
+}
+
+fn do_update() {
+    let current = env!("CARGO_PKG_VERSION");
+    print_info(&format!("Checking for updates (current: {})...", current));
+
+    let (latest, tag) = match get_latest_version() {
+        Ok(v) => v,
+        Err(e) => { print_error(&e); return; }
+    };
+
+    if !version_newer(&latest, current) {
+        print_info(&format!("Already up to date ({})", current));
+        return;
+    }
+
+    println!("  Update available: {} → {}", current, latest);
+
+    // Determine binary path
+    let exe_path = match std::env::current_exe() {
+        Ok(p) => p,
+        Err(e) => { print_error(&format!("Cannot find binary path: {}", e)); return; }
+    };
+
+    // Download new binary
+    let download_url = "https://github.com/miuzel/comma-cli/releases/latest/download/comma";
+    let mut spinner = Spinner::start(&format!("Downloading {}...", tag));
+    let client = match make_client() {
+        Ok(c) => c,
+        Err(e) => { spinner.stop(); print_error(&e); return; }
+    };
+    let resp = match client
+        .get(download_url)
+        .header("User-Agent", format!("comma/{}", current))
+        .send()
+    {
+        Ok(r) => r,
+        Err(e) => { spinner.stop(); print_error(&format!("Download: {}", e)); return; }
+    };
+    if !resp.status().is_success() {
+        spinner.stop();
+        print_error(&format!("Download: HTTP {}", resp.status()));
+        return;
+    }
+    let bytes = match resp.bytes() {
+        Ok(b) => b,
+        Err(e) => { spinner.stop(); print_error(&format!("Download: {}", e)); return; }
+    };
+    spinner.stop();
+
+    // Write to temp file, then atomic rename
+    let tmp_path = exe_path.with_extension("tmp");
+    if let Err(e) = std::fs::write(&tmp_path, &bytes) {
+        print_error(&format!("Write temp file: {}", e));
+        return;
+    }
+    // Make executable (Unix)
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(&tmp_path, std::fs::Permissions::from_mode(0o755));
+    }
+    if let Err(e) = std::fs::rename(&tmp_path, &exe_path) {
+        print_error(&format!("Replace binary: {}", e));
+        let _ = std::fs::remove_file(&tmp_path);
+        return;
+    }
+
+    print_info(&format!("Updated to {}", latest));
+}
+
 // ── OpenAI-compatible types ─────────────────────────────────────────────────
 
 #[derive(Serialize)]
@@ -1829,6 +1935,11 @@ fn main() {
         return;
     }
 
+    if args.iter().any(|a| a == "--update") {
+        do_update();
+        return;
+    }
+
     if args.iter().any(|a| a == "-h" || a == "--help") {
         print_help();
         return;
@@ -1863,7 +1974,18 @@ fn main() {
     let system = load_prompt(&config);
 
     if args.is_empty() {
-        run_interactive(&config, &system, verbosity, false);
+        if !atty::is(atty::Stream::Stdin) {
+            // Piped stdin: read intent from stdin and run one-shot
+            let mut input = String::new();
+            io::stdin().read_line(&mut input).ok();
+            let intent = input.trim();
+            if intent.is_empty() {
+                return;
+            }
+            run_oneshot(&config, &system, intent, verbosity, false);
+        } else {
+            run_interactive(&config, &system, verbosity, false);
+        }
     } else {
         let intent = args.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(" ");
         // Check for auto-confirm flag: , install fenster !
@@ -2001,6 +2123,7 @@ fn print_help() {
     println!("  , <intent>   Generate shell command from natural language");
     println!("  ,            Interactive mode (refine commands with conversation)");
     println!("  , -h         Show this help");
+    println!("  , --update   Check for updates and self-update");
     println!("  , -v         Verbose: show prompt and LLM reply");
     println!("  , -vv        Very verbose: add request logs and timing");
     println!();
