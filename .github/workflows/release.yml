@@ -41,6 +41,10 @@ jobs:
         with:
           targets: ${{ matrix.target }}
 
+      - name: Install cross
+        if: matrix.cross
+        run: cargo install cross --locked
+
       - name: Build (native)
         if: "!matrix.cross"
         shell: bash
@@ -48,10 +52,8 @@ jobs:
 
       - name: Build (cross)
         if: matrix.cross
-        uses: cross-rs/action@v2
-        with:
-          command: build
-          args: --release --target ${{ matrix.target }}
+        shell: bash
+        run: cross build --release --target ${{ matrix.target }}
 
       - name: Package (unix)
         if: runner.os != 'Windows'
