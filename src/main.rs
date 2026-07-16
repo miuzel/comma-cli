@@ -715,11 +715,32 @@ fn version_newer(latest: &str, current: &str) -> bool {
     false
 }
 
+fn detect_platform() -> Option<&'static str> {
+    let os = if cfg!(target_os = "linux") {
+        "linux"
+    } else if cfg!(target_os = "macos") {
+        "macos"
+    } else if cfg!(target_os = "windows") {
+        "windows"
+    } else {
+        return None;
+    };
+    let arch = if cfg!(target_arch = "x86_64") {
+        "x86_64"
+    } else if cfg!(target_arch = "aarch64") {
+        "aarch64"
+    } else {
+        return None;
+    };
+    // Leak a small string to return &'static — acceptable for a few known values
+    Some(Box::leak(format!("{}-{}", os, arch).into_boxed_str()))
+}
+
 fn do_update() {
     let current = env!("CARGO_PKG_VERSION");
     print_info(&format!("Checking for updates (current: {})...", current));
 
-    let (latest, tag) = match get_latest_version() {
+    let (latest, _tag) = match get_latest_version() {
         Ok(v) => v,
         Err(e) => { print_error(&e); return; }
     };
@@ -731,21 +752,35 @@ fn do_update() {
 
     println!("  Update available: {} → {}", current, latest);
 
+    let platform = match detect_platform() {
+        Some(p) => p,
+        None => { print_error("Unsupported platform for auto-update"); return; }
+    };
+
     // Determine binary path
     let exe_path = match std::env::current_exe() {
         Ok(p) => p,
         Err(e) => { print_error(&format!("Cannot find binary path: {}", e)); return; }
     };
 
-    // Download new binary
-    let download_url = "https://github.com/miuzel/comma-cli/releases/latest/download/comma";
-    let mut spinner = Spinner::start(&format!("Downloading {}...", tag));
+    // Download platform archive
+    let (archive_name, is_zip) = if cfg!(target_os = "windows") {
+        (format!("comma-windows-x86_64.zip"), true)
+    } else {
+        (format!("comma-{}.tar.gz", platform), false)
+    };
+    let download_url = format!(
+        "https://github.com/miuzel/comma-cli/releases/latest/download/{}",
+        archive_name
+    );
+
+    let mut spinner = Spinner::start(&format!("Downloading {}...", archive_name));
     let client = match make_client() {
         Ok(c) => c,
         Err(e) => { spinner.stop(); print_error(&e); return; }
     };
     let resp = match client
-        .get(download_url)
+        .get(&download_url)
         .header("User-Agent", format!("comma/{}", current))
         .send()
     {
@@ -763,23 +798,61 @@ fn do_update() {
     };
     spinner.stop();
 
-    // Write to temp file, then atomic rename
-    let tmp_path = exe_path.with_extension("tmp");
-    if let Err(e) = std::fs::write(&tmp_path, &bytes) {
-        print_error(&format!("Write temp file: {}", e));
+    // Extract binary from archive to temp dir
+    let tmp_dir = std::env::temp_dir().join("comma-update");
+    let _ = std::fs::remove_dir_all(&tmp_dir);
+    if let Err(e) = std::fs::create_dir_all(&tmp_dir) {
+        print_error(&format!("Create temp dir: {}", e));
         return;
     }
-    // Make executable (Unix)
+
+    let archive_path = tmp_dir.join(&archive_name);
+    if let Err(e) = std::fs::write(&archive_path, &bytes) {
+        print_error(&format!("Write archive: {}", e));
+        return;
+    }
+
+    let extracted_binary = if is_zip {
+        // Use PowerShell to extract on Windows
+        let status = std::process::Command::new("powershell")
+            .args(["-Command", &format!(
+                "Expand-Archive -Path '{}' -DestinationPath '{}' -Force",
+                archive_path.display(), tmp_dir.display()
+            )])
+            .status();
+        match status {
+            Ok(s) if s.success() => tmp_dir.join("comma.exe"),
+            _ => { print_error("Failed to extract zip archive"); return; }
+        }
+    } else {
+        // Use tar on Unix
+        let status = std::process::Command::new("tar")
+            .args(["xzf", archive_path.to_str().unwrap(), "-C", tmp_dir.to_str().unwrap()])
+            .status();
+        match status {
+            Ok(s) if s.success() => tmp_dir.join("comma"),
+            _ => { print_error("Failed to extract tar archive"); return; }
+        }
+    };
+
+    if !extracted_binary.exists() {
+        print_error("Binary not found in archive");
+        return;
+    }
+
+    // Atomic replace
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(&tmp_path, std::fs::Permissions::from_mode(0o755));
+        let _ = std::fs::set_permissions(&extracted_binary, std::fs::Permissions::from_mode(0o755));
     }
-    if let Err(e) = std::fs::rename(&tmp_path, &exe_path) {
+    if let Err(e) = std::fs::rename(&extracted_binary, &exe_path) {
         print_error(&format!("Replace binary: {}", e));
-        let _ = std::fs::remove_file(&tmp_path);
         return;
     }
+
+    // Cleanup
+    let _ = std::fs::remove_dir_all(&tmp_dir);
 
     print_info(&format!("Updated to {}", latest));
 }
