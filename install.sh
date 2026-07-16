@@ -4,24 +4,59 @@ set -euo pipefail
 PREFIX="${HOME}/.local/bin"
 REPO="miuzel/comma-cli"
 
-echo "Installing comma to ${PREFIX} ..."
+# Detect platform and architecture
+detect_platform() {
+    local os arch
+    case "$(uname -s)" in
+        Linux*)  os="linux" ;;
+        Darwin*) os="macos" ;;
+        MINGW*|MSYS*|CYGWIN*) os="windows" ;;
+        *) echo "Error: unsupported OS $(uname -s)"; exit 1 ;;
+    esac
+    case "$(uname -m)" in
+        x86_64|amd64)  arch="x86_64" ;;
+        aarch64|arm64) arch="aarch64" ;;
+        *) echo "Error: unsupported architecture $(uname -m)"; exit 1 ;;
+    esac
+    echo "${os}-${arch}"
+}
 
-# Always download from GitHub releases
-echo "Downloading from GitHub releases..."
-LATEST_URL="https://github.com/${REPO}/releases/latest/download/comma"
-mkdir -p "$PREFIX"
+PLATFORM=$(detect_platform)
+echo "Installing comma for ${PLATFORM} to ${PREFIX} ..."
 
+# Download from GitHub releases
+if [ "$PLATFORM" = "windows-x86_64" ]; then
+    ARCHIVE="comma-windows-x86_64.zip"
+    BINARY="comma.exe"
+else
+    ARCHIVE="comma-${PLATFORM}.tar.gz"
+    BINARY="comma"
+fi
+
+DOWNLOAD_URL="https://github.com/${REPO}/releases/latest/download/${ARCHIVE}"
+TMPDIR=$(mktemp -d)
+trap 'rm -rf "$TMPDIR"' EXIT
+
+echo "Downloading ${ARCHIVE}..."
 if command -v curl >/dev/null 2>&1; then
-    curl -sSL "$LATEST_URL" -o "$PREFIX/comma.tmp"
+    curl -sSL "$DOWNLOAD_URL" -o "$TMPDIR/$ARCHIVE"
 elif command -v wget >/dev/null 2>&1; then
-    wget -q "$LATEST_URL" -O "$PREFIX/comma.tmp"
+    wget -q "$DOWNLOAD_URL" -O "$TMPDIR/$ARCHIVE"
 else
     echo "Error: curl or wget required"
     exit 1
 fi
 
-mv "$PREFIX/comma.tmp" "$PREFIX/,"
-chmod +x "$PREFIX/,"
+# Extract
+mkdir -p "$PREFIX"
+if [ "$PLATFORM" = "windows-x86_64" ]; then
+    cd "$TMPDIR" && unzip -qo "$ARCHIVE" && cd -
+    cp "$TMPDIR/$BINARY" "$PREFIX/comma.exe"
+else
+    tar xzf "$TMPDIR/$ARCHIVE" -C "$TMPDIR"
+    cp "$TMPDIR/$BINARY" "$PREFIX/,"
+    chmod +x "$PREFIX/,"
+fi
 
 # Download config files if not exists
 for f in config.json prompt.md; do
@@ -36,7 +71,7 @@ done
 
 echo ""
 echo "Installed files:"
-ls -lh "$PREFIX/," 2>/dev/null || true
+ls -lh "$PREFIX/," 2>/dev/null || ls -lh "$PREFIX/comma.exe" 2>/dev/null || true
 [ -f "$PREFIX/,.config.json" ] && ls -lh "$PREFIX/,.config.json"
 [ -f "$PREFIX/,.prompt.md" ] && ls -lh "$PREFIX/,.prompt.md"
 
