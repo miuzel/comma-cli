@@ -141,6 +141,17 @@ $ , compress this image
 ffmpeg -i input.png -quality 85 output.jpg
 ```
 
+### 📦 Self-update
+
+Check for updates and update the binary from GitHub releases:
+
+```bash
+, --update
+# ▸ Checking for updates (current: 0.14.0)...
+#   Update available: 0.14.0 → 0.15.0
+# ▸ Updated to 0.15.0
+```
+
 ### 📚 Exploration mode
 
 When unsure about a tool, the model runs help first:
@@ -355,6 +366,12 @@ This ensures correct commands for your platform (`apt` vs `pacman`, `brew` vs `p
 
 ```bash
 curl -sSL https://github.com/miuzel/comma-cli/releases/latest/download/install.sh | bash
+```
+
+Update to the latest version:
+
+```bash
+, --update
 ```
 
 Or build from source:
