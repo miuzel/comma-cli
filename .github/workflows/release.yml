@@ -11,6 +11,7 @@ permissions:
 jobs:
   build:
     strategy:
+      fail-fast: false
       matrix:
         include:
           - target: x86_64-unknown-linux-gnu
@@ -42,16 +43,18 @@ jobs:
 
       - name: Install cross
         if: matrix.cross
-        run: cargo install cross --git https://github.com/cross-rs/cross
+        run: |
+          curl -L --proto '=https' --tlsv1.2 -sSf https://raw.githubusercontent.com/cross-rs/cross/master/ci.sh | bash
+          echo "CROSS=1" >> "$GITHUB_ENV"
 
       - name: Build
+        shell: bash
         run: |
-          if [ "${{ matrix.cross }}" = "true" ]; then
+          if [ "${CROSS:-}" = "1" ]; then
             cross build --release --target ${{ matrix.target }}
           else
             cargo build --release --target ${{ matrix.target }}
           fi
-        shell: bash
 
       - name: Package (unix)
         if: runner.os != 'Windows'
@@ -62,6 +65,7 @@ jobs:
 
       - name: Package (windows)
         if: runner.os == 'Windows'
+        shell: bash
         run: |
           cd target/${{ matrix.target }}/release
           7z a ../../../${{ matrix.archive }} comma.exe
@@ -83,6 +87,9 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: artifacts
+
+      - name: List release files
+        run: find artifacts -type f | sort
 
       - name: Create release
         uses: softprops/action-gh-release@v2
