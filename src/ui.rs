@@ -174,28 +174,15 @@ pub fn select_command(candidates: &[String]) -> Option<usize> {
     }
 
     let mut selected: usize = 0;
-
-    // Determine the row where the list starts BEFORE printing. Printing near
-    // the bottom scrolls the terminal and clamps the reported cursor row at
-    // the last line, so a position read after printing would be wrong. If the
-    // list would overflow the bottom, pre-scroll with blank lines first — then
-    // the list reliably occupies the last `len` rows.
     let len = candidates.len() as u16;
-    let (_, rows) = crossterm::terminal::size().unwrap_or((80, 24));
-    let (_, cur_row) = crossterm::cursor::position().unwrap_or((0, 0));
-    let start_row = if cur_row.saturating_add(len) > rows {
-        let newlines = rows.saturating_sub(1).saturating_sub(cur_row);
-        let mut out = io::stdout().lock();
-        for _ in 0..newlines {
-            let _ = writeln!(out);
-        }
-        let _ = out.flush();
-        rows.saturating_sub(len)
-    } else {
-        cur_row
-    };
 
-    // Print initial candidates
+    // Print initial candidates. After drawing, the cursor always sits exactly
+    // one row below the last candidate — whether or not the terminal scrolled
+    // (no scroll: the cursor moved down `len` rows; scroll: it is clamped at
+    // the bottom row with the `len` candidates immediately above it). So the
+    // list reliably occupies the `len` rows directly above the cursor, and
+    // redraws can use relative movement only (scroll-proof, unlike tracking
+    // an absolute start row).
     draw_candidates(candidates, selected);
     let _ = io::stdout().flush();
 
@@ -227,7 +214,8 @@ pub fn select_command(candidates: &[String]) -> Option<usize> {
                 KeyCode::Enter => {
                     let _ = crossterm::execute!(
                         io::stdout(),
-                        crossterm::cursor::MoveTo(0, start_row),
+                        crossterm::cursor::MoveUp(len),
+                        crossterm::cursor::MoveToColumn(0),
                         crossterm::terminal::Clear(crossterm::terminal::ClearType::FromCursorDown),
                     );
                     let _ = crossterm::terminal::disable_raw_mode();
@@ -237,10 +225,14 @@ pub fn select_command(candidates: &[String]) -> Option<usize> {
                 KeyCode::Esc | KeyCode::Char('q') => break None,
                 _ => {}
             }
-            // Move to saved row, column 0, clear and redraw
+            // Move back up to the first candidate row, clear and redraw.
+            // MoveToColumn(0) is needed because draw_candidates ends lines
+            // with a bare '\n', which in raw mode leaves the cursor column
+            // wherever the last line's text ended.
             let _ = crossterm::execute!(
                 io::stdout(),
-                crossterm::cursor::MoveTo(0, start_row),
+                crossterm::cursor::MoveUp(len),
+                crossterm::cursor::MoveToColumn(0),
                 crossterm::terminal::Clear(crossterm::terminal::ClearType::FromCursorDown),
             );
             draw_candidates(candidates, selected);
