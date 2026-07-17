@@ -12,7 +12,7 @@ use std::borrow::Cow;
 use std::collections::HashMap;
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::io::{self, Write};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 // ── Rustyline helper wrapper ────────────────────────────────────────────────
 
@@ -800,8 +800,8 @@ fn do_update() {
     };
     spinner.stop();
 
-    // Extract binary from archive to temp dir
-    let tmp_dir = std::env::temp_dir().join("comma-update");
+    // Extract binary from archive to temp dir (same filesystem as binary for rename)
+    let tmp_dir = exe_path.parent().unwrap_or(Path::new(".")).join(".comma-update");
     let _ = std::fs::remove_dir_all(&tmp_dir);
     if let Err(e) = std::fs::create_dir_all(&tmp_dir) {
         print_error(&format!("Create temp dir: {}", e));
