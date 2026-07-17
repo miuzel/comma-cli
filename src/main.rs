@@ -33,38 +33,54 @@ use crate::update::do_update;
 fn main() {
     let args: Vec<String> = std::env::args().skip(1).collect();
 
-    if args.iter().any(|a| a == "-V" || a == "--version") {
+    // Only LEADING args (before the first non-flag arg) are treated as flags;
+    // everything after the first positional is intent text, verbatim. `--`
+    // explicitly ends the flag run. Unrecognized `-...` words start the intent.
+    let mut flags: Vec<&str> = Vec::new();
+    let mut rest: &[String] = &[];
+    for (i, a) in args.iter().enumerate() {
+        let s = a.as_str();
+        let is_flag = matches!(s, "-h" | "--help" | "-V" | "--version" | "--update" | "--test")
+            || (s.starts_with("-v") && s.chars().skip(1).all(|c| c == 'v'));
+        if s == "--" {
+            rest = &args[i + 1..];
+            break;
+        } else if is_flag {
+            flags.push(s);
+        } else {
+            rest = &args[i..];
+            break;
+        }
+    }
+
+    if flags.iter().any(|a| *a == "-V" || *a == "--version") {
         println!("comma {}", env!("CARGO_PKG_VERSION"));
         return;
     }
 
-    if args.iter().any(|a| a == "--update") {
+    if flags.iter().any(|a| *a == "--update") {
         do_update();
         return;
     }
 
-    if args.iter().any(|a| a == "-h" || a == "--help") {
+    if flags.iter().any(|a| *a == "-h" || *a == "--help") {
         print_help();
         return;
     }
 
-    if args.iter().any(|a| a == "--test") {
+    if flags.iter().any(|a| *a == "--test") {
         run_tests();
         return;
     }
 
-    // Count -v flags (supports -v, -vv, -vvv)
+    // Count -v flags (supports -v, -vv, -vvv) among leading flags only
     let verbosity = Verbosity(
-        args.iter()
+        flags
+            .iter()
             .filter(|a| a.starts_with("-v") && a.chars().skip(1).all(|c| c == 'v'))
             .map(|a| a.len() as u8 - 1)
             .sum(),
     );
-
-    // Filter out -v flags from args (remaining = intent words)
-    let args: Vec<&String> = args.iter().filter(|a| {
-        !(a.starts_with("-v") && a.chars().skip(1).all(|c| c == 'v'))
-    }).collect();
 
     let config = match load_config() {
         Ok(c) => c,
@@ -76,21 +92,24 @@ fn main() {
 
     let system = load_prompt(&config);
 
-    if args.is_empty() {
+    if rest.is_empty() {
         if !atty::is(atty::Stream::Stdin) {
             // Piped stdin: read intent from stdin and run one-shot
-            let mut input = String::new();
-            io::stdin().read_line(&mut input).ok();
-            let intent = input.trim();
-            if intent.is_empty() {
-                return;
+            match read_stdin_intent() {
+                Some(intent) => run_oneshot(&config, &system, &intent, verbosity, false),
+                None => return,
             }
-            run_oneshot(&config, &system, intent, verbosity, false);
         } else {
             run_interactive(&config, &system, verbosity, false);
         }
+    } else if rest.len() == 1 && rest[0] == "!" && !atty::is(atty::Stream::Stdin) {
+        // Scriptable auto-confirm escape hatch: echo 'intent' | , !
+        match read_stdin_intent() {
+            Some(intent) => run_oneshot(&config, &system, &intent, verbosity, true),
+            None => return,
+        }
     } else {
-        let intent = args.iter().map(|s| s.as_str()).collect::<Vec<_>>().join(" ");
+        let intent = rest.join(" ");
         // Check for auto-confirm flag: , install fenster !
         let (intent, auto_confirm) = if intent.ends_with('!') {
             (intent[..intent.len()-1].trim().to_string(), true)
@@ -101,12 +120,27 @@ fn main() {
     }
 }
 
+/// Read a one-shot intent from piped stdin (first line, trimmed).
+/// Returns None on read failure or empty input.
+fn read_stdin_intent() -> Option<String> {
+    let mut input = String::new();
+    io::stdin().read_line(&mut input).ok()?;
+    let intent = input.trim();
+    if intent.is_empty() {
+        None
+    } else {
+        Some(intent.to_string())
+    }
+}
+
 fn print_help() {
     println!("Usage:");
     println!("  , <intent>   Generate shell command from natural language");
     println!("  ,            Interactive mode (refine commands with conversation)");
     println!("  , -h         Show this help");
+    println!("  , --version  Show version");
     println!("  , --update   Check for updates and self-update");
+    println!("  , --test     Run built-in self-tests");
     println!("  , -v         Verbose: show prompt and LLM reply");
     println!("  , -vv        Very verbose: add request logs and timing");
     println!();
@@ -114,6 +148,7 @@ fn print_help() {
     println!("  x / exec     Execute the current command");
     println!("  c / copy     Copy current command to clipboard");
     println!("  q / quit     Exit");
+    println!("  y / Enter    Confirm execution when prompted");
     println!("  Tab          Complete filename from current directory");
     println!();
     println!("Config priority: COMMA_* env > ,.config.json > claude settings");
@@ -165,6 +200,8 @@ fn run_oneshot(config: &Config, system: &str, intent: &str, v: Verbosity, auto_c
     let mut current_raw = final_raw;
     let mut last_cache_key = resp.cache_key.clone();
     let mut last_cache_entry = CacheEntry::from(&resp);
+    // Cache the final processed command, not a raw #CHECK:/#EXPLORE: probe
+    last_cache_entry.content = current_raw.clone();
 
     loop {
         let candidates: Vec<String> = parse_candidates(&current_raw)
@@ -193,6 +230,8 @@ fn run_oneshot(config: &Config, system: &str, intent: &str, v: Verbosity, auto_c
         }
 
         let action = if auto_confirm {
+            // Show the command (and any danger warning) before executing
+            print_cmd(&cmd);
             EditAction::Execute(cmd)
         } else {
             match rl.as_mut() {
@@ -238,6 +277,8 @@ fn run_oneshot(config: &Config, system: &str, intent: &str, v: Verbosity, auto_c
                         current_raw = process_response(config, system, &messages, &resp.content, &ph, v, &cache, auto_confirm);
                         last_cache_key = resp.cache_key.clone();
                         last_cache_entry = CacheEntry::from(&resp);
+                        // Cache the final processed command, not a raw probe
+                        last_cache_entry.content = current_raw.clone();
                         // Loop back to show new candidates
                     }
                     Err(e) => {
@@ -278,6 +319,9 @@ fn run_interactive(config: &Config, system: &str, v: Verbosity, auto_confirm: bo
 
     let mut messages: Vec<Message> = Vec::new();
     let mut current_cmd = String::new();
+    // Raw LLM reply behind current_cmd (placeholders NOT substituted) —
+    // pushed as assistant content on refine so real paths never reach the API
+    let mut current_raw = String::new();
     let mut current_cache_key: Option<String> = None;
     let mut current_cache_entry: Option<CacheEntry> = None;
 
@@ -317,10 +361,10 @@ fn run_interactive(config: &Config, system: &str, v: Verbosity, auto_confirm: bo
                             }
                         }
                         EditAction::Refine(text) => {
-                            // Push current cmd as assistant, refinement as user
+                            // Push current raw reply as assistant, refinement as user
                             messages.push(Message {
                                 role: "assistant".into(),
-                                content: current_cmd.clone(),
+                                content: current_raw.clone(),
                             });
                             messages.push(Message {
                                 role: "user".into(),
@@ -353,8 +397,12 @@ fn run_interactive(config: &Config, system: &str, v: Verbosity, auto_confirm: bo
                                         candidates[0].clone()
                                     };
                                     current_cmd = cmd;
+                                    current_raw = final_raw.clone();
                                     current_cache_key = resp.cache_key.clone();
-                                    current_cache_entry = Some(CacheEntry::from(&resp));
+                                    let mut entry = CacheEntry::from(&resp);
+                                    // Cache the final processed command, not a raw probe
+                                    entry.content = final_raw.clone();
+                                    current_cache_entry = Some(entry);
                                     print_cmd(&current_cmd);
                                     messages.push(Message {
                                         role: "assistant".into(),
@@ -428,8 +476,12 @@ fn run_interactive(config: &Config, system: &str, v: Verbosity, auto_confirm: bo
 
                         print_cmd(&cmd);
                         current_cmd = cmd;
+                        current_raw = final_raw.clone();
                         current_cache_key = resp.cache_key.clone();
-                        current_cache_entry = Some(CacheEntry::from(&resp));
+                        let mut entry = CacheEntry::from(&resp);
+                        // Cache the final processed command, not a raw probe
+                        entry.content = final_raw.clone();
+                        current_cache_entry = Some(entry);
                         messages.push(Message {
                             role: "assistant".into(),
                             content: final_raw,
