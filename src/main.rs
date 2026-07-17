@@ -842,15 +842,19 @@ fn do_update() {
         return;
     }
 
-    // Atomic replace
+    // Atomic replace (rename fails across drives on Windows, fall back to copy)
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         let _ = std::fs::set_permissions(&extracted_binary, std::fs::Permissions::from_mode(0o755));
     }
-    if let Err(e) = std::fs::rename(&extracted_binary, &exe_path) {
-        print_error(&format!("Replace binary: {}", e));
-        return;
+    if let Err(_e) = std::fs::rename(&extracted_binary, &exe_path) {
+        // Rename failed (likely cross-drive on Windows), try copy+delete
+        if let Err(e) = std::fs::copy(&extracted_binary, &exe_path) {
+            print_error(&format!("Replace binary: {}", e));
+            return;
+        }
+        let _ = std::fs::remove_file(&extracted_binary);
     }
 
     // Cleanup
