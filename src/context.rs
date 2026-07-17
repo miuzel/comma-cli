@@ -36,12 +36,17 @@ fn get_distro() -> String {
     run_cmd("lsb_release", &["-ds"]).unwrap_or_else(|| "Linux (unknown distro)".into())
 }
 
-fn get_kernel() -> String {
-    run_cmd("uname", &["-srmo"]).unwrap_or_else(|| "unknown".into())
-}
-
-fn get_arch() -> String {
-    run_cmd("uname", &["-m"]).unwrap_or_else(|| "unknown".into())
+/// Kernel string and architecture from a single `uname -srm` spawn.
+/// `-o` is intentionally omitted: it's a GNU extension that fails on macOS.
+fn get_kernel_arch() -> (String, String) {
+    let kernel = run_cmd("uname", &["-srm"]).unwrap_or_else(|| "unknown".into());
+    // Arch is the last field of the `uname -srm` output.
+    let arch = kernel
+        .split_whitespace()
+        .last()
+        .unwrap_or("unknown")
+        .to_string();
+    (kernel, arch)
 }
 
 fn get_shell() -> String {
@@ -70,9 +75,20 @@ fn get_packages() -> String {
 
     // List user-installed packages (non-auto, not part of base system)
     // This is much smaller than listing all PATH executables.
+    // Capped so large systems don't blow up the system prompt.
+    const MAX_USER_PACKAGES: usize = 200;
     let user_pkgs = get_user_packages();
     if !user_pkgs.is_empty() {
-        sections.push(format!("[User-installed packages: {}]", user_pkgs.join(", ")));
+        let mut list = user_pkgs
+            .iter()
+            .take(MAX_USER_PACKAGES)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(", ");
+        if user_pkgs.len() > MAX_USER_PACKAGES {
+            list.push_str(&format!(", ... ({} more)", user_pkgs.len() - MAX_USER_PACKAGES));
+        }
+        sections.push(format!("[User-installed packages: {}]", list));
     }
 
     sections.join("\n")
@@ -115,8 +131,7 @@ fn get_user_packages() -> Vec<String> {
 /// Sanitizes CWD to avoid leaking username/home path.
 pub fn gather_context() -> String {
     let distro = get_distro();
-    let kernel = get_kernel();
-    let arch = get_arch();
+    let (kernel, arch) = get_kernel_arch();
     let shell = get_shell();
     let home = home_dir().unwrap_or_default();
     let user = get_user();
@@ -124,10 +139,16 @@ pub fn gather_context() -> String {
     let cwd_raw = std::env::current_dir()
         .map(|p| p.display().to_string())
         .unwrap_or_else(|_| ".".into());
-    // Replace home path and username occurrences in CWD
-    let cwd = cwd_raw
-        .replace(&home, "{{HOME}}")
-        .replace(&user, "{{USER}}");
+    // Replace home path and username occurrences in CWD. Skip empty values:
+    // str::replace with an empty needle inserts the replacement between
+    // every character.
+    let mut cwd = cwd_raw;
+    if !home.is_empty() {
+        cwd = cwd.replace(&home, "{{HOME}}");
+    }
+    if !user.is_empty() {
+        cwd = cwd.replace(&user, "{{USER}}");
+    }
 
     let packages = get_packages();
 
