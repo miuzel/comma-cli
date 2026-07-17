@@ -61,6 +61,54 @@ fn detect_platform() -> Option<&'static str> {
     Some(Box::leak(format!("{}-{}", os, arch).into_boxed_str()))
 }
 
+fn sha256_hex(bytes: &[u8]) -> String {
+    use sha2::Digest;
+    let mut hasher = sha2::Sha256::new();
+    hasher.update(bytes);
+    hasher.finalize().iter().map(|b| format!("{:02x}", b)).collect()
+}
+
+/// Verify the downloaded archive against sha256sums.txt from the same release.
+/// Fails on mismatch or missing entry — never install an unverified binary.
+fn verify_archive(
+    client: &reqwest::blocking::Client,
+    archive_name: &str,
+    bytes: &[u8],
+    current: &str,
+) -> Result<(), String> {
+    let url = "https://github.com/miuzel/comma-cli/releases/latest/download/sha256sums.txt";
+    let resp = client
+        .get(url)
+        .header("User-Agent", format!("comma/{}", current))
+        .send()
+        .map_err(|e| format!("Download sha256sums.txt: {}", e))?;
+    if !resp.status().is_success() {
+        return Err(format!("Download sha256sums.txt: HTTP {}", resp.status()));
+    }
+    let sums = resp.text().map_err(|e| format!("Download sha256sums.txt: {}", e))?;
+
+    // Lines look like: `<sha256>  <archive-name>` (`*name` in binary mode)
+    let expected = sums
+        .lines()
+        .find_map(|line| {
+            let mut parts = line.split_whitespace();
+            let hash = parts.next()?;
+            let name = parts.next()?;
+            if name.trim_start_matches('*') == archive_name { Some(hash.to_string()) } else { None }
+        })
+        .ok_or_else(|| format!("sha256sums.txt has no entry for {}", archive_name))?;
+
+    let actual = sha256_hex(bytes);
+    if actual != expected {
+        return Err(format!(
+            "Checksum mismatch for {} (expected {}, got {}) — aborting update",
+            archive_name, expected, actual
+        ));
+    }
+    print_info(&format!("Checksum verified ({}...)", &actual[..12]));
+    Ok(())
+}
+
 pub fn do_update() {
     let current = env!("CARGO_PKG_VERSION");
     print_info(&format!("Checking for updates (current: {})...", current));
@@ -122,6 +170,12 @@ pub fn do_update() {
         Err(e) => { spinner.stop(); print_error(&format!("Download: {}", e)); return; }
     };
     spinner.stop();
+
+    // Verify integrity before touching the filesystem
+    if let Err(e) = verify_archive(&client, &archive_name, &bytes, current) {
+        print_error(&e);
+        return;
+    }
 
     // Extract binary from archive to temp dir (same filesystem as binary for rename)
     let tmp_dir = exe_path.parent().unwrap_or(Path::new(".")).join(".comma-update");
