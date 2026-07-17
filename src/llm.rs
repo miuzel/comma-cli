@@ -140,6 +140,28 @@ fn normalize_base_url(url: &str) -> String {
 pub const RETRY_HINT: &str =
     "Your previous response was empty. You MUST output exactly ONE shell command. No explanations, no markdown fences. Just the raw command.";
 
+/// Look up one model entry's cache and build the `LlmResponse` on hit.
+/// Returns `None` on miss or when the cached content is empty.
+fn cached_response(
+    entry: &ModelEntry,
+    system: &str,
+    messages: &[Message],
+    v: Verbosity,
+    cache: &ResponseCache,
+) -> Option<LlmResponse> {
+    let key = cache_key(&entry.model, system, messages);
+    let cached = cache.get(&key)?;
+    if cached.content.is_empty() {
+        return None;
+    }
+    if v.show_debug() {
+        print_debug(&format!("Cache hit: {}", &key[..8]));
+    }
+    let mut resp = cached.to_response();
+    resp.cache_key = Some(key);
+    Some(resp)
+}
+
 fn call_llm(
     entry: &ModelEntry,
     system: &str,
@@ -148,21 +170,13 @@ fn call_llm(
     cache: &ResponseCache,
     reasoning: u32,
 ) -> Result<LlmResponse, String> {
-    let key = cache_key(&entry.model, system, messages);
-
     // Check cache — only return non-empty cached responses
-    if let Some(cached) = cache.get(&key) {
-        if !cached.content.is_empty() {
-            if v.show_debug() {
-                print_debug(&format!("Cache hit: {}", &key[..8]));
-            }
-            let mut resp = cached.to_response();
-            resp.cache_key = Some(key);
-            return Ok(resp);
-        }
+    if let Some(resp) = cached_response(entry, system, messages, v, cache) {
+        return Ok(resp);
     }
 
     // Call API
+    let key = cache_key(&entry.model, system, messages);
     if v.show_debug() {
         print_debug(&format!("Cache miss: {}", &key[..8]));
     }
@@ -206,6 +220,13 @@ pub fn print_usage(u: &Usage) {
 
 /// Call LLM with retry on empty response. Up to `retries` attempts per entry;
 /// an empty response retries once with RETRY_HINT, consuming the next attempt.
+///
+/// Cache-first: before any live API call, ALL configured model entries are
+/// checked in fallback order and the first non-empty cached response wins.
+/// A cached fallback answer is therefore served even when the primary is
+/// reachable — acceptable because entries are only cached after the user
+/// executed the command — and a dead/slow primary no longer delays a cached
+/// fallback hit.
 pub fn call_llm_with_retry(
     config: &Config,
     system: &str,
@@ -213,6 +234,13 @@ pub fn call_llm_with_retry(
     v: Verbosity,
     cache: &ResponseCache,
 ) -> Result<LlmResponse, String> {
+    // Cache-first pass across the whole fallback chain, in order.
+    for entry in &config.entries {
+        if let Some(resp) = cached_response(entry, system, messages, v, cache) {
+            return Ok(resp);
+        }
+    }
+
     let mut last_err = String::new();
     for (idx, entry) in config.entries.iter().enumerate() {
         if idx > 0 {
@@ -263,6 +291,9 @@ pub fn call_llm_with_retry(
 pub fn make_client() -> Result<reqwest::blocking::Client, String> {
     reqwest::blocking::Client::builder()
         .timeout(std::time::Duration::from_secs(60))
+        // Fail fast on dead/blackholed hosts instead of waiting out the
+        // 60s total timeout before a fallback entry is even tried.
+        .connect_timeout(std::time::Duration::from_secs(10))
         .build()
         .map_err(|e| format!("HTTP client: {}", e))
 }
