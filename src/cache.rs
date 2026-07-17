@@ -43,6 +43,8 @@ pub fn cache_key(model: &str, system: &str, messages: &[Message]) -> String {
 }
 
 impl ResponseCache {
+    /// Load the on-disk cache. `max_size == 0` disables caching entirely
+    /// (`put` becomes a no-op and nothing is ever written back).
     pub fn load(max_size: usize) -> Self {
         let home = home_dir().unwrap_or_default();
         let path = PathBuf::from(&home).join(".local/bin/,.cache.json");
@@ -62,7 +64,12 @@ impl ResponseCache {
         self.entries.get(key)
     }
 
+    /// Insert an entry, evicting the oldest entry when over capacity.
+    /// No-op when `max_size == 0` (caching disabled).
     pub fn put(&mut self, key: String, entry: CacheEntry) {
+        if self.max_size == 0 {
+            return;
+        }
         self.entries.insert(key, entry);
         self.dirty = true;
         // Evict oldest if over capacity
@@ -81,12 +88,20 @@ impl ResponseCache {
         }
     }
 
+    /// Persist the cache if dirty. Writes to a temp file in the same
+    /// directory first, then renames over the target so a crash mid-write
+    /// cannot leave a corrupt cache file. Best-effort: errors are ignored.
     pub fn save(&self) {
         if !self.dirty {
             return;
         }
         if let Ok(json) = serde_json::to_string(&self.entries) {
-            let _ = std::fs::write(&self.path, json);
+            let mut tmp = self.path.clone().into_os_string();
+            tmp.push(".tmp");
+            let tmp = PathBuf::from(tmp);
+            if std::fs::write(&tmp, json).is_ok() && std::fs::rename(&tmp, &self.path).is_err() {
+                let _ = std::fs::remove_file(&tmp);
+            }
         }
     }
 
