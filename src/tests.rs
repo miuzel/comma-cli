@@ -1,7 +1,8 @@
+use crate::cache::cache_key;
 use crate::config::MAX_RETRIES;
 use crate::context::{apply_placeholders, collect_placeholders, gather_context, Placeholders};
 use crate::danger::is_dangerous;
-use crate::llm::RETRY_HINT;
+use crate::llm::{Message, RETRY_HINT};
 use crate::protocol::{parse_check, parse_explore};
 use crate::ui::{parse_candidates, truncate};
 
@@ -185,6 +186,19 @@ pub fn run_tests() {
     check(
         "apply_placeholders: empty home value",
         apply_placeholders("ls {{HOME}}", &ph_empty) == "ls ",
+    );
+
+    // Test 19: cache_key is per-model — the cache-first pass across the
+    // fallback chain relies on distinct keys per model for identical messages.
+    let msgs = [Message { role: "user".into(), content: "list files".into() }];
+    let key_a = cache_key("model-a", "sys", &msgs);
+    check(
+        "cache_key: differs per model",
+        cache_key("model-b", "sys", &msgs) != key_a,
+    );
+    check(
+        "cache_key: stable for identical input",
+        cache_key("model-a", "sys", &msgs) == key_a,
     );
 
     // Summary
