@@ -4,7 +4,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Version](https://img.shields.io/github/v/release/miuzel/comma-cli)](https://github.com/miuzel/comma-cli/releases)
-[![Platform](https://img.shields.io/badge/platform-linux%20%7C%20macos-lightgrey)]()
+[![Platform](https://img.shields.io/badge/platform-linux%20%7C%20macos%20%7C%20windows-lightgrey)]()
 
 ```bash
 # Install in 10 seconds
@@ -364,17 +364,41 @@ This ensures correct commands for your platform (`apt` vs `pacman`, `brew` vs `p
 
 ## Install
 
+### Linux / macOS (auto-detect)
+
 ```bash
 curl -sSL https://github.com/miuzel/comma-cli/releases/latest/download/install.sh | bash
 ```
 
-Update to the latest version:
+### Windows
+
+Download `comma-windows-x86_64.zip` from [releases](https://github.com/miuzel/comma-cli/releases/latest), extract `comma.exe`, and add it to your `PATH`.
+
+### Manual download
+
+Grab the archive for your platform from [releases](https://github.com/miuzel/comma-cli/releases/latest):
+
+| Platform | Archive |
+|----------|---------|
+| Linux x86_64 | `comma-linux-x86_64.tar.gz` |
+| Linux aarch64 | `comma-linux-aarch64.tar.gz` |
+| macOS x86_64 | `comma-macos-x86_64.tar.gz` |
+| macOS aarch64 (Apple Silicon) | `comma-macos-aarch64.tar.gz` |
+| Windows x86_64 | `comma-windows-x86_64.zip` |
+
+```bash
+# Example: Linux x86_64
+tar xzf comma-linux-x86_64.tar.gz
+mv comma ~/.local/bin/,
+```
+
+### Update
 
 ```bash
 , --update
 ```
 
-Or build from source:
+### Build from source
 
 ```bash
 git clone https://github.com/miuzel/comma-cli.git
