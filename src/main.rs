@@ -842,19 +842,29 @@ fn do_update() {
         return;
     }
 
-    // Atomic replace (rename fails across drives on Windows, fall back to copy)
+    // Replace binary
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         let _ = std::fs::set_permissions(&extracted_binary, std::fs::Permissions::from_mode(0o755));
     }
-    if let Err(_e) = std::fs::rename(&extracted_binary, &exe_path) {
-        // Rename failed (likely cross-drive on Windows), try copy+delete
+    // On Windows the running exe is locked. Rename it out of the way first.
+    let old_path = exe_path.with_extension("old");
+    let _ = std::fs::remove_file(&old_path); // clean up previous .old
+    if let Err(_e) = std::fs::rename(&exe_path, &old_path) {
+        // Rename of running exe failed, try direct copy (Unix or unlocked Windows)
         if let Err(e) = std::fs::copy(&extracted_binary, &exe_path) {
             print_error(&format!("Replace binary: {}", e));
             return;
         }
-        let _ = std::fs::remove_file(&extracted_binary);
+    } else {
+        // Old exe renamed, copy new one into place
+        if let Err(e) = std::fs::copy(&extracted_binary, &exe_path) {
+            // Restore old exe on failure
+            let _ = std::fs::rename(&old_path, &exe_path);
+            print_error(&format!("Replace binary: {}", e));
+            return;
+        }
     }
 
     // Cleanup
