@@ -379,10 +379,10 @@ curl -sSL https://github.com/miuzel/comma-cli/releases/latest/download/install.s
 
 ```powershell
 # Install to D:\tools\bin (change path as needed)
-$dir = "D:\tools\bin"; Invoke-WebRequest -Uri "https://github.com/miuzel/comma-cli/releases/latest/download/comma-windows-x86_64.zip" -OutFile "$dir\comma.zip"; Expand-Archive -Path "$dir\comma.zip" -DestinationPath $dir -Force; Rename-Item "$dir\comma.exe" "c.exe"; Remove-Item "$dir\comma.zip"; Write-Host "Installed to $dir\c.exe — use: c <intent>"
+$dir = "$env:USERPROFILE\.local\bin"; New-Item -ItemType Directory -Force -Path $dir | Out-Null; Invoke-WebRequest -Uri "https://github.com/miuzel/comma-cli/releases/latest/download/comma-windows-x86_64.zip" -OutFile "$dir\comma.zip"; Expand-Archive -Path "$dir\comma.zip" -DestinationPath $dir -Force; Remove-Item "$dir\comma.zip"; Write-Host "Installed to $dir\comma.exe — add $dir to PATH, then use: comma <intent>"
 ```
 
-> **Note:** PowerShell reserves `,` as a keyword. Rename the exe to `c.exe` (or any name you prefer).
+> **Note:** PowerShell reserves `,` as a keyword. Rename the exe if you want a shorter name (e.g., `c.exe`).
 
 ### Manual download
 
