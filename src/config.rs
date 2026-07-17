@@ -54,6 +54,7 @@ pub struct ModelEntry {
     pub auth_token: String,
     pub model: String,
     pub api_style: ApiStyle,
+    /// Retry attempts for this model; always >= 1 (clamped at load time).
     pub retries: usize,
 }
 
@@ -147,7 +148,7 @@ pub fn load_config() -> Result<Config, String> {
         // New providers/models format — provider fields are required, no claude fallback
         let providers = local.providers.unwrap_or_default();
         let mut entries = Vec::new();
-        for m in models {
+        for (i, m) in models.iter().enumerate() {
             let p = providers.get(&m.provider)
                 .ok_or(format!("Provider '{}' not found in providers", m.provider))?;
             let base_url = env_or("COMMA_BASE_URL")
@@ -160,14 +161,22 @@ pub fn load_config() -> Result<Config, String> {
                 .and_then(|s| ApiStyle::from_str(&s))
                 .or_else(|| non_empty(p.api_style.clone()).and_then(|s| ApiStyle::from_str(&s)))
                 .unwrap_or_else(|| ApiStyle::from_url(&base_url));
-            let model = env_or("COMMA_MODEL")
-                .unwrap_or(m.model.clone());
+            // COMMA_MODEL overrides only the primary (first) entry's model;
+            // fallback entries keep their configured model so the fallback
+            // list is not collapsed into the same model repeated.
+            let model = if i == 0 {
+                env_or("COMMA_MODEL").unwrap_or_else(|| m.model.clone())
+            } else {
+                m.model.clone()
+            };
             entries.push(ModelEntry {
                 base_url,
                 auth_token,
                 model,
                 api_style,
-                retries: m.retries.unwrap_or(1),
+                // Clamp retries to at least 1: `retries: 0` would mean zero
+                // attempts and a confusing "All models returned empty" error.
+                retries: m.retries.unwrap_or(1).max(1),
             });
         }
         if entries.is_empty() {
