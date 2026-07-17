@@ -4,7 +4,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Version](https://img.shields.io/github/v/release/miuzel/comma-cli)](https://github.com/miuzel/comma-cli/releases)
-[![Platform](https://img.shields.io/badge/platform-linux%20%7C%20macos-lightgrey)]()
+[![Platform](https://img.shields.io/badge/platform-linux%20%7C%20macos%20%7C%20windows-lightgrey)]()
 
 ```bash
 # 10 秒安装
@@ -364,17 +364,41 @@ LLM 输出: "ls -la {{HOME}}"
 
 ## 安装
 
+### Linux / macOS（自动检测）
+
 ```bash
 curl -sSL https://github.com/miuzel/comma-cli/releases/latest/download/install.sh | bash
 ```
 
-更新到最新版本：
+### Windows
+
+从 [releases](https://github.com/miuzel/comma-cli/releases/latest) 下载 `comma-windows-x86_64.zip`，解压 `comma.exe`，将其加入 `PATH`。
+
+### 手动下载
+
+从 [releases](https://github.com/miuzel/comma-cli/releases/latest) 下载对应平台的压缩包：
+
+| 平台 | 压缩包 |
+|------|--------|
+| Linux x86_64 | `comma-linux-x86_64.tar.gz` |
+| Linux aarch64 | `comma-linux-aarch64.tar.gz` |
+| macOS x86_64 | `comma-macos-x86_64.tar.gz` |
+| macOS aarch64 (Apple Silicon) | `comma-macos-aarch64.tar.gz` |
+| Windows x86_64 | `comma-windows-x86_64.zip` |
+
+```bash
+# 示例：Linux x86_64
+tar xzf comma-linux-x86_64.tar.gz
+mv comma ~/.local/bin/,
+```
+
+### 更新
 
 ```bash
 , --update
 ```
 
-或从源码构建：
+### 从源码构建
 
 ```bash
 git clone https://github.com/miuzel/comma-cli.git
