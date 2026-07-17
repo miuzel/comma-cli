@@ -204,7 +204,8 @@ pub fn print_usage(u: &Usage) {
     let _ = writeln!(out);
 }
 
-/// Call LLM with retry on empty response. Up to MAX_RETRIES attempts.
+/// Call LLM with retry on empty response. Up to `retries` attempts per entry;
+/// an empty response retries once with RETRY_HINT, consuming the next attempt.
 pub fn call_llm_with_retry(
     config: &Config,
     system: &str,
@@ -217,31 +218,30 @@ pub fn call_llm_with_retry(
         if idx > 0 {
             print_info(&format!("Trying fallback: {} ({})...", entry.model, style_label(entry.api_style)));
         }
-        for attempt in 0..entry.retries {
-            let result = call_llm(entry, system, messages, v, cache, config.reasoning);
-            match result {
+        // Per-entry message list; the hint pair is appended once after the
+        // first empty response, and the hinted call is the next attempt.
+        let mut msgs = messages.to_vec();
+        let mut attempt = 0;
+        while attempt < entry.retries {
+            attempt += 1;
+            match call_llm(entry, system, &msgs, v, cache, config.reasoning) {
                 Ok(resp) if !resp.content.is_empty() => return Ok(resp),
                 Ok(_) => {
-                    // Empty response — retry with hint
-                    if attempt + 1 < entry.retries {
+                    // Empty response — retry with hint, consuming the next attempt
+                    if attempt < entry.retries {
                         print_info(&format!(
                             "Empty response from {}, retrying ({}/{})...",
-                            entry.model, attempt + 1, entry.retries
+                            entry.model, attempt, entry.retries
                         ));
-                        let mut retry_msgs = messages.to_vec();
-                        retry_msgs.push(Message {
-                            role: "assistant".into(),
-                            content: "(no response)".to_string(),
-                        });
-                        retry_msgs.push(Message {
-                            role: "user".into(),
-                            content: RETRY_HINT.to_string(),
-                        });
-                        let retry_result = call_llm(entry, system, &retry_msgs, v, cache, config.reasoning);
-                        if let Ok(resp) = retry_result {
-                            if !resp.content.is_empty() {
-                                return Ok(resp);
-                            }
+                        if msgs.len() == messages.len() {
+                            msgs.push(Message {
+                                role: "assistant".into(),
+                                content: "(no response)".to_string(),
+                            });
+                            msgs.push(Message {
+                                role: "user".into(),
+                                content: RETRY_HINT.to_string(),
+                            });
                         }
                     }
                 }
@@ -363,7 +363,8 @@ fn call_anthropic(entry: &ModelEntry, system: &str, messages: &[Message], v: Ver
 
     let body = AnthropicRequest {
         model: entry.model.clone(),
-        max_tokens: 1024,
+        // API requires max_tokens > thinking.budget_tokens
+        max_tokens: if reasoning > 0 { 1024 + reasoning } else { 1024 },
         system: system.to_string(),
         messages: messages.to_vec(),
         thinking,
