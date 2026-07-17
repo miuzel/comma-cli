@@ -1,3 +1,9 @@
+use std::io::Read;
+use std::process::{Command, Stdio};
+use std::sync::mpsc;
+use std::thread;
+use std::time::{Duration, Instant};
+
 use crate::cache::ResponseCache;
 use crate::config::Config;
 use crate::context::{apply_placeholders, run_cmd, Placeholders};
@@ -37,8 +43,10 @@ pub fn parse_check(raw: &str) -> Option<Vec<&str>> {
 fn check_tools(tools: &[&str]) -> String {
     let mut found = Vec::new();
     let mut missing = Vec::new();
+    // `where` is the Windows equivalent of `which` (non-zero exit when missing)
+    let lookup = if cfg!(target_os = "windows") { "where" } else { "which" };
     for tool in tools {
-        if run_cmd("which", &[tool]).is_some() {
+        if run_cmd(lookup, &[tool]).is_some() {
             found.push(*tool);
         } else {
             missing.push(*tool);
@@ -103,21 +111,88 @@ pub fn parse_explore(raw: &str) -> Option<&str> {
     trimmed.strip_prefix(EXPLORE_PREFIX).map(|s| s.trim()).filter(|s| !s.is_empty())
 }
 
+/// Max time an #EXPLORE: command may run before it is killed.
+const EXPLORE_TIMEOUT: Duration = Duration::from_secs(15);
+
+/// Spawn a thread that drains a child pipe and sends the bytes over a channel.
+/// Draining concurrently keeps a verbose child from blocking on a full pipe
+/// buffer while the main thread polls for exit.
+fn pipe_reader(pipe: Option<impl Read + Send + 'static>, tx: mpsc::Sender<Vec<u8>>) {
+    thread::spawn(move || {
+        let mut buf = Vec::new();
+        if let Some(mut p) = pipe {
+            let _ = p.read_to_end(&mut buf);
+        }
+        let _ = tx.send(buf);
+    });
+}
+
 /// Run a command, capture stdout+stderr (up to 4096 chars).
+/// The command is killed once EXPLORE_TIMEOUT elapses; on timeout the output
+/// captured so far is still returned (Ok), with a `[timed out after 15s]` note
+/// appended — best effort, since output held by surviving grandchildren of the
+/// shell may be lost. Err is returned only when the command fails to spawn.
 fn run_and_capture(cmd: &str) -> Result<String, String> {
-    let output = std::process::Command::new("sh")
-        .arg("-c")
-        .arg(cmd)
-        .output()
+    let (prog, args): (&str, [&str; 2]) = if cfg!(target_os = "windows") {
+        ("cmd", ["/C", cmd])
+    } else {
+        ("sh", ["-c", cmd])
+    };
+    let mut child = Command::new(prog)
+        .args(args)
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
         .map_err(|e| format!("Failed to run: {}", e))?;
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+
+    let (out_tx, out_rx) = mpsc::channel();
+    let (err_tx, err_rx) = mpsc::channel();
+    pipe_reader(child.stdout.take(), out_tx);
+    pipe_reader(child.stderr.take(), err_tx);
+
+    // Poll for exit; kill the child once the timeout elapses.
+    let start = Instant::now();
+    let mut timed_out = false;
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) if start.elapsed() >= EXPLORE_TIMEOUT => {
+                let _ = child.kill();
+                let _ = child.wait(); // reap the killed child
+                timed_out = true;
+                break;
+            }
+            Ok(None) => thread::sleep(Duration::from_millis(50)),
+            Err(e) => {
+                let _ = child.kill();
+                return Err(format!("Failed to run: {}", e));
+            }
+        }
+    }
+
+    // Collect captured output. After a kill a surviving grandchild may keep a
+    // pipe open, so don't wait indefinitely for the reader threads.
+    let collect = |rx: mpsc::Receiver<Vec<u8>>| {
+        let buf = if timed_out {
+            rx.recv_timeout(Duration::from_millis(500)).unwrap_or_default()
+        } else {
+            rx.recv().unwrap_or_default()
+        };
+        String::from_utf8_lossy(&buf).to_string()
+    };
+    let stdout = collect(out_rx);
+    let stderr = collect(err_rx);
+
     let mut result = stdout;
     if !stderr.is_empty() {
         result.push_str("\n[stderr]\n");
         result.push_str(&stderr);
     }
-    Ok(truncate(&result, 4096).to_string())
+    let mut result = truncate(&result, 4096).to_string();
+    if timed_out {
+        result.push_str(&format!("\n[timed out after {}s]", EXPLORE_TIMEOUT.as_secs()));
+    }
+    Ok(result)
 }
 
 /// Chain: #CHECK → #EXPLORE → final command.
@@ -207,7 +282,13 @@ fn explore_then_generate(
             .collect()
     } else {
         match parse_explore(raw) {
-            Some(cmd) => vec![cmd],
+            Some(cmd) => {
+                // Single explore candidate — same confirmation as the multi case
+                if !auto_confirm && !prompt_confirm(&format!("Run '{}' to learn usage?", cmd)) {
+                    return Ok(None);
+                }
+                vec![cmd]
+            }
             None => return Ok(None),
         }
     };
