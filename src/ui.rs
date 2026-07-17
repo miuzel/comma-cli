@@ -175,13 +175,29 @@ pub fn select_command(candidates: &[String]) -> Option<usize> {
 
     let mut selected: usize = 0;
 
-    // Print initial candidates, save cursor row
+    // Determine the row where the list starts BEFORE printing. Printing near
+    // the bottom scrolls the terminal and clamps the reported cursor row at
+    // the last line, so a position read after printing would be wrong. If the
+    // list would overflow the bottom, pre-scroll with blank lines first — then
+    // the list reliably occupies the last `len` rows.
+    let len = candidates.len() as u16;
+    let (_, rows) = crossterm::terminal::size().unwrap_or((80, 24));
+    let (_, cur_row) = crossterm::cursor::position().unwrap_or((0, 0));
+    let start_row = if cur_row.saturating_add(len) > rows {
+        let newlines = rows.saturating_sub(1).saturating_sub(cur_row);
+        let mut out = io::stdout().lock();
+        for _ in 0..newlines {
+            let _ = writeln!(out);
+        }
+        let _ = out.flush();
+        rows.saturating_sub(len)
+    } else {
+        cur_row
+    };
+
+    // Print initial candidates
     draw_candidates(candidates, selected);
     let _ = io::stdout().flush();
-
-    // Get cursor position AFTER printing — this is the row below the last candidate
-    let (_, end_row) = crossterm::cursor::position().unwrap_or((0, 0));
-    let start_row = end_row.saturating_sub(candidates.len() as u16);
 
     let _ = crossterm::terminal::enable_raw_mode();
 
@@ -364,7 +380,14 @@ pub fn truncate(s: &str, max: usize) -> &str {
     if s.len() <= max {
         s
     } else {
-        &s[..max]
+        // Largest char boundary at or below `max` — slicing mid-char would panic.
+        let end = s
+            .char_indices()
+            .map(|(i, _)| i)
+            .take_while(|&i| i <= max)
+            .last()
+            .unwrap_or(0);
+        &s[..end]
     }
 }
 
@@ -373,7 +396,7 @@ pub fn prompt_confirm(msg: &str) -> bool {
     let mut out = stdout.lock();
     let _ = write!(
         out,
-        "{}{}{} [Enter/N] ",
+        "{}{}{} [Enter/y/N] ",
         SetForegroundColor(Color::Yellow),
         msg,
         ResetColor
@@ -389,10 +412,12 @@ pub fn prompt_confirm(msg: &str) -> bool {
 
     let _ = crossterm::terminal::enable_raw_mode();
     let result = loop {
-        if let Ok(Event::Key(KeyEvent { code, .. })) = event::read() {
+        if let Ok(Event::Key(KeyEvent { code, modifiers, .. })) = event::read() {
             match code {
                 KeyCode::Enter => break true,
                 KeyCode::Char('y') | KeyCode::Char('Y') => break true,
+                KeyCode::Char('n') | KeyCode::Char('N') => break false,
+                KeyCode::Char('c') if modifiers.contains(KeyModifiers::CONTROL) => break false,
                 KeyCode::Esc => break false,
                 _ => {}
             }
@@ -406,7 +431,13 @@ pub fn edit_or_execute(cmd: &str, rl: &mut Editor<FileHelper, DefaultHistory>) -
     print_cmd(cmd);
 
     if !atty::is(atty::Stream::Stdin) {
-        return EditAction::Execute(cmd.to_string());
+        // Non-interactive stdin: never auto-execute — require an explicit "y"
+        // via the line-based fallback in prompt_confirm.
+        return if prompt_confirm("Execute?") {
+            EditAction::Execute(cmd.to_string())
+        } else {
+            EditAction::Cancel
+        };
     }
 
     let prompt_text = if is_dangerous(cmd) {
@@ -479,10 +510,10 @@ pub fn prompt_input(rl: &mut Editor<FileHelper, DefaultHistory>) -> Option<Strin
     match rl.readline(&prompt) {
         Ok(line) => {
             let trimmed = line.trim().to_string();
-            let _ = rl.add_history_entry(&trimmed);
             if trimmed.is_empty() {
                 None
             } else {
+                let _ = rl.add_history_entry(&trimmed);
                 Some(trimmed)
             }
         }
