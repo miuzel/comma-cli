@@ -157,6 +157,8 @@ Check for updates and update the binary from GitHub releases:
 # ▸ Updated to 0.15.0
 ```
 
+The downloaded archive is verified against the release's `sha256sums.txt` before the binary is replaced.
+
 ### 📚 Exploration mode
 
 When unsure about a tool, the model runs help first:
@@ -167,6 +169,8 @@ $ , compress video using ffmpeg
 ▸ Learning from output...
 ffmpeg -i input.mp4 -b:v 8M output.mp4
 ```
+
+Probe commands always ask for confirmation before running (a single probe too), unless you pass `!`.
 
 ---
 
@@ -266,6 +270,22 @@ ffmpeg -i input.mp4 -b:v 8M output.mp4
 # → curl -s ifconfig.me  # Get public IP address
 ```
 
+Only *leading* arguments are parsed as flags — everything after the first intent word is intent text, verbatim, and `--` ends flag parsing explicitly. So intents containing `-` words just work:
+
+```bash
+, grep -v pattern        # intent: "grep -v pattern"
+, use curl -V            # intent: "use curl -V"
+```
+
+### Piped mode
+
+```bash
+echo "find large files" | ,     # generates, then asks for a "y" line on stdin
+echo "find large files" | , !   # skips confirmation (scripting / agents)
+```
+
+With piped stdin, `,` never auto-executes: it reads one line from stdin and runs the command only if that line is `y`.
+
 ### Interactive mode
 
 ```bash
@@ -339,6 +359,14 @@ export COMMA_API_STYLE="openai"
 }
 ```
 
+### Response cache
+
+Repeated intents are answered from `~/.local/bin/,.cache.json` (default cap: 1000 entries). Set `"cache_size": 0` in the config to disable the cache entirely.
+
+### Reasoning (Anthropic)
+
+For Anthropic models, `"reasoning": <tokens>` enables extended thinking with that budget. `max_tokens` is raised automatically, so budgets ≥ 1024 work.
+
 ---
 
 ## Privacy
@@ -374,6 +402,8 @@ This ensures correct commands for your platform (`apt` vs `pacman`, `brew` vs `p
 ```bash
 curl -sSL https://github.com/miuzel/comma-cli/releases/latest/download/install.sh | bash
 ```
+
+The installer verifies the archive's SHA-256 checksum against the release's `sha256sums.txt` when available.
 
 ### Windows (PowerShell)
 
