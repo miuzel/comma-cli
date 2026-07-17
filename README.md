@@ -361,7 +361,7 @@ export COMMA_API_STYLE="openai"
 
 ### Response cache
 
-Repeated intents are answered from `~/.local/bin/,.cache.json` (default cap: 1000 entries). Set `"cache_size": 0` in the config to disable the cache entirely.
+Repeated intents are answered from `~/.local/bin/,.cache.json` (default cap: 1000 entries). The cache is checked for all configured models in fallback order before any network request, so a cached fallback answer avoids a slow or unreachable primary call. Set `"cache_size": 0` in the config to disable the cache entirely.
 
 ### Reasoning (Anthropic)
 
