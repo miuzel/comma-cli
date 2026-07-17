@@ -22,7 +22,7 @@ The application is a single binary crate split into modules under `src/` (no `li
 - `src/context.rs` — system context gathering (distro, kernel, arch, shell, CWD, user-installed packages) and privacy placeholders (`{{USER}}`, `{{HOSTNAME}}`, `{{HOME}}`) — collected locally, substituted into LLM output only after the response.
 - `src/prompt.rs` — system prompt loading (`~/.local/bin/,.prompt.md` with `DEFAULT_PROMPT` fallback compiled in), `prefer` tool-preference formatting.
 - `src/llm.rs` — LLM clients: OpenAI-compatible (`/v1/chat/completions`) and Anthropic (`/v1/messages`, optional `reasoning` thinking budget), blocking `reqwest` with rustls; ordered fallback and per-model retries in `call_llm_with_retry`.
-- `src/cache.rs` — response cache (`~/.local/bin/,.cache.json`, oldest-entry eviction, atomic save only when dirty; entries cached only after the user executes the command; `cache_size: 0` disables caching entirely).
+- `src/cache.rs` — response cache (`~/.local/bin/,.cache.json`, oldest-entry eviction, atomic save only when dirty; entries cached only after the user executes the command; checked across ALL configured model entries in fallback order before any API call; `cache_size: 0` disables caching entirely).
 - `src/update.rs` — self-update (`--update`) from GitHub releases, with archive verification against the release's `sha256sums.txt` and cross-device/locked-exe handling.
 - `src/protocol.rs` — `#CHECK:` (tool availability probe) and `#EXPLORE:` (run a help command once and learn from output) protocol handling, chained in `process_response`.
 - `src/danger.rs` — danger detection: `DANGER_PATTERNS` substring list (whitespace-normalized) plus exact-token pipe-to-shell matching (`curl x | sh` flags, `| shuf` does not), red ⚠ warning.

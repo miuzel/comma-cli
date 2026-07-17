@@ -361,7 +361,7 @@ export COMMA_API_STYLE="openai"
 
 ### 响应缓存
 
-重复的意图会从 `~/.local/bin/,.cache.json` 直接回答（默认上限 1000 条）。在配置中设 `"cache_size": 0` 可完全禁用缓存。
+重复的意图会从 `~/.local/bin/,.cache.json` 直接回答（默认上限 1000 条）。在任何网络请求之前，缓存会按回退顺序对所有已配置的模型依次检查，因此命中回退模型的缓存可以避免等待缓慢或不可达的主模型调用。在配置中设 `"cache_size": 0` 可完全禁用缓存。
 
 ### Reasoning（Anthropic）
 
