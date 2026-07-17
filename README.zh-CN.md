@@ -7,8 +7,13 @@
 [![Platform](https://img.shields.io/badge/platform-linux%20%7C%20macos%20%7C%20windows-lightgrey)]()
 
 ```bash
-# 10 秒安装
+# Linux / macOS — 10 秒安装
 curl -sSL https://github.com/miuzel/comma-cli/releases/latest/download/install.sh | bash
+```
+
+```powershell
+# Windows (PowerShell) — 安装到 D:\tools\bin
+$dir = "D:\tools\bin"; Invoke-WebRequest -Uri "https://github.com/miuzel/comma-cli/releases/latest/download/comma-windows-x86_64.zip" -OutFile "$dir\comma.zip"; Expand-Archive -Path "$dir\comma.zip" -DestinationPath $dir -Force; Rename-Item "$dir\comma.exe" "c.exe"; Remove-Item "$dir\comma.zip"
 ```
 
 ```bash
@@ -370,9 +375,14 @@ LLM 输出: "ls -la {{HOME}}"
 curl -sSL https://github.com/miuzel/comma-cli/releases/latest/download/install.sh | bash
 ```
 
-### Windows
+### Windows (PowerShell)
 
-从 [releases](https://github.com/miuzel/comma-cli/releases/latest) 下载 `comma-windows-x86_64.zip`，解压 `comma.exe`，将其加入 `PATH`。
+```powershell
+# 安装到 D:\tools\bin（可自行修改路径）
+$dir = "D:\tools\bin"; Invoke-WebRequest -Uri "https://github.com/miuzel/comma-cli/releases/latest/download/comma-windows-x86_64.zip" -OutFile "$dir\comma.zip"; Expand-Archive -Path "$dir\comma.zip" -DestinationPath $dir -Force; Rename-Item "$dir\comma.exe" "c.exe"; Remove-Item "$dir\comma.zip"; Write-Host "已安装到 $dir\c.exe — 用法: c <intent>"
+```
+
+> **注意：** PowerShell 中 `,` 是保留关键字，需将 exe 重命名为 `c.exe`（或其他你喜欢的名字）。
 
 ### 手动下载
 
