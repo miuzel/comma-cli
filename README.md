@@ -7,8 +7,13 @@
 [![Platform](https://img.shields.io/badge/platform-linux%20%7C%20macos%20%7C%20windows-lightgrey)]()
 
 ```bash
-# Install in 10 seconds
+# Linux / macOS — install in 10 seconds
 curl -sSL https://github.com/miuzel/comma-cli/releases/latest/download/install.sh | bash
+```
+
+```powershell
+# Windows (PowerShell) — install to D:\tools\bin
+$dir = "D:\tools\bin"; Invoke-WebRequest -Uri "https://github.com/miuzel/comma-cli/releases/latest/download/comma-windows-x86_64.zip" -OutFile "$dir\comma.zip"; Expand-Archive -Path "$dir\comma.zip" -DestinationPath $dir -Force; Rename-Item "$dir\comma.exe" "c.exe"; Remove-Item "$dir\comma.zip"
 ```
 
 ```bash
@@ -370,9 +375,14 @@ This ensures correct commands for your platform (`apt` vs `pacman`, `brew` vs `p
 curl -sSL https://github.com/miuzel/comma-cli/releases/latest/download/install.sh | bash
 ```
 
-### Windows
+### Windows (PowerShell)
 
-Download `comma-windows-x86_64.zip` from [releases](https://github.com/miuzel/comma-cli/releases/latest), extract `comma.exe`, and add it to your `PATH`.
+```powershell
+# Install to D:\tools\bin (change path as needed)
+$dir = "D:\tools\bin"; Invoke-WebRequest -Uri "https://github.com/miuzel/comma-cli/releases/latest/download/comma-windows-x86_64.zip" -OutFile "$dir\comma.zip"; Expand-Archive -Path "$dir\comma.zip" -DestinationPath $dir -Force; Rename-Item "$dir\comma.exe" "c.exe"; Remove-Item "$dir\comma.zip"; Write-Host "Installed to $dir\c.exe — use: c <intent>"
+```
+
+> **Note:** PowerShell reserves `,` as a keyword. Rename the exe to `c.exe` (or any name you prefer).
 
 ### Manual download
 
