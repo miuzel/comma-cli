@@ -186,7 +186,9 @@ impl Config {
 }
 
 fn home_dir() -> Result<String, String> {
-    std::env::var("HOME").map_err(|_| "HOME not set".into())
+    std::env::var("HOME")
+        .or_else(|_| std::env::var("USERPROFILE"))
+        .map_err(|_| "HOME not set".into())
 }
 
 fn load_config() -> Result<Config, String> {
