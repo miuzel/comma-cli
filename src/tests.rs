@@ -1,6 +1,6 @@
 use crate::cache::cache_key;
 use crate::config::MAX_RETRIES;
-use crate::context::{apply_placeholders, collect_placeholders, gather_context, Placeholders};
+use crate::context::{apply_placeholders, collect_placeholders, gather_context, get_shell, Placeholders};
 use crate::danger::is_dangerous;
 use crate::llm::{Message, RETRY_HINT};
 use crate::protocol::{parse_check, parse_explore};
@@ -226,6 +226,25 @@ pub fn run_tests() {
     check("is_bare_cd: with comment", is_bare_cd("cd /tmp # go home"));
     check("is_bare_cd: cd.. is not bare cd", !is_bare_cd("cd.."));
     check("is_bare_cd: echo cd is not bare cd", !is_bare_cd("echo cd"));
+
+    // Test 22: COMMA_EVAL_SHELL overrides the reported shell dialect (the
+    // eval wrapper sets it so generation matches the shell that evals);
+    // an empty value falls through. Saved/restored around the checks.
+    let saved_eval_shell = std::env::var("COMMA_EVAL_SHELL").ok();
+    std::env::set_var("COMMA_EVAL_SHELL", "powershell");
+    check("get_shell: COMMA_EVAL_SHELL wins", get_shell() == "powershell");
+    std::env::set_var("COMMA_EVAL_SHELL", "");
+    let with_empty = get_shell();
+    std::env::remove_var("COMMA_EVAL_SHELL");
+    let without = get_shell();
+    check(
+        "get_shell: empty COMMA_EVAL_SHELL ignored",
+        with_empty == without && !without.is_empty(),
+    );
+    match &saved_eval_shell {
+        Some(v) => std::env::set_var("COMMA_EVAL_SHELL", v),
+        None => std::env::remove_var("COMMA_EVAL_SHELL"),
+    }
 
     // Summary
     println!("\n{} passed, {} failed", pass, fail);
