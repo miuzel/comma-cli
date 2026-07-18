@@ -88,6 +88,9 @@ pub fn run_tests() {
     check("context contains kernel", ctx.contains("Kernel:"));
     check("context contains arch", ctx.contains("Arch:"));
     check("context contains shell", ctx.contains("Shell:"));
+    // get_shell always falls back to /bin/sh (Unix) or cmd.exe (Windows)
+    let shell_line = ctx.lines().find(|l| l.starts_with("Shell: ")).unwrap_or("Shell: ");
+    check("shell value is non-empty", shell_line.len() > "Shell: ".len());
     check("context contains CWD", ctx.contains("CWD:"));
     check("context contains packages", ctx.contains("Installed packages"));
 
