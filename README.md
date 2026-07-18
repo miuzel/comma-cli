@@ -339,14 +339,38 @@ Add to your `$PROFILE` (the function is named `comma` because `,` is reserved in
 ```powershell
 function comma {
     $f = New-TemporaryFile
-    try { $env:COMMA_EVAL_FILE = $f.FullName; comma.exe @args }
-    finally { Remove-Item Env:COMMA_EVAL_FILE -ErrorAction SilentlyContinue }
+    try {
+        $env:COMMA_EVAL_FILE = $f.FullName
+        $env:COMMA_EVAL_SHELL = 'powershell'
+        comma.exe @args
+    }
+    finally {
+        Remove-Item Env:COMMA_EVAL_FILE -ErrorAction SilentlyContinue
+        Remove-Item Env:COMMA_EVAL_SHELL -ErrorAction SilentlyContinue
+    }
     if (Test-Path $f) {
         $c = Get-Content $f -Raw; Remove-Item $f
         if ($c) { Invoke-Expression $c.Trim() }
     }
 }
 ```
+
+`COMMA_EVAL_SHELL` tells the model which shell dialect to generate for: since the wrapper evals in PowerShell, this makes it emit PowerShell syntax (`$env:USERPROFILE`, `~`) instead of cmd syntax (`%USERPROFILE%`). (bash/zsh need no such hint — `$SHELL` already drives the dialect.)
+
+### cmd.exe
+
+Save as `comma.cmd` somewhere in `PATH` (before or alongside `comma.exe`):
+
+```bat
+@echo off
+set "F=%TEMP%\comma-eval-%RANDOM%-%RANDOM%.cmd"
+set "COMMA_EVAL_FILE=%F%"
+comma.exe %*
+set "COMMA_EVAL_FILE="
+if exist "%F%" ( call "%F%" & del "%F%" )
+```
+
+`%*` passes the arguments through; `call` runs the eval file in the current cmd session, so a `cd` actually changes your directory. No `COMMA_EVAL_SHELL` is needed here — cmd.exe is already the reported dialect on Windows when `SHELL` is unset.
 
 Notes:
 - `, go to the temp directory` → `cd /tmp` now actually changes your directory.
