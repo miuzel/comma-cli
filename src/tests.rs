@@ -4,7 +4,7 @@ use crate::context::{apply_placeholders, collect_placeholders, gather_context, P
 use crate::danger::is_dangerous;
 use crate::llm::{Message, RETRY_HINT};
 use crate::protocol::{parse_check, parse_explore};
-use crate::ui::{parse_candidates, truncate};
+use crate::ui::{is_bare_cd, parse_candidates, truncate};
 
 // ── Built-in self-test suite (`--test`) ─────────────────────────────────────
 
@@ -203,6 +203,29 @@ pub fn run_tests() {
         "cache_key: stable for identical input",
         cache_key("model-a", "sys", &msgs) == key_a,
     );
+
+    // Test 20: COMMA_EVAL_FILE eval mode — execute() appends the
+    // comment-stripped command (one line) to the file instead of spawning
+    // a shell (no spawn can happen in this mode by construction).
+    let eval_path = std::env::temp_dir().join(format!("comma-eval-test-{}", std::process::id()));
+    let _ = std::fs::remove_file(&eval_path);
+    std::env::set_var("COMMA_EVAL_FILE", &eval_path);
+    crate::execute("cd /tmp # comment");
+    std::env::remove_var("COMMA_EVAL_FILE");
+    let eval_content = std::fs::read_to_string(&eval_path).unwrap_or_default();
+    let _ = std::fs::remove_file(&eval_path);
+    check(
+        "eval file: comment-stripped command appended",
+        eval_content == "cd /tmp\n",
+    );
+
+    // Test 21: is_bare_cd — first token of the comment-stripped command
+    check("is_bare_cd: bare cd", is_bare_cd("cd"));
+    check("is_bare_cd: cd with args", is_bare_cd("cd /d %USERPROFILE%"));
+    check("is_bare_cd: leading spaces", is_bare_cd("   cd /tmp"));
+    check("is_bare_cd: with comment", is_bare_cd("cd /tmp # go home"));
+    check("is_bare_cd: cd.. is not bare cd", !is_bare_cd("cd.."));
+    check("is_bare_cd: echo cd is not bare cd", !is_bare_cd("echo cd"));
 
     // Summary
     println!("\n{} passed, {} failed", pass, fail);
