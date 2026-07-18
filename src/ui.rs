@@ -1,4 +1,4 @@
-use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
+use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use crossterm::style::{Color, ResetColor, SetForegroundColor};
 use rustyline::completion::{Completer, FilenameCompleter};
 use rustyline::highlight::Highlighter;
@@ -146,6 +146,13 @@ pub fn print_cmd(cmd: &str) {
     let _ = writeln!(out);
 }
 
+/// True when the command's first token (comment stripped) is the `cd`
+/// builtin. First-token rule: `cd..` and `echo cd` do not match.
+pub fn is_bare_cd(cmd: &str) -> bool {
+    let (command, _) = split_comment(cmd);
+    command.split_whitespace().next() == Some("cd")
+}
+
 /// Split LLM output by ||| delimiter into candidate commands.
 pub fn parse_candidates(raw: &str) -> Vec<String> {
     let candidates: Vec<String> = raw
@@ -189,7 +196,13 @@ pub fn select_command(candidates: &[String]) -> Option<usize> {
     let _ = crossterm::terminal::enable_raw_mode();
 
     let result = loop {
-        if let Ok(Event::Key(KeyEvent { code, modifiers, .. })) = event::read() {
+        if let Ok(Event::Key(KeyEvent { code, modifiers, kind, .. })) = event::read() {
+            // Windows reports Press/Repeat/Release events; act on Press only,
+            // or a key release would also move the selection. On Unix only
+            // Press is reported, so this is a no-op there.
+            if kind != KeyEventKind::Press {
+                continue;
+            }
             match code {
                 KeyCode::Up | KeyCode::Char('k') => {
                     if selected > 0 {
@@ -404,14 +417,26 @@ pub fn prompt_confirm(msg: &str) -> bool {
 
     let _ = crossterm::terminal::enable_raw_mode();
     let result = loop {
-        if let Ok(Event::Key(KeyEvent { code, modifiers, .. })) = event::read() {
-            match code {
-                KeyCode::Enter => break true,
-                KeyCode::Char('y') | KeyCode::Char('Y') => break true,
-                KeyCode::Char('n') | KeyCode::Char('N') => break false,
-                KeyCode::Char('c') if modifiers.contains(KeyModifiers::CONTROL) => break false,
-                KeyCode::Esc => break false,
-                _ => {}
+        if let Ok(Event::Key(KeyEvent { code, modifiers, kind, .. })) = event::read() {
+            // Windows reports Press/Repeat/Release events; act on Press only,
+            // or a buffered Enter release would confirm without a keypress.
+            // On Unix only Press is reported, so this is a no-op there.
+            if kind != KeyEventKind::Press {
+                continue;
+            }
+            let answer = match code {
+                KeyCode::Enter | KeyCode::Char('y') | KeyCode::Char('Y') => Some(true),
+                KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => Some(false),
+                KeyCode::Char('c') if modifiers.contains(KeyModifiers::CONTROL) => Some(false),
+                _ => None,
+            };
+            if let Some(answer) = answer {
+                // The prompt has no trailing newline — whatever is printed
+                // next must start on a fresh line. Raw mode: '\n' alone
+                // doesn't return to column 0, hence "\r\n".
+                print!("\r\n");
+                let _ = io::stdout().flush();
+                break answer;
             }
         }
     };
@@ -451,7 +476,18 @@ pub fn edit_or_execute(cmd: &str, rl: &mut Editor<FileHelper, DefaultHistory>) -
 
     let _ = crossterm::terminal::enable_raw_mode();
     let action = loop {
-        if let Ok(Event::Key(KeyEvent { code, .. })) = event::read() {
+        if let Ok(Event::Key(KeyEvent { code, kind, .. })) = event::read() {
+            // Windows reports Press/Repeat/Release events; act on Press only,
+            // or a buffered Enter release would execute without a keypress.
+            // On Unix only Press is reported, so this is a no-op there.
+            if kind != KeyEventKind::Press {
+                continue;
+            }
+            // The prompt has no trailing newline — whatever comes next (the
+            // edit>/refine> prompt or "▸ Running:") starts on a fresh line.
+            // Raw mode: '\n' alone doesn't return to column 0, hence "\r\n".
+            print!("\r\n");
+            let _ = io::stdout().flush();
             match code {
                 KeyCode::Enter => {
                     break EditAction::Execute(cmd.to_string());

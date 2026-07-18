@@ -22,9 +22,9 @@ use crate::prompt::load_prompt;
 use crate::protocol::process_response;
 use crate::tests::run_tests;
 use crate::ui::{
-    copy_to_clipboard, edit_or_execute, is_comment_only, parse_candidates, print_cmd, print_debug,
-    print_error, print_info, prompt_confirm, prompt_input, prompt_input_fallback, select_command,
-    split_comment, EditAction, FileHelper, Spinner, Verbosity,
+    copy_to_clipboard, edit_or_execute, is_bare_cd, is_comment_only, parse_candidates, print_cmd,
+    print_debug, print_error, print_info, prompt_confirm, prompt_input, prompt_input_fallback,
+    select_command, split_comment, EditAction, FileHelper, Spinner, Verbosity,
 };
 use crate::update::do_update;
 
@@ -518,9 +518,41 @@ fn shell_interp() -> (&'static str, [&'static str; 1]) {
     }
 }
 
-fn execute(cmd: &str) {
+/// Run the confirmed command. When `COMMA_EVAL_FILE` is set (shell
+/// integration, see README), the comment-stripped command is appended to
+/// that file — one per line — instead of being spawned: the wrapper shell
+/// function evals the file in the *current* shell, so `cd`/`export` take
+/// effect there (a child process could never change the parent shell's cwd).
+/// In interactive mode each execution appends one line; the wrapper evals
+/// them in order when the session exits. Without the variable, the command
+/// runs in a child shell (`sh -c` / `cmd /C`) as before.
+pub(crate) fn execute(cmd: &str) {
     let (command, _) = split_comment(cmd);
     print_info(&format!("Running: {}", command));
+
+    if let Ok(path) = std::env::var("COMMA_EVAL_FILE") {
+        if !path.is_empty() {
+            use std::io::Write;
+            let line = command.lines().next().unwrap_or("");
+            let result = std::fs::OpenOptions::new()
+                .create(true)
+                .append(true)
+                .open(&path)
+                .and_then(|mut f| writeln!(f, "{}", line));
+            if let Err(e) = result {
+                print_error(&format!("Failed to write eval file {}: {}", path, e));
+            }
+            return;
+        }
+    }
+
+    if is_bare_cd(command) {
+        print_info(
+            "Note: `cd` runs in a subprocess and won't change your shell's directory \
+             — use the shell-integration wrapper (see README: Shell integration) for that.",
+        );
+    }
+
     let (prog, args) = shell_interp();
     let status = std::process::Command::new(prog)
         .args(args)
