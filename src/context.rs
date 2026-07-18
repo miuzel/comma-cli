@@ -49,10 +49,20 @@ fn get_kernel_arch() -> (String, String) {
     (kernel, arch)
 }
 
-fn get_shell() -> String {
-    // Respect SHELL first: Git Bash/MSYS users on Windows have it set, and
-    // for them POSIX commands are correct. Otherwise Windows commands run
-    // via `cmd /C`, so report cmd.exe rather than a Unix shell.
+/// Shell dialect the model should generate for.
+/// `COMMA_EVAL_SHELL` wins when set and non-empty: the eval wrapper (README §
+/// Shell integration) declares it, because in eval mode the command runs in
+/// the wrapper's shell — e.g. PowerShell on Windows, where the SHELL-less
+/// default (cmd.exe) would generate the wrong dialect. Otherwise respect
+/// SHELL: Git Bash/MSYS users on Windows have it set, and for them POSIX
+/// commands are correct. Otherwise Windows commands run via `cmd /C`, so
+/// report cmd.exe rather than a Unix shell.
+pub fn get_shell() -> String {
+    if let Ok(s) = std::env::var("COMMA_EVAL_SHELL") {
+        if !s.is_empty() {
+            return s;
+        }
+    }
     std::env::var("SHELL").unwrap_or_else(|_| {
         if cfg!(target_os = "windows") {
             "cmd.exe".into()
