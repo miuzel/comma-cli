@@ -313,6 +313,48 @@ fd --size +100M -x ls -lh {} + | sort -k5 -h -r
 
 ---
 
+## Shell 集成
+
+默认情况下，`,` 在**子进程**中执行确认后的命令，因此 `cd` 或 `export` 在命令退出后即失效。通过一个简单的 wrapper 函数，命令可以在**当前 shell** 中执行（navi/fzf 风格）：二进制会把每条确认后的命令追加到 `COMMA_EVAL_FILE` 指定的文件中（每行一条），`,` 退出后由 wrapper 在当前 shell 中对该文件求值。
+
+### bash / zsh
+
+加入 `~/.bashrc` 或 `~/.zshrc`：
+
+```bash
+,() {
+    local f; f=$(mktemp)
+    COMMA_EVAL_FILE="$f" command , "$@"
+    local ec=$?
+    [ -s "$f" ] && eval "$(cat "$f")"
+    rm -f "$f"
+    return $ec
+}
+```
+
+### PowerShell
+
+加入 `$PROFILE`（因为 `,` 在 PowerShell 中是保留字符，函数名为 `comma`）：
+
+```powershell
+function comma {
+    $f = New-TemporaryFile
+    try { $env:COMMA_EVAL_FILE = $f.FullName; comma.exe @args }
+    finally { Remove-Item Env:COMMA_EVAL_FILE -ErrorAction SilentlyContinue }
+    if (Test-Path $f) {
+        $c = Get-Content $f -Raw; Remove-Item $f
+        if ($c) { Invoke-Expression $c.Trim() }
+    }
+}
+```
+
+说明：
+- `, 切换到临时目录` → `cd /tmp` 现在会真正切换你当前 shell 的目录。
+- 交互模式下每次执行都会向文件追加一行；wrapper 会在会话结束时按顺序求值。
+- 不配置 wrapper 则行为不变 — 命令仍在子进程中执行（单独的 `cd` 会打印一条提示，指向本节）。
+
+---
+
 ## 配置
 
 ### 优先级
