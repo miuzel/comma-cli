@@ -50,7 +50,16 @@ fn get_kernel_arch() -> (String, String) {
 }
 
 fn get_shell() -> String {
-    std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into())
+    // Respect SHELL first: Git Bash/MSYS users on Windows have it set, and
+    // for them POSIX commands are correct. Otherwise Windows commands run
+    // via `cmd /C`, so report cmd.exe rather than a Unix shell.
+    std::env::var("SHELL").unwrap_or_else(|_| {
+        if cfg!(target_os = "windows") {
+            "cmd.exe".into()
+        } else {
+            "/bin/sh".into()
+        }
+    })
 }
 
 fn get_user() -> String {
