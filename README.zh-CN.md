@@ -339,14 +339,38 @@ fd --size +100M -x ls -lh {} + | sort -k5 -h -r
 ```powershell
 function comma {
     $f = New-TemporaryFile
-    try { $env:COMMA_EVAL_FILE = $f.FullName; comma.exe @args }
-    finally { Remove-Item Env:COMMA_EVAL_FILE -ErrorAction SilentlyContinue }
+    try {
+        $env:COMMA_EVAL_FILE = $f.FullName
+        $env:COMMA_EVAL_SHELL = 'powershell'
+        comma.exe @args
+    }
+    finally {
+        Remove-Item Env:COMMA_EVAL_FILE -ErrorAction SilentlyContinue
+        Remove-Item Env:COMMA_EVAL_SHELL -ErrorAction SilentlyContinue
+    }
     if (Test-Path $f) {
         $c = Get-Content $f -Raw; Remove-Item $f
         if ($c) { Invoke-Expression $c.Trim() }
     }
 }
 ```
+
+`COMMA_EVAL_SHELL` 告诉模型为哪种 shell 方言生成命令：由于 wrapper 在 PowerShell 中求值，设置后模型会生成 PowerShell 语法（`$env:USERPROFILE`、`~`）而非 cmd 语法（`%USERPROFILE%`）。（bash/zsh 无需此提示 — `$SHELL` 已经决定了方言。）
+
+### cmd.exe
+
+保存为 `comma.cmd`，放到 `PATH` 中（位于 `comma.exe` 之前或与之并列）：
+
+```bat
+@echo off
+set "F=%TEMP%\comma-eval-%RANDOM%-%RANDOM%.cmd"
+set "COMMA_EVAL_FILE=%F%"
+comma.exe %*
+set "COMMA_EVAL_FILE="
+if exist "%F%" ( call "%F%" & del "%F%" )
+```
+
+`%*` 透传所有参数；`call` 在当前 cmd 会话中运行求值文件，因此 `cd` 会真正切换你当前的目录。这里无需 `COMMA_EVAL_SHELL` — 在 `SHELL` 未设置时，cmd.exe 本来就是 Windows 上默认报告的方言。
 
 说明：
 - `, 切换到临时目录` → `cd /tmp` 现在会真正切换你当前 shell 的目录。
