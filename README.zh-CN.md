@@ -413,6 +413,8 @@ $dir = "$env:USERPROFILE\.local\bin"; New-Item -ItemType Directory -Force -Path 
 ```
 
 > **注意：** PowerShell 中 `,` 是保留关键字。如需更短的名字，可将 exe 重命名（如 `c.exe`）。
+>
+> **注意：** 在 Windows 上，命令针对 cmd 生成并通过 `cmd /C` 执行。如果设置了 `SHELL`（例如使用 Git Bash/MSYS），则生成和执行都会改用该 POSIX shell。
 
 ### 手动下载
 
