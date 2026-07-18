@@ -47,6 +47,45 @@ else
     exit 1
 fi
 
+# Verify archive integrity against sha256sums.txt from the release
+verify_archive() {
+    local hash_cmd
+    if command -v sha256sum >/dev/null 2>&1; then
+        hash_cmd="sha256sum"
+    elif command -v shasum >/dev/null 2>&1; then
+        hash_cmd="shasum -a 256"
+    else
+        echo "⚠  No sha256sum/shasum available; skipping integrity check"
+        return 0
+    fi
+
+    # Older releases may not ship sha256sums.txt
+    local sums_url="https://github.com/${REPO}/releases/latest/download/sha256sums.txt"
+    if command -v curl >/dev/null 2>&1; then
+        curl -fsSL "$sums_url" -o "$TMPDIR/sha256sums.txt" 2>/dev/null || {
+            echo "⚠  sha256sums.txt not available; skipping integrity check"; return 0; }
+    else
+        wget -q "$sums_url" -O "$TMPDIR/sha256sums.txt" 2>/dev/null || {
+            echo "⚠  sha256sums.txt not available; skipping integrity check"; return 0; }
+    fi
+
+    local expected actual
+    expected=$(awk -v name="$ARCHIVE" '$2 == name {print $1}' "$TMPDIR/sha256sums.txt")
+    if [ -z "$expected" ]; then
+        echo "Error: sha256sums.txt has no entry for ${ARCHIVE}"
+        exit 1
+    fi
+    actual=$($hash_cmd "$TMPDIR/$ARCHIVE" | awk '{print $1}')
+    if [ "$actual" != "$expected" ]; then
+        echo "Error: checksum mismatch for ${ARCHIVE}"
+        echo "  expected: ${expected}"
+        echo "  actual:   ${actual}"
+        exit 1
+    fi
+    echo "  Checksum verified"
+}
+verify_archive
+
 # Extract
 mkdir -p "$PREFIX"
 if [ "$PLATFORM" = "windows-x86_64" ]; then
