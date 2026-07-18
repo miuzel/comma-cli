@@ -543,6 +543,9 @@ pub fn copy_to_clipboard(text: &str) {
         ("xclip", &["-selection", "clipboard"]),
         ("xsel", &["--clipboard", "--input"]),
         ("pbcopy", &[]),
+        // Windows built-in (clip.exe reads stdin); listed last since the
+        // Unix tools won't exist on Windows anyway.
+        ("clip", &[]),
     ];
     for (cmd, args) in tools {
         if std::process::Command::new(cmd)
@@ -560,5 +563,10 @@ pub fn copy_to_clipboard(text: &str) {
             return;
         }
     }
-    print_error("No clipboard tool found (install wl-clipboard, xclip, or xsel).");
+    let hint = if cfg!(target_os = "windows") {
+        "clip.exe is normally built in"
+    } else {
+        "install wl-clipboard, xclip, or xsel"
+    };
+    print_error(&format!("No clipboard tool found ({}).", hint));
 }

@@ -505,11 +505,25 @@ pub fn style_label(style: ApiStyle) -> &'static str {
     }
 }
 
+/// Interpreter for running generated commands. Mirrors the rule in
+/// `get_shell()` (src/context.rs) so execution matches the shell the model
+/// was told to generate for: on Windows, `sh -c` when SHELL is set (Git
+/// Bash/MSYS users get POSIX commands), otherwise `cmd /C`. On Unix always
+/// `sh -c`.
+fn shell_interp() -> (&'static str, [&'static str; 1]) {
+    if cfg!(target_os = "windows") && std::env::var("SHELL").is_err() {
+        ("cmd", ["/C"])
+    } else {
+        ("sh", ["-c"])
+    }
+}
+
 fn execute(cmd: &str) {
     let (command, _) = split_comment(cmd);
     print_info(&format!("Running: {}", command));
-    let status = std::process::Command::new("sh")
-        .arg("-c")
+    let (prog, args) = shell_interp();
+    let status = std::process::Command::new(prog)
+        .args(args)
         .arg(command)
         .status();
     match status {

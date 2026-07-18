@@ -413,6 +413,8 @@ $dir = "$env:USERPROFILE\.local\bin"; New-Item -ItemType Directory -Force -Path 
 ```
 
 > **Note:** PowerShell reserves `,` as a keyword. Rename the exe if you want a shorter name (e.g., `c.exe`).
+>
+> **Note:** On Windows, commands are generated for and executed by `cmd /C`. If `SHELL` is set (e.g., you use Git Bash/MSYS), generation and execution both use that POSIX shell instead.
 
 ### Manual download
 
