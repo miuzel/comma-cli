@@ -96,7 +96,7 @@ dependencies = [
 
 [[package]]
 name = "comma"
-version = "0.17.0"
+version = "0.17.1"
 dependencies = [
  "atty",
  "crossterm",
