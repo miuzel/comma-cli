@@ -157,6 +157,8 @@ ffmpeg -i input.png -quality 85 output.jpg
 # ▸ Updated to 0.15.0
 ```
 
+下载的压缩包会先对照 release 的 `sha256sums.txt` 校验，然后才替换二进制。
+
 ### 📚 探索模式
 
 不确定工具用法时，模型会先运行帮助：
@@ -167,6 +169,8 @@ $ , compress video using ffmpeg
 ▸ Learning from output...
 ffmpeg -i input.mp4 -b:v 8M output.mp4
 ```
+
+探测命令运行前总会询问确认（单个探测也一样），除非加 `!`。
 
 ---
 
@@ -266,6 +270,22 @@ ffmpeg -i input.mp4 -b:v 8M output.mp4
 # → curl -s ifconfig.me  # Get public IP address
 ```
 
+只有第一个意图词*之前*的参数会被解析为 flag — 之后的内容原样作为意图文本，`--` 可显式结束 flag 解析。所以包含 `-` 词的意图可以直接用：
+
+```bash
+, grep -v pattern        # 意图："grep -v pattern"
+, use curl -V            # 意图："use curl -V"
+```
+
+### 管道模式
+
+```bash
+echo "find large files" | ,     # 生成命令，然后从 stdin 读一行 "y" 确认
+echo "find large files" | , !   # 跳过确认（脚本 / Agent 用）
+```
+
+stdin 为管道时，`,` 绝不会自动执行：它会从 stdin 读一行，只有该行是 `y` 才运行命令。
+
 ### 交互模式
 
 ```bash
@@ -339,6 +359,14 @@ export COMMA_API_STYLE="openai"
 }
 ```
 
+### 响应缓存
+
+重复的意图会从 `~/.local/bin/,.cache.json` 直接回答（默认上限 1000 条）。在任何网络请求之前，缓存会按回退顺序对所有已配置的模型依次检查，因此命中回退模型的缓存可以避免等待缓慢或不可达的主模型调用。在配置中设 `"cache_size": 0` 可完全禁用缓存。
+
+### Reasoning（Anthropic）
+
+对 Anthropic 模型，`"reasoning": <tokens>` 按给定预算启用 extended thinking。`max_tokens` 会自动提高，因此 ≥ 1024 的预算可以正常使用。
+
 ---
 
 ## 隐私
@@ -374,6 +402,8 @@ LLM 输出: "ls -la {{HOME}}"
 ```bash
 curl -sSL https://github.com/miuzel/comma-cli/releases/latest/download/install.sh | bash
 ```
+
+安装脚本会在可用时对照 release 的 `sha256sums.txt` 校验压缩包的 SHA-256。
 
 ### Windows (PowerShell)
 

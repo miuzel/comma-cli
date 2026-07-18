@@ -90,11 +90,24 @@ jobs:
       - name: List release files
         run: find artifacts -type f | sort
 
+      - name: Generate sha256sums.txt
+        shell: bash
+        run: |
+          cd artifacts
+          : > ../sha256sums.txt
+          for f in */*.tar.gz */*.zip; do
+            [ -f "$f" ] || continue
+            # Strip the directory path, keep only the archive name
+            sha256sum "$f" | sed 's|  .*/|  |' >> ../sha256sums.txt
+          done
+          cat ../sha256sums.txt
+
       - name: Create release
         uses: softprops/action-gh-release@v2
         with:
           files: |
             artifacts/**/*.tar.gz
             artifacts/**/*.zip
+            sha256sums.txt
             install.sh
           generate_release_notes: true
