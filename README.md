@@ -313,6 +313,48 @@ fd --size +100M -x ls -lh {} + | sort -k5 -h -r
 
 ---
 
+## Shell integration
+
+By default `,` runs the confirmed command in a **child process**, so a `cd` or `export` is lost when it exits. With a small wrapper function, commands run in your **current shell** instead (navi/fzf-style): the binary appends each confirmed command to the file named by `COMMA_EVAL_FILE` (one per line), and the wrapper evaluates that file in the current shell after `,` exits.
+
+### bash / zsh
+
+Add to `~/.bashrc` or `~/.zshrc`:
+
+```bash
+,() {
+    local f; f=$(mktemp)
+    COMMA_EVAL_FILE="$f" command , "$@"
+    local ec=$?
+    [ -s "$f" ] && eval "$(cat "$f")"
+    rm -f "$f"
+    return $ec
+}
+```
+
+### PowerShell
+
+Add to your `$PROFILE` (the function is named `comma` because `,` is reserved in PowerShell):
+
+```powershell
+function comma {
+    $f = New-TemporaryFile
+    try { $env:COMMA_EVAL_FILE = $f.FullName; comma.exe @args }
+    finally { Remove-Item Env:COMMA_EVAL_FILE -ErrorAction SilentlyContinue }
+    if (Test-Path $f) {
+        $c = Get-Content $f -Raw; Remove-Item $f
+        if ($c) { Invoke-Expression $c.Trim() }
+    }
+}
+```
+
+Notes:
+- `, go to the temp directory` → `cd /tmp` now actually changes your directory.
+- In interactive mode each executed command is appended to the file; the wrapper evals them in order when the session exits.
+- Without the wrapper nothing changes — commands run in a child process as before (a bare `cd` there prints a note pointing here).
+
+---
+
 ## Configuration
 
 ### Priority
