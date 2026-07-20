@@ -181,16 +181,15 @@ pub fn select_command(candidates: &[String]) -> Option<usize> {
     }
 
     let mut selected: usize = 0;
-    let len = candidates.len() as u16;
 
     // Print initial candidates. After drawing, the cursor always sits exactly
     // one row below the last candidate — whether or not the terminal scrolled
-    // (no scroll: the cursor moved down `len` rows; scroll: it is clamped at
-    // the bottom row with the `len` candidates immediately above it). So the
-    // list reliably occupies the `len` rows directly above the cursor, and
+    // (no scroll: the cursor moved down N rows; scroll: it is clamped at
+    // the bottom row with the N candidates immediately above it). So the
+    // list reliably occupies the rows directly above the cursor, and
     // redraws can use relative movement only (scroll-proof, unlike tracking
     // an absolute start row).
-    draw_candidates(candidates, selected);
+    let mut rows = draw_candidates(candidates, selected);
     let _ = io::stdout().flush();
 
     let _ = crossterm::terminal::enable_raw_mode();
@@ -227,7 +226,7 @@ pub fn select_command(candidates: &[String]) -> Option<usize> {
                 KeyCode::Enter => {
                     let _ = crossterm::execute!(
                         io::stdout(),
-                        crossterm::cursor::MoveUp(len),
+                        crossterm::cursor::MoveUp(rows),
                         crossterm::cursor::MoveToColumn(0),
                         crossterm::terminal::Clear(crossterm::terminal::ClearType::FromCursorDown),
                     );
@@ -244,11 +243,11 @@ pub fn select_command(candidates: &[String]) -> Option<usize> {
             // wherever the last line's text ended.
             let _ = crossterm::execute!(
                 io::stdout(),
-                crossterm::cursor::MoveUp(len),
+                crossterm::cursor::MoveUp(rows),
                 crossterm::cursor::MoveToColumn(0),
                 crossterm::terminal::Clear(crossterm::terminal::ClearType::FromCursorDown),
             );
-            draw_candidates(candidates, selected);
+            rows = draw_candidates(candidates, selected);
             let _ = io::stdout().flush();
         }
     };
@@ -257,8 +256,30 @@ pub fn select_command(candidates: &[String]) -> Option<usize> {
     result
 }
 
-fn draw_candidates(candidates: &[String], selected: usize) {
+/// Return the number of terminal rows a candidate string occupies.
+/// Each candidate starts at column 0 and ends with a newline. The text
+/// before the newline may wrap across multiple rows depending on the
+/// terminal width.
+fn candidate_rows(cmd: &str, term_width: u16) -> u16 {
+    let (command, comment) = split_comment(cmd);
+    // Visible length: marker(1) + space(1) + command
+    let mut vis_len: usize = 2 + command.len();
+    if let Some(cmt) = comment {
+        vis_len += 4 + cmt.len(); // "  # " + comment
+    }
+    if is_dangerous(command) {
+        vis_len += 2; // " ⚠"
+    }
+    let tw = term_width.max(1) as usize;
+    // Number of rows this single line wraps into.
+    ((vis_len + tw - 1) / tw).max(1) as u16
+}
+
+/// Draw all candidates and return the total number of terminal rows occupied.
+fn draw_candidates(candidates: &[String], selected: usize) -> u16 {
     let mut out = io::stdout().lock();
+    let tw = crossterm::terminal::size().map(|(w, _)| w).unwrap_or(80);
+    let mut total_rows: u16 = 0;
     for (i, cmd) in candidates.iter().enumerate() {
         let (command, comment) = split_comment(cmd);
         let marker = if i == selected { "▸" } else { " " };
@@ -278,8 +299,10 @@ fn draw_candidates(candidates: &[String], selected: usize) {
             let _ = write!(out, " {}⚠{}", SetForegroundColor(Color::Red), ResetColor);
         }
         let _ = writeln!(out);
+        total_rows += candidate_rows(cmd, tw);
     }
     let _ = out.flush();
+    total_rows
 }
 
 // ── Spinner ─────────────────────────────────────────────────────────────────
