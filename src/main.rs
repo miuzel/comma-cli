@@ -40,7 +40,7 @@ fn main() {
     let mut rest: &[String] = &[];
     for (i, a) in args.iter().enumerate() {
         let s = a.as_str();
-        let is_flag = matches!(s, "-h" | "--help" | "-V" | "--version" | "--update" | "--test")
+        let is_flag = matches!(s, "-h" | "--help" | "-V" | "--version" | "--update" | "--test" | "-f")
             || (s.starts_with("-v") && s.chars().skip(1).all(|c| c == 'v'));
         if s == "--" {
             rest = &args[i + 1..];
@@ -73,6 +73,8 @@ fn main() {
         return;
     }
 
+    let force_refresh = flags.iter().any(|a| *a == "-f");
+
     // Count -v flags (supports -v, -vv, -vvv) among leading flags only
     let verbosity = Verbosity(
         flags
@@ -96,16 +98,16 @@ fn main() {
         if !atty::is(atty::Stream::Stdin) {
             // Piped stdin: read intent from stdin and run one-shot
             match read_stdin_intent() {
-                Some(intent) => run_oneshot(&config, &system, &intent, verbosity, false),
+                Some(intent) => run_oneshot(&config, &system, &intent, verbosity, false, force_refresh),
                 None => return,
             }
         } else {
-            run_interactive(&config, &system, verbosity, false);
+            run_interactive(&config, &system, verbosity, false, force_refresh);
         }
     } else if rest.len() == 1 && rest[0] == "!" && !atty::is(atty::Stream::Stdin) {
         // Scriptable auto-confirm escape hatch: echo 'intent' | , !
         match read_stdin_intent() {
-            Some(intent) => run_oneshot(&config, &system, &intent, verbosity, true),
+            Some(intent) => run_oneshot(&config, &system, &intent, verbosity, true, force_refresh),
             None => return,
         }
     } else {
@@ -116,7 +118,7 @@ fn main() {
         } else {
             (intent, false)
         };
-        run_oneshot(&config, &system, &intent, verbosity, auto_confirm);
+        run_oneshot(&config, &system, &intent, verbosity, auto_confirm, force_refresh);
     }
 }
 
@@ -141,6 +143,7 @@ fn print_help() {
     println!("  , --version  Show version");
     println!("  , --update   Check for updates and self-update");
     println!("  , --test     Run built-in self-tests");
+    println!("  , -f         Force refresh: ignore cached responses");
     println!("  , -v         Verbose: show prompt and LLM reply");
     println!("  , -vv        Very verbose: add request logs and timing");
     println!();
@@ -160,13 +163,17 @@ fn print_help() {
     println!("  (auto-detected from URL if omitted; anthropic URLs → anthropic, rest → openai)");
 }
 
-fn run_oneshot(config: &Config, system: &str, intent: &str, v: Verbosity, auto_confirm: bool) {
+fn run_oneshot(config: &Config, system: &str, intent: &str, v: Verbosity, auto_confirm: bool, force_refresh: bool) {
     let mut messages = vec![Message {
         role: "user".into(),
         content: intent.to_string(),
     }];
     let ph = collect_placeholders();
     let mut cache = ResponseCache::load(config.cache_size);
+    if force_refresh {
+        cache.clear();
+        print_info("Cache refreshed.");
+    }
 
     print_info(&format!("{} ({})", config.model(), style_label(config.api_style())));
     if v.show_prompt() {
@@ -297,7 +304,7 @@ fn run_oneshot(config: &Config, system: &str, intent: &str, v: Verbosity, auto_c
     cache.save();
 }
 
-fn run_interactive(config: &Config, system: &str, v: Verbosity, auto_confirm: bool) {
+fn run_interactive(config: &Config, system: &str, v: Verbosity, auto_confirm: bool, force_refresh: bool) {
     print_info(&format!(
         "{} ({}). Tab completes filenames. 'q' quit, 'x' exec/edit/refine, 'c' copy.",
         config.model(),
@@ -306,6 +313,10 @@ fn run_interactive(config: &Config, system: &str, v: Verbosity, auto_confirm: bo
 
     let ph = collect_placeholders();
     let mut cache = ResponseCache::load(config.cache_size);
+    if force_refresh {
+        cache.clear();
+        print_info("Cache refreshed.");
+    }
 
     if v.show_debug() {
         print_debug(&format!("Cache: {} entries (max {})", cache.len(), config.cache_size));
