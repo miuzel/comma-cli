@@ -108,6 +108,16 @@ impl ResponseCache {
     pub fn len(&self) -> usize {
         self.entries.len()
     }
+
+    /// Clear all entries in memory. The on-disk file is untouched until
+    /// the next `save()` (which will write an empty map if no new entries
+    /// are inserted before then).
+    pub fn clear(&mut self) {
+        if !self.entries.is_empty() {
+            self.entries.clear();
+            self.dirty = true;
+        }
+    }
 }
 
 fn now_ts() -> u64 {
