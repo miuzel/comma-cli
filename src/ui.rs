@@ -481,9 +481,9 @@ pub fn edit_or_execute(cmd: &str, rl: &mut Editor<FileHelper, DefaultHistory>) -
     }
 
     let prompt_text = if is_dangerous(cmd) {
-        "Execute this dangerous command? [Enter] exec / [e]dit / [r]efine / [Esc] cancel "
+        "Execute this dangerous command? [Enter] exec / [e]dit / [r]efine / [c]opy / [Esc] cancel "
     } else {
-        "Execute? [Enter] exec / [e]dit / [r]efine / [Esc] cancel "
+        "Execute? [Enter] exec / [e]dit / [r]efine / [c]opy / [Esc] cancel "
     };
     let stdout = io::stdout();
     let mut out = stdout.lock();
@@ -547,6 +547,11 @@ pub fn edit_or_execute(cmd: &str, rl: &mut Editor<FileHelper, DefaultHistory>) -
                         }
                         Err(_) => break EditAction::Cancel,
                     }
+                }
+                KeyCode::Char('c') => {
+                    copy_to_clipboard(cmd);
+                    print_info("Copied to clipboard.");
+                    break EditAction::Cancel;
                 }
                 _ => break EditAction::Cancel,
             }

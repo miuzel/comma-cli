@@ -1,5 +1,6 @@
 use std::path::Path;
 
+use crate::config::{AutoUpdate, home_dir};
 use crate::llm::make_client;
 use crate::ui::{print_error, print_info, Spinner};
 
@@ -248,4 +249,74 @@ pub fn do_update() {
     let _ = std::fs::remove_dir_all(&tmp_dir);
 
     print_info(&format!("Updated to {}", latest));
+}
+
+// ── Auto-update check ───────────────────────────────────────────────────────
+
+/// Path to the file storing the last update-check timestamp (Unix epoch secs).
+fn last_check_path() -> Option<std::path::PathBuf> {
+    let home = home_dir().ok()?;
+    Some(std::path::PathBuf::from(&home).join(".local/bin/,.last_update_check"))
+}
+
+/// Read the stored timestamp, or 0 if missing/unreadable.
+fn read_last_check() -> u64 {
+    let path = match last_check_path() {
+        Some(p) => p,
+        None => return 0,
+    };
+    std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|s| s.trim().parse().ok())
+        .unwrap_or(0)
+}
+
+/// Write the current timestamp. Errors are silently ignored.
+fn write_last_check() {
+    let path = match last_check_path() {
+        Some(p) => p,
+        None => return,
+    };
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+    let _ = std::fs::write(&path, now.to_string());
+}
+
+/// Check for updates if enough time has passed. Prints a one-line notice when
+/// a newer version is available; does NOT auto-install.
+///
+/// Call this after the main work (command execution) is done.
+pub fn check_and_notify(auto_update: AutoUpdate) {
+    if !auto_update.enabled() {
+        return;
+    }
+
+    let interval_secs = auto_update.interval_days() * 86400;
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs())
+        .unwrap_or(0);
+
+    let last = read_last_check();
+    if now.saturating_sub(last) < interval_secs {
+        return;
+    }
+
+    // Timestamp check passed — do the actual version probe.
+    write_last_check();
+
+    let current = env!("CARGO_PKG_VERSION");
+    let (latest, _tag) = match get_latest_version() {
+        Ok(v) => v,
+        Err(_) => return, // Silent: network errors are not user-facing here
+    };
+
+    if version_newer(&latest, current) {
+        print_info(&format!(
+            "Update available: {} → {} (run , --update to install)",
+            current, latest
+        ));
+    }
 }

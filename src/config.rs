@@ -72,6 +72,43 @@ struct LocalConfig {
     prefer: Option<HashMap<String, Vec<String>>>,
     cache_size: Option<usize>,
     reasoning: Option<u32>,
+    // Auto-update: true (default) enables weekly checks; false disables;
+    // a number overrides the interval in days (0 = disabled).
+    auto_update: Option<AutoUpdate>,
+}
+
+/// Config-level auto-update setting. Accepts a bool (true/false) or a number
+/// (interval in days). Deserializes from JSON:
+///   "auto_update": false          — disabled
+///   "auto_update": true           — enabled, default 7-day interval
+///   "auto_update": 3              — enabled, check every 3 days
+#[derive(Deserialize, Clone, Copy)]
+#[serde(untagged)]
+pub enum AutoUpdate {
+    Bool(bool),
+    Days(u64),
+}
+
+impl Default for AutoUpdate {
+    fn default() -> Self {
+        AutoUpdate::Bool(true)
+    }
+}
+
+impl AutoUpdate {
+    pub fn enabled(&self) -> bool {
+        match self {
+            AutoUpdate::Bool(b) => *b,
+            AutoUpdate::Days(d) => *d > 0,
+        }
+    }
+
+    pub fn interval_days(&self) -> u64 {
+        match self {
+            AutoUpdate::Bool(_) => 7,
+            AutoUpdate::Days(d) => *d,
+        }
+    }
 }
 
 #[derive(Deserialize)]
@@ -94,6 +131,7 @@ pub struct Config {
     pub prefer: HashMap<String, Vec<String>>,
     pub cache_size: usize,
     pub reasoning: u32,
+    pub auto_update: AutoUpdate,
 }
 
 impl Config {
@@ -105,6 +143,40 @@ impl Config {
     }
     pub fn api_style(&self) -> ApiStyle {
         self.primary().api_style
+    }
+
+    /// Fuzzy-match a keyword against configured model names (case-insensitive
+    /// substring). Returns a new Config with only the matched entry (fallbacks
+    /// disabled) or an error listing available models.
+    pub fn filter_by_model(&self, keyword: &str) -> Result<Self, String> {
+        let kw = keyword.to_lowercase();
+        let matched: Vec<&ModelEntry> = self
+            .entries
+            .iter()
+            .filter(|e| e.model.to_lowercase().contains(&kw))
+            .collect();
+
+        match matched.len() {
+            0 => {
+                let available: Vec<&str> = self.entries.iter().map(|e| e.model.as_str()).collect();
+                Err(format!(
+                    "No model matching '{}'. Available: {}",
+                    keyword,
+                    available.join(", ")
+                ))
+            }
+            _ => {
+                // Pick the first match (preserves config order priority)
+                let entry = matched[0].clone();
+                Ok(Config {
+                    entries: vec![entry],
+                    prefer: self.prefer.clone(),
+                    cache_size: self.cache_size,
+                    reasoning: self.reasoning,
+                    auto_update: self.auto_update,
+                })
+            }
+        }
     }
 }
 
@@ -141,6 +213,7 @@ pub fn load_config() -> Result<Config, String> {
     let prefer = local.prefer.unwrap_or_default();
     let cache_size = local.cache_size.unwrap_or(1000);
     let reasoning = local.reasoning.unwrap_or(0);
+    let auto_update = local.auto_update.unwrap_or_default();
 
     // Build model entries
     // Priority: COMMA_* env > ,.config.json legacy > ,.config.json providers/models > claude settings
@@ -219,5 +292,6 @@ pub fn load_config() -> Result<Config, String> {
         prefer,
         cache_size,
         reasoning,
+        auto_update,
     })
 }

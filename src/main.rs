@@ -26,7 +26,7 @@ use crate::ui::{
     print_debug, print_error, print_info, prompt_confirm, prompt_input, prompt_input_fallback,
     select_command, split_comment, EditAction, FileHelper, Spinner, Verbosity,
 };
-use crate::update::do_update;
+use crate::update::{check_and_notify, do_update};
 
 // ── Main logic ──────────────────────────────────────────────────────────────
 
@@ -37,20 +37,32 @@ fn main() {
     // everything after the first positional is intent text, verbatim. `--`
     // explicitly ends the flag run. Unrecognized `-...` words start the intent.
     let mut flags: Vec<&str> = Vec::new();
+    let mut model_keyword: Option<String> = None;
     let mut rest: &[String] = &[];
-    for (i, a) in args.iter().enumerate() {
-        let s = a.as_str();
-        let is_flag = matches!(s, "-h" | "--help" | "-V" | "--version" | "--update" | "--test" | "-f")
+    let mut i = 0;
+    while i < args.len() {
+        let s = args[i].as_str();
+        let is_flag = matches!(s, "-h" | "--help" | "-V" | "--version" | "--update" | "--test" | "-f" | "--model")
             || (s.starts_with("-v") && s.chars().skip(1).all(|c| c == 'v'));
         if s == "--" {
             rest = &args[i + 1..];
             break;
+        } else if s == "--model" {
+            // Consume next arg as the model keyword
+            i += 1;
+            if i < args.len() {
+                model_keyword = Some(args[i].clone());
+            } else {
+                print_error("--model requires a keyword argument");
+                std::process::exit(1);
+            }
         } else if is_flag {
             flags.push(s);
         } else {
             rest = &args[i..];
             break;
         }
+        i += 1;
     }
 
     if flags.iter().any(|a| *a == "-V" || *a == "--version") {
@@ -90,6 +102,19 @@ fn main() {
             print_error(&format!("Config: {}", e));
             std::process::exit(1);
         }
+    };
+
+    // If --model is set, fuzzy-match and disable fallbacks
+    let config = if let Some(ref keyword) = model_keyword {
+        match config.filter_by_model(keyword) {
+            Ok(c) => c,
+            Err(e) => {
+                print_error(&e);
+                std::process::exit(1);
+            }
+        }
+    } else {
+        config
     };
 
     let system = load_prompt(&config);
@@ -146,6 +171,7 @@ fn print_help() {
     println!("  , -f         Force refresh: ignore cached responses");
     println!("  , -v         Verbose: show prompt and LLM reply");
     println!("  , -vv        Very verbose: add request logs and timing");
+    println!("  , --model K  Select model by keyword (fuzzy match, disables fallbacks)");
     println!();
     println!("Interactive commands:");
     println!("  x / exec     Execute the current command");
@@ -154,8 +180,14 @@ fn print_help() {
     println!("  y / Enter    Confirm execution when prompted");
     println!("  Tab          Complete filename from current directory");
     println!();
+    println!("On the execution prompt:");
+    println!("  [Enter] exec  [e]dit  [r]efine  [c]opy  [Esc] cancel");
+    println!();
     println!("Config priority: COMMA_* env > ,.config.json > claude settings");
     println!("Prompt file:     ~/.local/bin/,.prompt.md");
+    println!();
+    println!("Config file (,/.config.json):");
+    println!("  auto_update   true (default, weekly) | false | <days> (check interval)");
     println!();
     println!("API style (api_style):");
     println!("  openai       OpenAI-compatible (Cerebras, Groq, Ollama, vLLM, ...)");
@@ -302,6 +334,7 @@ fn run_oneshot(config: &Config, system: &str, intent: &str, v: Verbosity, auto_c
     }
 
     cache.save();
+    check_and_notify(config.auto_update);
 }
 
 fn run_interactive(config: &Config, system: &str, v: Verbosity, auto_confirm: bool, force_refresh: bool) {
@@ -507,6 +540,7 @@ fn run_interactive(config: &Config, system: &str, v: Verbosity, auto_confirm: bo
         }
     }
     cache.save();
+    check_and_notify(config.auto_update);
 }
 
 pub fn style_label(style: ApiStyle) -> &'static str {
