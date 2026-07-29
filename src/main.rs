@@ -109,8 +109,8 @@ fn main() {
         match config.filter_by_model(keyword) {
             Ok(c) => c,
             Err(e) => {
-                print_error(&e);
-                std::process::exit(1);
+                print_info(&format!("{}. Using default.", e));
+                config
             }
         }
     } else {
