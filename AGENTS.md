@@ -94,3 +94,5 @@ Releases are fully automated via `.github/workflows/release.yml`:
 3. Each is packaged (`comma-<os>-<arch>.tar.gz`, or `.zip` for Windows); a `sha256sums.txt` covering all archives is generated and published to the GitHub release by `softprops/action-gh-release`, together with `install.sh`.
 
 End users install/update via `install.sh` or the built-in `, --update`, both of which pull from GitHub releases and verify the archive against `sha256sums.txt` — so archive names in the workflow, `install.sh`, and `do_update()` in `src/update.rs` must stay consistent.
+
+**After pushing a release tag, wait ~10 minutes before testing `, --update` or `install.sh`.** The `releases/latest/download/` redirect lags behind on GitHub's CDN: right after a release it can serve the *previous* release's `sha256sums.txt` together with the *new* archive, causing a spurious checksum mismatch (the abort is the safety check working, not a broken release). Pin-tag URLs (`releases/download/vX.Y.Z/...`) are not affected.
