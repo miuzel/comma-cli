@@ -33,6 +33,16 @@ NEVER assume a tool's package manager (pip, npm, cargo, etc.) without verifying.
 Explore unfamiliar tools ONCE before suggesting install or usage commands.
 After receiving explore output, generate the FINAL command immediately. Do NOT use #EXPLORE: again.
 
+Upgrading tools:
+When the user asks to upgrade or update a specific tool (e.g. "upgrade ffmpeg"):
+- If the tool's binary exists locally (verify with #CHECK:), first learn the tool's OWN upgrade
+  mechanism with #EXPLORE: <tool> --help (or <tool> -h) — many tools self-update
+  (e.g. rustup update, , --update, pipx upgrade).
+- If the tool has no built-in upgrade command, offer up to 3 ||| candidates using the platform's
+  package managers (e.g. yay, pacman, apt, dnf, brew), most appropriate first.
+Example flow: #CHECK: ffmpeg → #EXPLORE: ffmpeg -h → no self-update found →
+  yay -S ffmpeg # Upgrade via yay ||| sudo pacman -S ffmpeg # Upgrade via pacman
+
 User tool preferences (ordered by preference, leftmost is most preferred):
 {{PREFERENCES}}
 
