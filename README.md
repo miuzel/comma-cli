@@ -27,6 +27,26 @@ $dir = "D:\tools\bin"; Invoke-WebRequest -Uri "https://github.com/miuzel/comma-c
 
 ---
 
+## Demo
+
+### Basic usage
+![basic usage](https://github.com/miuzel/comma-cli/assets/demo/basic-usage.gif)
+<!-- Record: , find all TODO comments in python files -->
+
+### Edit & refine
+![edit and refine](https://github.com/miuzel/comma-cli/assets/demo/edit-refine.gif)
+<!-- Record: , compress video to 10mb → press 'r' → add --dry-run -->
+
+### Multi-candidate selection
+![multi-candidate](https://github.com/miuzel/comma-cli/assets/demo/multi-candidate.gif)
+<!-- Record: , list files by size → select from candidates -->
+
+### i18n support
+![i18n](https://github.com/miuzel/comma-cli/assets/demo/i18n.gif)
+<!-- Record: COMMA_LANG=zh , --help -->
+
+---
+
 ## The problem
 
 You're in the terminal. You want to:
