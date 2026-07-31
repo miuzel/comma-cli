@@ -516,7 +516,7 @@ curl -sSL https://github.com/miuzel/comma-cli/releases/latest/download/install.s
 brew install miuzel/tap/comma-cli
 ```
 
-二进制安装为 `,`（另有 `comma` 别名），并附带 `comma-setup` 辅助命令：运行一次即可交互式创建 `~/.config/comma/config.json`（base URL、API key、模型名）。更新用 `brew upgrade comma-cli`。
+二进制安装为 `,`（另有 `comma` 别名），并附带 `comma-setup` 辅助命令：运行一次即可交互式创建 `~/.config/comma/config.json`（base URL、API key、模型名——跳过询问也会留下一份默认配置供你手动编辑）。更新用 `brew upgrade comma-cli`。
 
 ### Windows (PowerShell)
 
