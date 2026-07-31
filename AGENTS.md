@@ -7,7 +7,7 @@ Guidance for AI coding agents working on this repository. Assumes no prior knowl
 **comma-cli** (binary name: `comma`, installed as `,`) is a tiny, stateless CLI that translates natural-language intent into a single shell command using an LLM, then optionally executes it after user confirmation. It is a command *generator*, not an agent: one intent → one command → execute → done.
 
 - Language: Rust (edition 2021), single crate, single binary.
-- Current version: `0.17.0` (see `Cargo.toml`; the binary reports `env!("CARGO_PKG_VERSION")`).
+- Current version: `0.20.1` (see `Cargo.toml`; the binary reports `env!("CARGO_PKG_VERSION")`).
 - Repository: https://github.com/miuzel/comma-cli
 - License: MIT.
 - Platforms: Linux (x86_64, aarch64), macOS (x86_64, aarch64), Windows (x86_64). On Unix the binary is installed as `,`; on Windows as `comma.exe` (PowerShell reserves `,`).
