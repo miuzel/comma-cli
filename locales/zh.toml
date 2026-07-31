@@ -19,7 +19,7 @@ clipboard_hint_windows = "clip.exe 通常是系统内置的"
 clipboard_hint_unix = "请安装 wl-clipboard、xclip 或 xsel"
 
 [info]
-model_fallback = "{}。使用默认模型。"
+model_fallback = "%{e}。使用默认模型。"
 cache_refreshed = "缓存已刷新。"
 running = "运行: %{cmd}"
 copied = "已复制到剪贴板。"
@@ -54,11 +54,11 @@ github_missing_tag = "GitHub API: 缺少 tag_name"
 [config]
 home_not_set = "HOME 未设置"
 invalid_file = "无效 %{path}: %{e}"
-provider_not_found = "提供商 '{}' 未在 providers 中找到"
-provider_missing_url = "提供商 '{}' 缺少 base_url"
-provider_missing_token = "提供商 '{}' 缺少 auth_token。请设置 COMMA_API_KEY 或在 providers.{} 中添加 auth_token"
+provider_not_found = "提供商 '%{name}' 未在 providers 中找到"
+provider_missing_url = "提供商 '%{name}' 缺少 base_url"
+provider_missing_token = "提供商 '%{name}' 缺少 auth_token。请设置 COMMA_API_KEY 或在 providers.%{name2} 中添加 auth_token"
 models_empty = "模型列表为空"
-no_model_match = "没有匹配 '{}' 的模型。可用: {}"
+no_model_match = "没有匹配 '%{keyword}' 的模型。可用: %{available}"
 
 [llm]
 http_client = "HTTP 客户端: %{e}"
@@ -130,6 +130,6 @@ anthropic_desc = "  anthropic    Anthropic Messages API"
 api_style_auto = "  (如省略则从 URL 自动检测; anthropic URL → anthropic, 其他 → openai)"
 
 [interactive]
-welcome = "{} ({}). Tab 补全文件名。'q' 退出，'x' 执行/编辑/精炼，'c' 复制。"
+welcome = "%{m} (%{s}). Tab 补全文件名。'q' 退出，'x' 执行/编辑/精炼，'c' 复制。"
 thinking = "%{m} 思考中..."
 thinking_short = "思考中..."
