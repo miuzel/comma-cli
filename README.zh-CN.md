@@ -9,6 +9,9 @@
 ```bash
 # Linux / macOS — 10 秒安装
 curl -sSL https://github.com/miuzel/comma-cli/releases/latest/download/install.sh | bash
+
+# 或用 Homebrew（macOS / Linux）
+brew install miuzel/tap/comma-cli
 ```
 
 ```powershell
@@ -506,6 +509,14 @@ curl -sSL https://github.com/miuzel/comma-cli/releases/latest/download/install.s
 ```
 
 安装脚本会在可用时对照 release 的 `sha256sums.txt` 校验压缩包的 SHA-256。
+
+### Homebrew（macOS / Linux）
+
+```bash
+brew install miuzel/tap/comma-cli
+```
+
+二进制安装为 `,`（另有 `comma` 别名）。如果还没有配置文件，安装过程中会询问你的模型 API base URL、key 和模型名——回车即可跳过，之后编辑 `~/.config/comma/config.json` 即可（无终端时自动跳过询问）。更新用 `brew upgrade comma-cli`。
 
 ### Windows (PowerShell)
 

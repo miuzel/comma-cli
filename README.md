@@ -9,6 +9,9 @@
 ```bash
 # Linux / macOS — install in 10 seconds
 curl -sSL https://github.com/miuzel/comma-cli/releases/latest/download/install.sh | bash
+
+# or via Homebrew (macOS / Linux)
+brew install miuzel/tap/comma-cli
 ```
 
 ```powershell
@@ -506,6 +509,14 @@ curl -sSL https://github.com/miuzel/comma-cli/releases/latest/download/install.s
 ```
 
 The installer verifies the archive's SHA-256 checksum against the release's `sha256sums.txt` when available.
+
+### Homebrew (macOS / Linux)
+
+```bash
+brew install miuzel/tap/comma-cli
+```
+
+The binary is installed as `,` (with `comma` as an alias). If you have no config yet, the installer offers to ask for your model API base URL, key and model name right away — press Enter to skip and edit `~/.config/comma/config.json` later (the prompt is skipped automatically when there's no terminal). Update with `brew upgrade comma-cli`.
 
 ### Windows (PowerShell)
 
