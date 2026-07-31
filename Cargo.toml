@@ -1,6 +1,6 @@
 [package]
 name = "comma"
-version = "0.19.0"
+version = "0.20.0"
 edition = "2021"
 
 [dependencies]
@@ -11,6 +11,7 @@ sha2 = "0.10"
 atty = "0.2"
 crossterm = "0.28"
 rustyline = "15"
+rust-i18n = "3"
 
 [profile.release]
 strip = true

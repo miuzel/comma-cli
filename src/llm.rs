@@ -6,6 +6,7 @@ use crate::cache::{cache_key, ResponseCache};
 use crate::config::{ApiStyle, Config, ModelEntry};
 use crate::style_label;
 use crate::ui::{print_debug, print_info, truncate, Verbosity};
+use rust_i18n::t;
 
 // ── API ─────────────────────────────────────────────────────────────────────
 
@@ -282,9 +283,9 @@ pub fn call_llm_with_retry(
         }
     }
     if last_err.is_empty() {
-        Err("All models returned empty responses.".into())
+        Err(t!("llm.all_models_empty").to_string())
     } else {
-        Err(format!("All models failed. Last error: {}", last_err))
+        Err(t!("llm.all_models_failed", "error" => last_err).to_string())
     }
 }
 
@@ -295,7 +296,7 @@ pub fn make_client() -> Result<reqwest::blocking::Client, String> {
         // 60s total timeout before a fallback entry is even tried.
         .connect_timeout(std::time::Duration::from_secs(10))
         .build()
-        .map_err(|e| format!("HTTP client: {}", e))
+        .map_err(|e| t!("llm.http_client", "e" => e).to_string())
 }
 
 fn call_openai(entry: &ModelEntry, system: &str, messages: &[Message], v: Verbosity) -> Result<LlmResponse, String> {
@@ -335,11 +336,11 @@ fn call_openai(entry: &ModelEntry, system: &str, messages: &[Message], v: Verbos
         .header("content-type", "application/json")
         .json(&body)
         .send()
-        .map_err(|e| format!("Request failed: {}", e))?;
+        .map_err(|e| t!("llm.request_failed", "e" => e).to_string())?;
 
     let elapsed = t0.elapsed();
     let status = resp.status();
-    let text = resp.text().map_err(|e| format!("Read body: {}", e))?;
+    let text = resp.text().map_err(|e| t!("llm.read_body", "e" => e).to_string())?;
 
     if v.show_debug() {
         print_debug(&format!("Status: {} ({:.1}s)", status, elapsed.as_secs_f64()));
@@ -347,13 +348,13 @@ fn call_openai(entry: &ModelEntry, system: &str, messages: &[Message], v: Verbos
     }
 
     if !status.is_success() {
-        return Err(format!("API error ({}): {}", status, text));
+        return Err(t!("llm.api_error", "status" => status, "body" => text).to_string());
     }
 
     let api_resp: OpenAiResponse =
-        serde_json::from_str(&text).map_err(|e| format!("Parse response: {}", e))?;
+        serde_json::from_str(&text).map_err(|e| t!("llm.parse_response", "e" => e).to_string())?;
     if let Some(err) = api_resp.error {
-        return Err(err.message.unwrap_or_else(|| "Unknown API error".into()));
+        return Err(err.message.unwrap_or_else(|| t!("llm.unknown_api_error").to_string()));
     }
 
     let usage = api_resp.usage.as_ref().map(|u| Usage {
@@ -364,7 +365,7 @@ fn call_openai(entry: &ModelEntry, system: &str, messages: &[Message], v: Verbos
         ..Usage::default()
     }).unwrap_or(Usage { duration_ms: elapsed.as_millis() as u64, ..Usage::default() });
 
-    let choices = api_resp.choices.ok_or("Empty response: no choices")?;
+    let choices = api_resp.choices.ok_or(t!("llm.empty_response_choices").to_string())?;
     let content = choices
         .first()
         .and_then(|c| c.message.as_ref())
@@ -417,11 +418,11 @@ fn call_anthropic(entry: &ModelEntry, system: &str, messages: &[Message], v: Ver
         .header("content-type", "application/json")
         .json(&body)
         .send()
-        .map_err(|e| format!("Request failed: {}", e))?;
+        .map_err(|e| t!("llm.request_failed", "e" => e).to_string())?;
 
     let elapsed = t0.elapsed();
     let status = resp.status();
-    let text = resp.text().map_err(|e| format!("Read body: {}", e))?;
+    let text = resp.text().map_err(|e| t!("llm.read_body", "e" => e).to_string())?;
 
     if v.show_debug() {
         print_debug(&format!("Status: {} ({:.1}s)", status, elapsed.as_secs_f64()));
@@ -429,13 +430,13 @@ fn call_anthropic(entry: &ModelEntry, system: &str, messages: &[Message], v: Ver
     }
 
     if !status.is_success() {
-        return Err(format!("API error ({}): {}", status, text));
+        return Err(t!("llm.api_error", "status" => status, "body" => text).to_string());
     }
 
     let api_resp: AnthropicResponse =
-        serde_json::from_str(&text).map_err(|e| format!("Parse response: {}", e))?;
+        serde_json::from_str(&text).map_err(|e| t!("llm.parse_response", "e" => e).to_string())?;
     if let Some(err) = api_resp.error {
-        return Err(err.message.unwrap_or_else(|| "Unknown API error".into()));
+        return Err(err.message.unwrap_or_else(|| t!("llm.unknown_api_error").to_string()));
     }
 
     let usage = api_resp.usage.as_ref().map(|u| Usage {
@@ -447,7 +448,7 @@ fn call_anthropic(entry: &ModelEntry, system: &str, messages: &[Message], v: Ver
         ..Usage::default()
     }).unwrap_or(Usage { duration_ms: elapsed.as_millis() as u64, ..Usage::default() });
 
-    let content = api_resp.content.ok_or("Empty response")?;
+    let content = api_resp.content.ok_or(t!("llm.empty_response").to_string())?;
 
     // Show thinking blocks in verbose mode
     if v.show_prompt() {

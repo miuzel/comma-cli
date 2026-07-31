@@ -3,6 +3,7 @@ use std::path::Path;
 use crate::config::{AutoUpdate, home_dir};
 use crate::llm::make_client;
 use crate::ui::{print_error, print_info, Spinner};
+use rust_i18n::t;
 
 // ── Version check & self-update ─────────────────────────────────────────────
 
@@ -12,16 +13,16 @@ fn get_latest_version() -> Result<(String, String), String> {
         .get("https://api.github.com/repos/miuzel/comma-cli/releases/latest")
         .header("User-Agent", format!("comma/{}", env!("CARGO_PKG_VERSION")))
         .send()
-        .map_err(|e| format!("GitHub API: {}", e))?;
+        .map_err(|e| t!("update.github_api_error", "e" => e).to_string())?;
     if !resp.status().is_success() {
-        return Err(format!("GitHub API: HTTP {}", resp.status()));
+        return Err(t!("update.github_http_error", "status" => resp.status()).to_string());
     }
     let body: serde_json::Value = resp
         .json()
-        .map_err(|e| format!("GitHub API: {}", e))?;
+        .map_err(|e| t!("update.github_api_error", "e" => e).to_string())?;
     let tag = body["tag_name"]
         .as_str()
-        .ok_or("GitHub API: missing tag_name")?;
+        .ok_or_else(|| t!("update.github_missing_tag").to_string())?;
     let version = tag.strip_prefix('v').unwrap_or(tag).to_string();
     Ok((version, tag.to_string()))
 }
@@ -82,11 +83,11 @@ fn verify_archive(
         .get(url)
         .header("User-Agent", format!("comma/{}", current))
         .send()
-        .map_err(|e| format!("Download sha256sums.txt: {}", e))?;
+        .map_err(|e| t!("update.checksum_download_error", "e" => e).to_string())?;
     if !resp.status().is_success() {
-        return Err(format!("Download sha256sums.txt: HTTP {}", resp.status()));
+        return Err(t!("update.checksum_http_error", "status" => resp.status()).to_string());
     }
-    let sums = resp.text().map_err(|e| format!("Download sha256sums.txt: {}", e))?;
+    let sums = resp.text().map_err(|e| t!("update.checksum_download_error", "e" => e).to_string())?;
 
     // Lines look like: `<sha256>  <archive-name>` (`*name` in binary mode)
     let expected = sums
@@ -97,22 +98,19 @@ fn verify_archive(
             let name = parts.next()?;
             if name.trim_start_matches('*') == archive_name { Some(hash.to_string()) } else { None }
         })
-        .ok_or_else(|| format!("sha256sums.txt has no entry for {}", archive_name))?;
+        .ok_or_else(|| t!("update.checksum_no_entry", "name" => archive_name).to_string())?;
 
     let actual = sha256_hex(bytes);
     if actual != expected {
-        return Err(format!(
-            "Checksum mismatch for {} (expected {}, got {}) — aborting update",
-            archive_name, expected, actual
-        ));
+        return Err(t!("update.checksum_mismatch", "name" => archive_name, "expected" => expected, "actual" => actual).to_string());
     }
-    print_info(&format!("Checksum verified ({}...)", &actual[..12]));
+    print_info(&t!("update.checksum_verified", "hash" => &actual[..12]));
     Ok(())
 }
 
 pub fn do_update() {
     let current = env!("CARGO_PKG_VERSION");
-    print_info(&format!("Checking for updates (current: {})...", current));
+    print_info(&t!("update.checking", "v" => current));
 
     let (latest, _tag) = match get_latest_version() {
         Ok(v) => v,
@@ -120,21 +118,21 @@ pub fn do_update() {
     };
 
     if !version_newer(&latest, current) {
-        print_info(&format!("Already up to date ({})", current));
+        print_info(&t!("update.up_to_date", "v" => current));
         return;
     }
 
-    println!("  Update available: {} → {}", current, latest);
+    println!("{}", t!("update.available", "from" => current, "to" => latest));
 
     let platform = match detect_platform() {
         Some(p) => p,
-        None => { print_error("Unsupported platform for auto-update"); return; }
+        None => { print_error(&t!("update.unsupported_platform")); return; }
     };
 
     // Determine binary path
     let exe_path = match std::env::current_exe() {
         Ok(p) => p,
-        Err(e) => { print_error(&format!("Cannot find binary path: {}", e)); return; }
+        Err(e) => { print_error(&t!("update.cannot_find_binary", e = e)); return; }
     };
 
     // Download platform archive
@@ -148,7 +146,7 @@ pub fn do_update() {
         archive_name
     );
 
-    let mut spinner = Spinner::start(&format!("Downloading {}...", archive_name));
+    let mut spinner = Spinner::start(&t!("update.downloading", "name" => archive_name));
     let client = match make_client() {
         Ok(c) => c,
         Err(e) => { spinner.stop(); print_error(&e); return; }
@@ -159,16 +157,16 @@ pub fn do_update() {
         .send()
     {
         Ok(r) => r,
-        Err(e) => { spinner.stop(); print_error(&format!("Download: {}", e)); return; }
+        Err(e) => { spinner.stop(); print_error(&t!("update.download_error", e = e)); return; }
     };
     if !resp.status().is_success() {
         spinner.stop();
-        print_error(&format!("Download: HTTP {}", resp.status()));
+        print_error(&t!("update.download_http_error", "status" => resp.status()));
         return;
     }
     let bytes = match resp.bytes() {
         Ok(b) => b,
-        Err(e) => { spinner.stop(); print_error(&format!("Download: {}", e)); return; }
+        Err(e) => { spinner.stop(); print_error(&t!("update.download_error", e = e)); return; }
     };
     spinner.stop();
 
@@ -182,13 +180,13 @@ pub fn do_update() {
     let tmp_dir = exe_path.parent().unwrap_or(Path::new(".")).join(".comma-update");
     let _ = std::fs::remove_dir_all(&tmp_dir);
     if let Err(e) = std::fs::create_dir_all(&tmp_dir) {
-        print_error(&format!("Create temp dir: {}", e));
+        print_error(&t!("update.create_temp_dir", "e" => e));
         return;
     }
 
     let archive_path = tmp_dir.join(&archive_name);
     if let Err(e) = std::fs::write(&archive_path, &bytes) {
-        print_error(&format!("Write archive: {}", e));
+        print_error(&t!("update.write_archive", "e" => e));
         return;
     }
 
@@ -202,7 +200,7 @@ pub fn do_update() {
             .status();
         match status {
             Ok(s) if s.success() => tmp_dir.join("comma.exe"),
-            _ => { print_error("Failed to extract zip archive"); return; }
+            _ => { print_error(&t!("update.extract_zip_failed")); return; }
         }
     } else {
         // Use tar on Unix
@@ -211,12 +209,12 @@ pub fn do_update() {
             .status();
         match status {
             Ok(s) if s.success() => tmp_dir.join("comma"),
-            _ => { print_error("Failed to extract tar archive"); return; }
+            _ => { print_error(&t!("update.extract_tar_failed")); return; }
         }
     };
 
     if !extracted_binary.exists() {
-        print_error("Binary not found in archive");
+        print_error(&t!("update.binary_not_found"));
         return;
     }
 
@@ -232,7 +230,7 @@ pub fn do_update() {
     if let Err(_e) = std::fs::rename(&exe_path, &old_path) {
         // Rename of running exe failed, try direct copy (Unix or unlocked Windows)
         if let Err(e) = std::fs::copy(&extracted_binary, &exe_path) {
-            print_error(&format!("Replace binary: {}", e));
+            print_error(&t!("update.replace_binary", "e" => e));
             return;
         }
     } else {
@@ -240,7 +238,7 @@ pub fn do_update() {
         if let Err(e) = std::fs::copy(&extracted_binary, &exe_path) {
             // Restore old exe on failure
             let _ = std::fs::rename(&old_path, &exe_path);
-            print_error(&format!("Replace binary: {}", e));
+            print_error(&t!("update.replace_binary", "e" => e));
             return;
         }
     }
@@ -248,7 +246,7 @@ pub fn do_update() {
     // Cleanup
     let _ = std::fs::remove_dir_all(&tmp_dir);
 
-    print_info(&format!("Updated to {}", latest));
+    print_info(&t!("update.updated", "v" => latest));
 }
 
 // ── Auto-update check ───────────────────────────────────────────────────────
@@ -314,9 +312,6 @@ pub fn check_and_notify(auto_update: AutoUpdate) {
     };
 
     if version_newer(&latest, current) {
-        print_info(&format!(
-            "Update available: {} → {} (run , --update to install)",
-            current, latest
-        ));
+        print_info(&t!("info.update_available", "from" => current, "to" => latest));
     }
 }

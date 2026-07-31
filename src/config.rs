@@ -1,6 +1,7 @@
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::PathBuf;
+use rust_i18n::t;
 
 // ── API style ───────────────────────────────────────────────────────────────
 
@@ -75,6 +76,8 @@ struct LocalConfig {
     // Auto-update: true (default) enables weekly checks; false disables;
     // a number overrides the interval in days (0 = disabled).
     auto_update: Option<AutoUpdate>,
+    // Language override (e.g., "en", "zh", "ja")
+    lang: Option<String>,
 }
 
 /// Config-level auto-update setting. Accepts a bool (true/false) or a number
@@ -132,6 +135,7 @@ pub struct Config {
     pub cache_size: usize,
     pub reasoning: u32,
     pub auto_update: AutoUpdate,
+    pub lang: Option<String>,
 }
 
 impl Config {
@@ -159,11 +163,7 @@ impl Config {
         match matched.len() {
             0 => {
                 let available: Vec<&str> = self.entries.iter().map(|e| e.model.as_str()).collect();
-                Err(format!(
-                    "No model matching '{}'. Available: {}",
-                    keyword,
-                    available.join(", ")
-                ))
+                Err(t!("config.no_model_match", "keyword" => keyword, "available" => available.join(", ")).to_string())
             }
             _ => {
                 // Pick the first match (preserves config order priority)
@@ -174,6 +174,7 @@ impl Config {
                     cache_size: self.cache_size,
                     reasoning: self.reasoning,
                     auto_update: self.auto_update,
+                    lang: self.lang.clone(),
                 })
             }
         }
@@ -183,7 +184,7 @@ impl Config {
 pub fn home_dir() -> Result<String, String> {
     std::env::var("HOME")
         .or_else(|_| std::env::var("USERPROFILE"))
-        .map_err(|_| "HOME not set".into())
+        .map_err(|_| t!("config.home_not_set").to_string())
 }
 
 pub fn load_config() -> Result<Config, String> {
@@ -193,7 +194,7 @@ pub fn load_config() -> Result<Config, String> {
     let local_path = PathBuf::from(&home).join(".local/bin/,.config.json");
     let local: LocalConfig = match std::fs::read_to_string(&local_path) {
         Ok(data) => serde_json::from_str(&data)
-            .map_err(|e| format!("Invalid {}: {}", local_path.display(), e))?,
+            .map_err(|e| t!("config.invalid_file", "path" => local_path.display(), "e" => e).to_string())?,
         Err(_) => LocalConfig::default(),
     };
 
@@ -201,7 +202,7 @@ pub fn load_config() -> Result<Config, String> {
     let claude_env: Option<ClaudeEnv> = match std::fs::read_to_string(&claude_path) {
         Ok(data) => {
             let settings: ClaudeSettings = serde_json::from_str(&data)
-                .map_err(|e| format!("Invalid {}: {}", claude_path.display(), e))?;
+                .map_err(|e| t!("config.invalid_file", "path" => claude_path.display(), "e" => e).to_string())?;
             settings.env
         }
         Err(_) => None,
@@ -214,6 +215,7 @@ pub fn load_config() -> Result<Config, String> {
     let cache_size = local.cache_size.unwrap_or(1000);
     let reasoning = local.reasoning.unwrap_or(0);
     let auto_update = local.auto_update.unwrap_or_default();
+    let lang = local.lang;
 
     // Build model entries
     // Priority: COMMA_* env > ,.config.json legacy > ,.config.json providers/models > claude settings
@@ -223,13 +225,13 @@ pub fn load_config() -> Result<Config, String> {
         let mut entries = Vec::new();
         for (i, m) in models.iter().enumerate() {
             let p = providers.get(&m.provider)
-                .ok_or(format!("Provider '{}' not found in providers", m.provider))?;
+                .ok_or(t!("config.provider_not_found", "name" => m.provider).to_string())?;
             let base_url = env_or("COMMA_BASE_URL")
                 .or_else(|| non_empty(p.base_url.clone()))
-                .ok_or(format!("Provider '{}' missing base_url", m.provider))?;
+                .ok_or(t!("config.provider_missing_url", "name" => m.provider).to_string())?;
             let auth_token = env_or("COMMA_API_KEY")
                 .or_else(|| non_empty(p.auth_token.clone()))
-                .ok_or(format!("Provider '{}' missing auth_token. Set COMMA_API_KEY or add auth_token to providers.{}", m.provider, m.provider))?;
+                .ok_or(t!("config.provider_missing_token", "name" => m.provider, "name2" => m.provider).to_string())?;
             let api_style = env_or("COMMA_API_STYLE")
                 .and_then(|s| ApiStyle::from_str(&s))
                 .or_else(|| non_empty(p.api_style.clone()).and_then(|s| ApiStyle::from_str(&s)))
@@ -253,7 +255,7 @@ pub fn load_config() -> Result<Config, String> {
             });
         }
         if entries.is_empty() {
-            return Err("models list is empty".into());
+            return Err(t!("config.models_empty").to_string());
         }
         entries
     } else {
@@ -268,7 +270,7 @@ pub fn load_config() -> Result<Config, String> {
             .or_else(|| non_empty(local.auth_token.clone()))
             .or_else(|| env_or("ANTHROPIC_API_KEY"))
             .or_else(|| claude_env.as_ref().and_then(|e| e.auth_token.clone()))
-            .ok_or("No API key found. Configure one:\n  1. Edit ~/.local/bin/,.config.json\n  2. Set COMMA_API_KEY or ANTHROPIC_API_KEY env var")?;
+            .ok_or(t!("error.no_api_key").to_string())?;
         let model = env_or("COMMA_MODEL")
             .or_else(|| non_empty(local.model.clone()))
             .or_else(|| env_or("ANTHROPIC_MODEL"))
@@ -293,5 +295,6 @@ pub fn load_config() -> Result<Config, String> {
         cache_size,
         reasoning,
         auto_update,
+        lang,
     })
 }

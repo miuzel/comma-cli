@@ -10,6 +10,7 @@ use std::borrow::Cow;
 use std::io::{self, Write};
 
 use crate::danger::is_dangerous;
+use rust_i18n::t;
 
 // ── Rustyline helper wrapper ────────────────────────────────────────────────
 
@@ -121,8 +122,9 @@ pub fn print_cmd(cmd: &str) {
     if is_dangerous(command) {
         let _ = write!(
             out,
-            "{}⚠ DANGEROUS COMMAND ⚠{}",
+            "{}{}{}",
             SetForegroundColor(Color::Red),
+            t!("ui.dangerous_warning"),
             ResetColor
         );
         let _ = writeln!(out);
@@ -473,7 +475,7 @@ pub fn edit_or_execute(cmd: &str, rl: &mut Editor<FileHelper, DefaultHistory>) -
     if !atty::is(atty::Stream::Stdin) {
         // Non-interactive stdin: never auto-execute — require an explicit "y"
         // via the line-based fallback in prompt_confirm.
-        return if prompt_confirm("Execute?") {
+        return if prompt_confirm(&t!("ui.execute_confirm")) {
             EditAction::Execute(cmd.to_string())
         } else {
             EditAction::Cancel
@@ -481,9 +483,9 @@ pub fn edit_or_execute(cmd: &str, rl: &mut Editor<FileHelper, DefaultHistory>) -
     }
 
     let prompt_text = if is_dangerous(cmd) {
-        "Execute this dangerous command? [Enter] exec / [e]dit / [r]efine / [c]opy / [Esc] cancel "
+        t!("ui.execute_dangerous")
     } else {
-        "Execute? [Enter] exec / [e]dit / [r]efine / [c]opy / [Esc] cancel "
+        t!("ui.execute_normal")
     };
     let stdout = io::stdout();
     let mut out = stdout.lock();
@@ -520,7 +522,7 @@ pub fn edit_or_execute(cmd: &str, rl: &mut Editor<FileHelper, DefaultHistory>) -
                 }
                 KeyCode::Char('e') => {
                     let _ = crossterm::terminal::disable_raw_mode();
-                    let edit_prompt = format!("{}edit> {}", SetForegroundColor(Color::Yellow), ResetColor);
+                    let edit_prompt = format!("{}{}{}", SetForegroundColor(Color::Yellow), t!("ui.edit_prompt"), ResetColor);
                     match rl.readline_with_initial(&edit_prompt, (cmd, "")) {
                         Ok(edited) => {
                             let trimmed = edited.trim().to_string();
@@ -535,7 +537,7 @@ pub fn edit_or_execute(cmd: &str, rl: &mut Editor<FileHelper, DefaultHistory>) -
                 }
                 KeyCode::Char('r') => {
                     let _ = crossterm::terminal::disable_raw_mode();
-                    let refine_prompt = format!("{}refine> {}", SetForegroundColor(Color::Yellow), ResetColor);
+                    let refine_prompt = format!("{}{}{}", SetForegroundColor(Color::Yellow), t!("ui.refine_prompt"), ResetColor);
                     match rl.readline(&refine_prompt) {
                         Ok(text) => {
                             let trimmed = text.trim().to_string();
@@ -550,7 +552,7 @@ pub fn edit_or_execute(cmd: &str, rl: &mut Editor<FileHelper, DefaultHistory>) -
                 }
                 KeyCode::Char('c') => {
                     copy_to_clipboard(cmd);
-                    print_info("Copied to clipboard.");
+                    print_info(&t!("info.copied"));
                     break EditAction::Cancel;
                 }
                 _ => break EditAction::Cancel,
@@ -628,9 +630,9 @@ pub fn copy_to_clipboard(text: &str) {
         }
     }
     let hint = if cfg!(target_os = "windows") {
-        "clip.exe is normally built in"
+        t!("error.clipboard_hint_windows")
     } else {
-        "install wl-clipboard, xclip, or xsel"
+        t!("error.clipboard_hint_unix")
     };
-    print_error(&format!("No clipboard tool found ({}).", hint));
+    print_error(&t!("error.clipboard_not_found", hint = hint));
 }

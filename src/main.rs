@@ -2,12 +2,17 @@ mod cache;
 mod config;
 mod context;
 mod danger;
+mod i18n;
 mod llm;
 mod prompt;
 mod protocol;
 mod tests;
 mod ui;
 mod update;
+
+#[macro_use]
+extern crate rust_i18n;
+i18n!("locales", fallback = "en");
 
 use rustyline::config::Configurer;
 use rustyline::history::DefaultHistory;
@@ -31,6 +36,9 @@ use crate::update::{check_and_notify, do_update};
 // ── Main logic ──────────────────────────────────────────────────────────────
 
 fn main() {
+    // Initialize i18n early from environment (before config is loaded)
+    i18n::init_from_env();
+
     let args: Vec<String> = std::env::args().skip(1).collect();
 
     // Only LEADING args (before the first non-flag arg) are treated as flags;
@@ -53,7 +61,7 @@ fn main() {
             if i < args.len() {
                 model_keyword = Some(args[i].clone());
             } else {
-                print_error("--model requires a keyword argument");
+                print_error(&t!("error.model_requires_keyword"));
                 std::process::exit(1);
             }
         } else if is_flag {
@@ -66,7 +74,7 @@ fn main() {
     }
 
     if flags.iter().any(|a| *a == "-V" || *a == "--version") {
-        println!("comma {}", env!("CARGO_PKG_VERSION"));
+        println!("{}", t!("general.version", "v" => env!("CARGO_PKG_VERSION")));
         return;
     }
 
@@ -99,17 +107,20 @@ fn main() {
     let config = match load_config() {
         Ok(c) => c,
         Err(e) => {
-            print_error(&format!("Config: {}", e));
+            print_error(&t!("error.config_load", "e" => e));
             std::process::exit(1);
         }
     };
+
+    // Initialize i18n based on config and environment
+    i18n::init(&config);
 
     // If --model is set, fuzzy-match and disable fallbacks
     let config = if let Some(ref keyword) = model_keyword {
         match config.filter_by_model(keyword) {
             Ok(c) => c,
             Err(e) => {
-                print_info(&format!("{}. Using default.", e));
+                print_info(&t!("info.model_fallback", "e" => e));
                 config
             }
         }
@@ -161,38 +172,38 @@ fn read_stdin_intent() -> Option<String> {
 }
 
 fn print_help() {
-    println!("Usage:");
-    println!("  , <intent>   Generate shell command from natural language");
-    println!("  ,            Interactive mode (refine commands with conversation)");
-    println!("  , -h         Show this help");
-    println!("  , --version  Show version");
-    println!("  , --update   Check for updates and self-update");
-    println!("  , --test     Run built-in self-tests");
-    println!("  , -f         Force refresh: ignore cached responses");
-    println!("  , -v         Verbose: show prompt and LLM reply");
-    println!("  , -vv        Very verbose: add request logs and timing");
-    println!("  , --model K  Select model by keyword (fuzzy match, disables fallbacks)");
+    println!("{}", t!("help.usage"));
+    println!("{}", t!("help.intent_desc"));
+    println!("{}", t!("help.interactive_desc"));
+    println!("{}", t!("help.help_desc"));
+    println!("{}", t!("help.version_desc"));
+    println!("{}", t!("help.update_desc"));
+    println!("{}", t!("help.test_desc"));
+    println!("{}", t!("help.force_desc"));
+    println!("{}", t!("help.verbose_desc"));
+    println!("{}", t!("help.very_verbose_desc"));
+    println!("{}", t!("help.model_desc"));
     println!();
-    println!("Interactive commands:");
-    println!("  x / exec     Execute the current command");
-    println!("  c / copy     Copy current command to clipboard");
-    println!("  q / quit     Exit");
-    println!("  y / Enter    Confirm execution when prompted");
-    println!("  Tab          Complete filename from current directory");
+    println!("{}", t!("help.interactive_commands"));
+    println!("{}", t!("help.exec_desc"));
+    println!("{}", t!("help.copy_desc"));
+    println!("{}", t!("help.quit_desc"));
+    println!("{}", t!("help.confirm_desc"));
+    println!("{}", t!("help.tab_desc"));
     println!();
-    println!("On the execution prompt:");
-    println!("  [Enter] exec  [e]dit  [r]efine  [c]opy  [Esc] cancel");
+    println!("{}", t!("help.execution_prompt"));
+    println!("{}", t!("help.execution_actions"));
     println!();
-    println!("Config priority: COMMA_* env > ,.config.json > claude settings");
-    println!("Prompt file:     ~/.local/bin/,.prompt.md");
+    println!("{}", t!("help.config_priority"));
+    println!("{}", t!("help.prompt_file"));
     println!();
-    println!("Config file (,/.config.json):");
-    println!("  auto_update   true (default, weekly) | false | <days> (check interval)");
+    println!("{}", t!("help.config_file"));
+    println!("{}", t!("help.auto_update_desc"));
     println!();
-    println!("API style (api_style):");
-    println!("  openai       OpenAI-compatible (Cerebras, Groq, Ollama, vLLM, ...)");
-    println!("  anthropic    Anthropic Messages API");
-    println!("  (auto-detected from URL if omitted; anthropic URLs → anthropic, rest → openai)");
+    println!("{}", t!("help.api_style"));
+    println!("{}", t!("help.openai_desc"));
+    println!("{}", t!("help.anthropic_desc"));
+    println!("{}", t!("help.api_style_auto"));
 }
 
 fn run_oneshot(config: &Config, system: &str, intent: &str, v: Verbosity, auto_confirm: bool, force_refresh: bool) {
@@ -204,7 +215,7 @@ fn run_oneshot(config: &Config, system: &str, intent: &str, v: Verbosity, auto_c
     let mut cache = ResponseCache::load(config.cache_size);
     if force_refresh {
         cache.clear();
-        print_info("Cache refreshed.");
+        print_info(&t!("info.cache_refreshed"));
     }
 
     print_info(&format!("{} ({})", config.model(), style_label(config.api_style())));
@@ -219,7 +230,7 @@ fn run_oneshot(config: &Config, system: &str, intent: &str, v: Verbosity, auto_c
     let mut rl = Editor::<FileHelper, DefaultHistory>::new().ok();
 
     // Initial LLM call
-    let mut spinner = Spinner::start(&format!("{} thinking...", config.model()));
+    let mut spinner = Spinner::start(&t!("interactive.thinking", "m" => config.model()));
     let result = call_llm_with_retry(config, system, &messages, v, &cache);
     spinner.stop();
 
@@ -277,7 +288,7 @@ fn run_oneshot(config: &Config, system: &str, intent: &str, v: Verbosity, auto_c
                 Some(editor) => edit_or_execute(&cmd, editor),
                 None => {
                     // No editor (unlikely in oneshot), fall back to confirm
-                    if prompt_confirm("Execute?") {
+                    if prompt_confirm(&t!("ui.execute_confirm")) {
                         EditAction::Execute(cmd)
                     } else {
                         EditAction::Cancel
@@ -306,7 +317,7 @@ fn run_oneshot(config: &Config, system: &str, intent: &str, v: Verbosity, auto_c
                     content: text,
                 });
 
-                let mut spinner = Spinner::start(&format!("{} thinking...", config.model()));
+                let mut spinner = Spinner::start(&t!("interactive.thinking", "m" => config.model()));
                 let result = call_llm_with_retry(config, system, &messages, v, &cache);
                 spinner.stop();
 
@@ -338,17 +349,17 @@ fn run_oneshot(config: &Config, system: &str, intent: &str, v: Verbosity, auto_c
 }
 
 fn run_interactive(config: &Config, system: &str, v: Verbosity, auto_confirm: bool, force_refresh: bool) {
-    print_info(&format!(
-        "{} ({}). Tab completes filenames. 'q' quit, 'x' exec/edit/refine, 'c' copy.",
-        config.model(),
-        style_label(config.api_style()),
+    print_info(&t!(
+        "interactive.welcome",
+        m = config.model(),
+        s = style_label(config.api_style()),
     ));
 
     let ph = collect_placeholders();
     let mut cache = ResponseCache::load(config.cache_size);
     if force_refresh {
         cache.clear();
-        print_info("Cache refreshed.");
+        print_info(&t!("info.cache_refreshed"));
     }
 
     if v.show_debug() {
@@ -383,13 +394,13 @@ fn run_interactive(config: &Config, system: &str, v: Verbosity, auto_confirm: bo
 
                 if input == "x" || input == "exec" {
                     if current_cmd.is_empty() {
-                        print_error("No command to execute.");
+                        print_error(&t!("error.no_command_execute"));
                         continue;
                     }
                     let action = match rl.as_mut() {
                         Some(editor) => edit_or_execute(&current_cmd, editor),
                         None => {
-                            if prompt_confirm("Execute?") {
+                            if prompt_confirm(&t!("ui.execute_confirm")) {
                                 EditAction::Execute(current_cmd.clone())
                             } else {
                                 EditAction::Cancel
@@ -417,7 +428,7 @@ fn run_interactive(config: &Config, system: &str, v: Verbosity, auto_confirm: bo
                             if v.show_prompt() {
                                 print_debug(&format!("Refine: {}", messages.last().unwrap().content));
                             }
-                            let mut spinner = Spinner::start("thinking...");
+                            let mut spinner = Spinner::start(&t!("interactive.thinking_short"));
                             let result = call_llm_with_retry(config, system, &messages, v, &cache);
                             spinner.stop();
                             match result {
@@ -467,10 +478,10 @@ fn run_interactive(config: &Config, system: &str, v: Verbosity, auto_confirm: bo
 
                 if input == "c" || input == "copy" {
                     if current_cmd.is_empty() {
-                        print_error("No command to copy.");
+                        print_error(&t!("error.no_command_copy"));
                     } else {
                         copy_to_clipboard(&current_cmd);
-                        print_info("Copied to clipboard.");
+                        print_info(&t!("info.copied"));
                     }
                     continue;
                 }
@@ -483,7 +494,7 @@ fn run_interactive(config: &Config, system: &str, v: Verbosity, auto_confirm: bo
                 if v.show_prompt() {
                     print_debug(&format!("User: {}", messages.last().unwrap().content));
                 }
-                let mut spinner = Spinner::start("thinking...");
+                let mut spinner = Spinner::start(&t!("interactive.thinking_short"));
                 let result = call_llm_with_retry(config, system, &messages, v, &cache);
                 spinner.stop();
                 match result {
@@ -573,7 +584,7 @@ fn shell_interp() -> (&'static str, [&'static str; 1]) {
 /// runs in a child shell (`sh -c` / `cmd /C`) as before.
 pub(crate) fn execute(cmd: &str) {
     let (command, _) = split_comment(cmd);
-    print_info(&format!("Running: {}", command));
+    print_info(&t!("info.running", "cmd" => command));
 
     if let Ok(path) = std::env::var("COMMA_EVAL_FILE") {
         if !path.is_empty() {
@@ -585,17 +596,14 @@ pub(crate) fn execute(cmd: &str) {
                 .open(&path)
                 .and_then(|mut f| writeln!(f, "{}", line));
             if let Err(e) = result {
-                print_error(&format!("Failed to write eval file {}: {}", path, e));
+                print_error(&t!("error.failed_write_eval", "path" => path, "e" => e));
             }
             return;
         }
     }
 
     if is_bare_cd(command) {
-        print_info(
-            "Note: `cd` runs in a subprocess and won't change your shell's directory \
-             — use the shell-integration wrapper (see README: Shell integration) for that.",
-        );
+        print_info(&t!("info.cd_subprocess"));
     }
 
     let (prog, args) = shell_interp();
@@ -605,9 +613,9 @@ pub(crate) fn execute(cmd: &str) {
         .status();
     match status {
         Ok(s) if !s.success() => {
-            print_error(&format!("Exit code: {}", s.code().unwrap_or(-1)));
+            print_error(&t!("error.exit_code", "code" => s.code().unwrap_or(-1)));
         }
-        Err(e) => print_error(&format!("Failed to execute: {}", e)),
+        Err(e) => print_error(&t!("error.failed_execute", "e" => e)),
         _ => {}
     }
 }

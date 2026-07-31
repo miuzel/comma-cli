@@ -12,6 +12,7 @@ use crate::ui::{
     print_cmd, print_debug, print_error, print_info, prompt_confirm, split_comment, truncate,
     Verbosity,
 };
+use rust_i18n::t;
 
 // ── #CHECK: tool availability query ─────────────────────────────────────────
 
@@ -54,10 +55,10 @@ fn check_tools(tools: &[&str]) -> String {
     }
     let mut parts = Vec::new();
     if !found.is_empty() {
-        parts.push(format!("Available: {}", found.join(", ")));
+        parts.push(t!("protocol.tools_available", "tools" => found.join(", ")).to_string());
     }
     if !missing.is_empty() {
-        parts.push(format!("Not found: {}", missing.join(", ")));
+        parts.push(t!("protocol.tools_not_found", "tools" => missing.join(", ")).to_string());
     }
     parts.join("\n")
 }
@@ -77,7 +78,7 @@ fn check_then_generate(
         None => return Ok(None),
     };
 
-    print_info(&format!("Checking tools: {}", tools.join(", ")));
+    print_info(&t!("protocol.checking_tools", "tools" => tools.join(", ")));
     let report = check_tools(&tools);
     print_info(&report);
 
@@ -143,7 +144,7 @@ fn run_and_capture(cmd: &str) -> Result<String, String> {
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|e| format!("Failed to run: {}", e))?;
+        .map_err(|e| t!("protocol.failed_run", "e" => e).to_string())?;
 
     let (out_tx, out_rx) = mpsc::channel();
     let (err_tx, err_rx) = mpsc::channel();
@@ -165,7 +166,7 @@ fn run_and_capture(cmd: &str) -> Result<String, String> {
             Ok(None) => thread::sleep(Duration::from_millis(50)),
             Err(e) => {
                 let _ = child.kill();
-                return Err(format!("Failed to run: {}", e));
+                return Err(t!("protocol.failed_run", "e" => e).to_string());
             }
         }
     }
@@ -215,7 +216,7 @@ pub fn process_response(
             Ok(Some(cmd)) => cmd,
             Ok(None) => current.clone(),
             Err(e) => {
-                print_error(&format!("Check: {}", e));
+                print_error(&t!("protocol.check_error", "e" => e));
                 current.clone()
             }
         };
@@ -241,7 +242,7 @@ pub fn process_response(
                 current = after_check;
             }
             Err(e) => {
-                print_error(&format!("Explore: {}", e));
+                print_error(&t!("protocol.explore_error", "e" => e));
                 return after_check;
             }
         }
@@ -270,11 +271,11 @@ fn explore_then_generate(
 
     let explore_cmds: Vec<&str> = if candidates.len() > 1 {
         // Multiple explore candidates — show them and ask to run all
-        print_info("Model wants to explore:");
+        print_info(&t!("protocol.model_explore"));
         for c in &candidates {
             print_cmd(parse_explore(c).unwrap_or(c));
         }
-        if !auto_confirm && !prompt_confirm("Run all to learn usage?") {
+        if !auto_confirm && !prompt_confirm(&t!("protocol.run_all_explore")) {
             return Ok(None);
         }
         candidates.iter()
@@ -284,7 +285,7 @@ fn explore_then_generate(
         match parse_explore(raw) {
             Some(cmd) => {
                 // Single explore candidate — same confirmation as the multi case
-                if !auto_confirm && !prompt_confirm(&format!("Run '{}' to learn usage?", cmd)) {
+                if !auto_confirm && !prompt_confirm(&t!("protocol.run_single_explore", "cmd" => cmd)) {
                     return Ok(None);
                 }
                 vec![cmd]
@@ -297,7 +298,7 @@ fn explore_then_generate(
     let mut all_output = String::new();
     for cmd_str in &explore_cmds {
         let cmd = apply_placeholders(cmd_str, ph);
-        print_info(&format!("Exploring: {}", cmd));
+        print_info(&t!("protocol.exploring", "cmd" => cmd));
         match run_and_capture(&cmd) {
             Ok(output) => {
                 if !output.trim().is_empty() {
@@ -310,13 +311,13 @@ fn explore_then_generate(
                 }
             }
             Err(e) => {
-                print_error(&format!("Explore failed: {}", e));
+                print_error(&t!("protocol.explore_failed", "e" => e));
             }
         }
     }
 
     if all_output.trim().is_empty() {
-        print_info("No output from explore commands.");
+        print_info(&t!("protocol.no_explore_output"));
         return Ok(None);
     }
 
@@ -328,7 +329,7 @@ fn explore_then_generate(
         ));
     }
 
-    print_info("Learning from output...");
+    print_info(&t!("protocol.learning_output"));
 
     // Feed help output back: original messages + assistant(#EXPLORE: cmd) + user(hint + output)
     let mut ext = messages.to_vec();
