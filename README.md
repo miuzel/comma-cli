@@ -30,20 +30,20 @@ $dir = "D:\tools\bin"; Invoke-WebRequest -Uri "https://github.com/miuzel/comma-c
 ## Demo
 
 ### Basic usage
-![basic usage](https://github.com/miuzel/comma-cli/assets/demo/basic-usage.gif)
-<!-- Record: , find all TODO comments in python files -->
+![basic usage](demo/basic-usage.gif)
+<!-- Record: vhs demo/basic-usage.tape -->
 
 ### Edit & refine
-![edit and refine](https://github.com/miuzel/comma-cli/assets/demo/edit-refine.gif)
-<!-- Record: , compress video to 10mb → press 'r' → add --dry-run -->
+![edit and refine](demo/edit-refine.gif)
+<!-- Record: vhs demo/edit-refine.tape -->
 
 ### Multi-candidate selection
-![multi-candidate](https://github.com/miuzel/comma-cli/assets/demo/multi-candidate.gif)
-<!-- Record: , list files by size → select from candidates -->
+![multi-candidate](demo/multi-candidate.gif)
+<!-- Record: vhs demo/multi-candidate.tape -->
 
 ### i18n support
-![i18n](https://github.com/miuzel/comma-cli/assets/demo/i18n.gif)
-<!-- Record: COMMA_LANG=zh , --help -->
+![i18n](demo/i18n.gif)
+<!-- Record: vhs demo/i18n.tape -->
 
 ---
 

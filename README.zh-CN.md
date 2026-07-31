@@ -27,6 +27,26 @@ $dir = "D:\tools\bin"; Invoke-WebRequest -Uri "https://github.com/miuzel/comma-c
 
 ---
 
+## 演示
+
+### 基本用法
+![基本用法](demo/basic-usage.gif)
+<!-- 录制：vhs demo/basic-usage.tape -->
+
+### 编辑与精炼
+![编辑与精炼](demo/edit-refine.gif)
+<!-- 录制：vhs demo/edit-refine.tape -->
+
+### 多候选选择
+![多候选选择](demo/multi-candidate.gif)
+<!-- 录制：vhs demo/multi-candidate.tape -->
+
+### 国际化支持
+![国际化](demo/i18n.gif)
+<!-- 录制：vhs demo/i18n.tape -->
+
+---
+
 ## 问题
 
 你在终端里。你想：
