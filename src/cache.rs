@@ -47,7 +47,7 @@ impl ResponseCache {
     /// (`put` becomes a no-op and nothing is ever written back).
     pub fn load(max_size: usize) -> Self {
         let home = home_dir().unwrap_or_default();
-        let path = PathBuf::from(&home).join(".local/bin/,.cache.json");
+        let path = crate::config::cache_path(&home);
         let entries = std::fs::read_to_string(&path)
             .ok()
             .and_then(|data| serde_json::from_str::<HashMap<String, CacheEntry>>(&data).ok())
@@ -96,6 +96,10 @@ impl ResponseCache {
             return;
         }
         if let Ok(json) = serde_json::to_string(&self.entries) {
+            // The XDG cache dir (~/.cache/comma) may not exist yet.
+            if let Some(parent) = self.path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
             let mut tmp = self.path.clone().into_os_string();
             tmp.push(".tmp");
             let tmp = PathBuf::from(tmp);

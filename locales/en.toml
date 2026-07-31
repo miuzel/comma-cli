@@ -6,7 +6,7 @@ version = "comma %{v}"
 [error]
 config_load = "Config: %{e}"
 no_api_key = """No API key found. Configure one:
-  1. Edit ~/.local/bin/,.config.json
+  1. Edit %{path}
   2. Set COMMA_API_KEY or ANTHROPIC_API_KEY env var"""
 model_requires_keyword = "--model requires a keyword argument"
 no_command_execute = "No command to execute."
@@ -120,9 +120,9 @@ confirm_desc = "  y / Enter    Confirm execution when prompted"
 tab_desc = "  Tab          Complete filename from current directory"
 execution_prompt = "On the execution prompt:"
 execution_actions = "  [Enter] exec  [e]dit  [r]efine  [c]opy  [Esc] cancel"
-config_priority = "Config priority: COMMA_* env > ,.config.json > claude settings"
-prompt_file = "Prompt file:     ~/.local/bin/,.prompt.md"
-config_file = "Config file (,/.config.json):"
+config_priority = "Config priority: COMMA_* env > config.json > claude settings"
+prompt_file = "Prompt file:     %{path}"
+config_file = "Config file (%{path}):"
 auto_update_desc = "  auto_update   true (default, weekly) | false | <days> (check interval)"
 api_style = "API style (api_style):"
 openai_desc = "  openai       OpenAI-compatible (Cerebras, Groq, Ollama, vLLM, ...)"

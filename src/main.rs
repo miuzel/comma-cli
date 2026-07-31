@@ -195,9 +195,15 @@ fn print_help() {
     println!("{}", t!("help.execution_actions"));
     println!();
     println!("{}", t!("help.config_priority"));
-    println!("{}", t!("help.prompt_file"));
+    let prm_path = crate::config::home_dir()
+        .map(|h| crate::prompt::prompt_path(&h))
+        .unwrap_or_default();
+    println!("{}", t!("help.prompt_file", "path" => prm_path.display()));
     println!();
-    println!("{}", t!("help.config_file"));
+    let cfg_path = crate::config::home_dir()
+        .map(|h| crate::config::config_path(&h))
+        .unwrap_or_default();
+    println!("{}", t!("help.config_file", "path" => cfg_path.display()));
     println!("{}", t!("help.auto_update_desc"));
     println!();
     println!("{}", t!("help.api_style"));

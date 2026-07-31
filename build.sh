@@ -22,15 +22,24 @@ echo "Staged to $DIST"
 mkdir -p "$PREFIX"
 cp "$DIST/comma" "$PREFIX/,"
 
-for f in config.json prompt.md; do
-    target="$PREFIX/,.${f}"
-    if [ ! -f "$target" ]; then
-        cp "$DIST/,$f" "$target"
-        echo "  Created $target"
-    else
-        echo "  Skipped $target (already exists)"
-    fi
-done
+# Config and prompt templates go to the XDG location on Linux/macOS;
+# existing legacy files in ~/.local/bin are respected and left alone.
+XDG_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/comma"
+if [ ! -f "$XDG_CONFIG/config.json" ] && [ ! -f "$PREFIX/,.config.json" ]; then
+    mkdir -p "$XDG_CONFIG"
+    cp "$DIST/,config.json" "$XDG_CONFIG/config.json"
+    echo "  Created $XDG_CONFIG/config.json"
+else
+    echo "  Skipped config (already exists)"
+fi
+
+if [ ! -f "$XDG_CONFIG/prompt.md" ] && [ ! -f "$PREFIX/,.prompt.md" ]; then
+    mkdir -p "$XDG_CONFIG"
+    cp "$DIST/,prompt.md" "$XDG_CONFIG/prompt.md"
+    echo "  Created $XDG_CONFIG/prompt.md"
+else
+    echo "  Skipped prompt (already exists)"
+fi
 
 echo ""
 echo "Done. Run ', -h' for usage."

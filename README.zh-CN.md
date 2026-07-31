@@ -192,6 +192,16 @@ ffmpeg -i input.mp4 -b:v 8M output.mp4
 
 探测命令运行前总会询问确认（单个探测也一样），除非加 `!`。
 
+### 🌍 多语言界面
+
+界面支持 9 种语言 —— English、中文、日本語、한국어、Français、Deutsch、Español、Português、Русский：
+
+```bash
+COMMA_LANG=fr , --help    # 或在 config.json 中设置 "lang": "fr"
+```
+
+默认根据系统 locale（`LANG`/`LC_ALL`）自动检测；`COMMA_LANG` 可覆盖，配置文件中的 `lang` 优先级最高。
+
 ---
 
 ## 推荐模型
@@ -406,12 +416,18 @@ if exist "%F%" ( call "%F%" & del "%F%" )
 ```
 COMMA_* 环境变量
   ↓
-~/.local/bin/,.config.json
+~/.config/comma/config.json   （XDG；支持 $XDG_CONFIG_HOME）
+  ↓
+二进制旁的 ,.config.json      （便携安装）
+  ↓
+~/.local/bin/,.config.json    （旧路径，存在时仍会读取）
   ↓
 ~/.claude/settings.json
   ↓
 内置默认值
 ```
+
+`prompt.md` 和缓存（`~/.cache/comma/cache.json`，支持 $XDG_CACHE_HOME）使用同样的查找链——因此一个目录里放上二进制加 `,.config.json`、`,.prompt.md`、`,.cache.json` 即可整体便携迁移。在 Windows 上三者默认放在 `%APPDATA%\comma\`（二进制旁和旧路径的文件仍会读取）。
 
 ### 环境变量
 
@@ -447,7 +463,7 @@ export COMMA_API_STYLE="openai"
 
 ### 响应缓存
 
-重复的意图会从 `~/.local/bin/,.cache.json` 直接回答（默认上限 1000 条）。在任何网络请求之前，缓存会按回退顺序对所有已配置的模型依次检查，因此命中回退模型的缓存可以避免等待缓慢或不可达的主模型调用。在配置中设 `"cache_size": 0` 可完全禁用缓存。
+重复的意图会从 `~/.cache/comma/cache.json` 直接回答（默认上限 1000 条）。在任何网络请求之前，缓存会按回退顺序对所有已配置的模型依次检查，因此命中回退模型的缓存可以避免等待缓慢或不可达的主模型调用。在配置中设 `"cache_size": 0` 可完全禁用缓存。
 
 ### Reasoning（Anthropic）
 
@@ -536,7 +552,7 @@ cd comma-cli
 
 ### 首次配置
 
-安装后需要配置模型。编辑 `~/.local/bin/,.config.json`：
+安装后需要配置模型。编辑 `~/.config/comma/config.json`：
 
 ```json
 {

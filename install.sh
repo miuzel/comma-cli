@@ -97,29 +97,64 @@ else
     chmod +x "$PREFIX/,"
 fi
 
-# Download config files if not exists
-for f in config.json prompt.md; do
-    target="$PREFIX/,.${f}"
-    if [ ! -f "$target" ]; then
-        curl -sSL "https://raw.githubusercontent.com/${REPO}/main/${f}" -o "$target" 2>/dev/null || true
-        echo "  Created $target"
+# Download config/prompt files if not exists. The config template goes to
+# the XDG location on Linux/macOS; an existing legacy config is respected.
+# Windows (Git Bash/MSYS) keeps the legacy path beside the binary.
+XDG_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/comma"
+LEGACY_CONFIG="$PREFIX/,.config.json"
+if [ "$PLATFORM" != "windows-x86_64" ]; then
+    if [ ! -f "$XDG_CONFIG/config.json" ] && [ ! -f "$LEGACY_CONFIG" ]; then
+        mkdir -p "$XDG_CONFIG"
+        curl -sSL "https://raw.githubusercontent.com/${REPO}/main/config.json" -o "$XDG_CONFIG/config.json" 2>/dev/null || true
+        echo "  Created $XDG_CONFIG/config.json"
+        CONFIG_FILE="$XDG_CONFIG/config.json"
     else
-        echo "  Skipped $target (already exists)"
+        echo "  Skipped config (already exists)"
+        [ -f "$XDG_CONFIG/config.json" ] && CONFIG_FILE="$XDG_CONFIG/config.json" || CONFIG_FILE="$LEGACY_CONFIG"
     fi
-done
+    if [ ! -f "$XDG_CONFIG/prompt.md" ] && [ ! -f "$PREFIX/,.prompt.md" ]; then
+        mkdir -p "$XDG_CONFIG"
+        curl -sSL "https://raw.githubusercontent.com/${REPO}/main/prompt.md" -o "$XDG_CONFIG/prompt.md" 2>/dev/null || true
+        echo "  Created $XDG_CONFIG/prompt.md"
+    else
+        echo "  Skipped prompt (already exists)"
+    fi
+else
+    # Windows (Git Bash/MSYS): default to %APPDATA%\comma, keep legacy files respected
+    if [ -n "${APPDATA:-}" ]; then
+        WIN_APPDATA="$(cygpath -u "$APPDATA" 2>/dev/null || echo "$APPDATA")/comma"
+    else
+        WIN_APPDATA="$HOME/AppData/Roaming/comma"
+    fi
+    if [ ! -f "$WIN_APPDATA/config.json" ] && [ ! -f "$LEGACY_CONFIG" ]; then
+        mkdir -p "$WIN_APPDATA"
+        curl -sSL "https://raw.githubusercontent.com/${REPO}/main/config.json" -o "$WIN_APPDATA/config.json" 2>/dev/null || true
+        echo "  Created $WIN_APPDATA/config.json"
+    else
+        echo "  Skipped config (already exists)"
+    fi
+    [ -f "$WIN_APPDATA/config.json" ] && CONFIG_FILE="$WIN_APPDATA/config.json" || CONFIG_FILE="$LEGACY_CONFIG"
+    if [ ! -f "$WIN_APPDATA/prompt.md" ] && [ ! -f "$PREFIX/,.prompt.md" ]; then
+        mkdir -p "$WIN_APPDATA"
+        curl -sSL "https://raw.githubusercontent.com/${REPO}/main/prompt.md" -o "$WIN_APPDATA/prompt.md" 2>/dev/null || true
+        echo "  Created $WIN_APPDATA/prompt.md"
+    else
+        echo "  Skipped prompt (already exists)"
+    fi
+fi
 
 echo ""
 echo "Installed files:"
 ls -lh "$PREFIX/," 2>/dev/null || ls -lh "$PREFIX/comma.exe" 2>/dev/null || true
-[ -f "$PREFIX/,.config.json" ] && ls -lh "$PREFIX/,.config.json"
+[ -f "$CONFIG_FILE" ] && ls -lh "$CONFIG_FILE"
 [ -f "$PREFIX/,.prompt.md" ] && ls -lh "$PREFIX/,.prompt.md"
 
 # Check if model is configured
-if [ -f "$PREFIX/,.config.json" ]; then
-    if ! grep -q '"auth_token"' "$PREFIX/,.config.json" || grep -q '"auth_token": ""' "$PREFIX/,.config.json"; then
+if [ -f "$CONFIG_FILE" ]; then
+    if ! grep -q '"auth_token"' "$CONFIG_FILE" || grep -q '"auth_token": ""' "$CONFIG_FILE"; then
         echo ""
         echo "⚠  No API key configured!"
-        echo "Edit ~/.local/bin/,.config.json and set your API key:"
+        echo "Edit $CONFIG_FILE and set your API key:"
         echo ""
         echo '  {'
         echo '    "base_url": "https://api.cerebras.ai/v1",'

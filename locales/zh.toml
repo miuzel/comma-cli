@@ -6,7 +6,7 @@ version = "comma %{v}"
 [error]
 config_load = "配置: %{e}"
 no_api_key = """未找到 API 密钥。请配置:
-  1. 编辑 ~/.local/bin/,.config.json
+  1. 编辑 %{path}
   2. 设置 COMMA_API_KEY 或 ANTHROPIC_API_KEY 环境变量"""
 model_requires_keyword = "--model 需要一个关键字参数"
 no_command_execute = "没有可执行的命令。"
@@ -120,9 +120,9 @@ confirm_desc = "  y / Enter    确认执行"
 tab_desc = "  Tab          补全当前目录的文件名"
 execution_prompt = "执行提示:"
 execution_actions = "  [Enter] 执行  [e]编辑  [r]精炼  [c]复制  [Esc] 取消"
-config_priority = "配置优先级: COMMA_* 环境变量 > ,.config.json > claude 设置"
-prompt_file = "提示文件:     ~/.local/bin/,.prompt.md"
-config_file = "配置文件 (,/.config.json):"
+config_priority = "配置优先级: COMMA_* 环境变量 > config.json > claude 设置"
+prompt_file = "提示文件:     %{path}"
+config_file = "配置文件 (%{path}):"
 auto_update_desc = "  auto_update   true (默认，每周) | false | <天数> (检查间隔)"
 api_style = "API 风格 (api_style):"
 openai_desc = "  openai       OpenAI 兼容 (Cerebras, Groq, Ollama, vLLM, ...)"

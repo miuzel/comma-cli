@@ -14,15 +14,15 @@ regardless of your real config (e.g. a `lang` key in the real config would
 override `COMMA_LANG`). Set it up once:
 
 ```bash
-mkdir -p /tmp/comma-demo-home/.local/bin
+mkdir -p /tmp/comma-demo-home/.config/comma
 # Copy your config but REMOVE the "lang" key (config.lang beats COMMA_LANG):
 python3 -c "
 import json
 cfg = json.load(open('$HOME/.local/bin/,.config.json'))
 cfg.pop('lang', None)
-json.dump(cfg, open('/tmp/comma-demo-home/.local/bin/,.config.json', 'w'), indent=2)
+json.dump(cfg, open('/tmp/comma-demo-home/.config/comma/config.json', 'w'), indent=2)
 "
-cp ~/.local/bin/,.prompt.md /tmp/comma-demo-home/.local/bin/
+cp ~/.local/bin/,.prompt.md /tmp/comma-demo-home/.config/comma/prompt.md
 ```
 
 ## Warm the response cache

@@ -1,14 +1,20 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use crate::config::{home_dir, Config};
+use crate::config::{home_dir, xdg_or_legacy, Config};
 use crate::context::gather_context;
 
 // ── Prompt ──────────────────────────────────────────────────────────────────
 
+/// Path to the prompt template file (XDG-first with executable-adjacent and
+/// legacy fallbacks, same rule as `config_path`).
+pub fn prompt_path(home: &str) -> PathBuf {
+    xdg_or_legacy(home, "XDG_CONFIG_HOME", ".config", "prompt.md", ".prompt.md")
+}
+
 pub fn load_prompt(config: &Config) -> String {
     let home = home_dir().unwrap_or_default();
-    let path = PathBuf::from(&home).join(".local/bin/,.prompt.md");
+    let path = prompt_path(&home);
     let raw = std::fs::read_to_string(&path).unwrap_or_else(|_| DEFAULT_PROMPT.into());
 
     let ctx = gather_context();
@@ -65,7 +71,18 @@ IMPORTANT: When the user mentions a specific tool by name (e.g. "openclaw", "ffm
 and you are NOT 100% certain about its exact usage/flags/subcommands, use #EXPLORE: to learn it first.
 Example: #EXPLORE: openclaw --help
 NEVER assume a tool's package manager (pip, npm, cargo, etc.) without verifying.
-Always explore unfamiliar tools before suggesting install or usage commands.
+Explore unfamiliar tools ONCE before suggesting install or usage commands.
+After receiving explore output, generate the FINAL command immediately. Do NOT use #EXPLORE: again.
+
+Upgrading tools:
+When the user asks to upgrade or update a specific tool (e.g. "upgrade ffmpeg"):
+- If the tool's binary exists locally (verify with #CHECK:), first learn the tool's OWN upgrade
+  mechanism with #EXPLORE: <tool> --help (or <tool> -h) — many tools self-update
+  (e.g. rustup update, , --update, pipx upgrade).
+- If the tool has no built-in upgrade command, offer up to 3 ||| candidates using the platform's
+  package managers (e.g. yay, pacman, apt, dnf, brew), most appropriate first.
+Example flow: #CHECK: ffmpeg → #EXPLORE: ffmpeg -h → no self-update found →
+  yay -S ffmpeg # Upgrade via yay ||| sudo pacman -S ffmpeg # Upgrade via pacman
 
 User tool preferences (ordered by preference, leftmost is most preferred):
 {{PREFERENCES}}

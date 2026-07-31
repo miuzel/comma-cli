@@ -192,6 +192,16 @@ ffmpeg -i input.mp4 -b:v 8M output.mp4
 
 Probe commands always ask for confirmation before running (a single probe too), unless you pass `!`.
 
+### 🌍 Multi-language UI
+
+The interface speaks 9 languages — English, 中文, 日本語, 한국어, Français, Deutsch, Español, Português, Русский:
+
+```bash
+COMMA_LANG=fr , --help    # or set "lang": "fr" in config.json
+```
+
+Language is auto-detected from your system locale (`LANG`/`LC_ALL`); `COMMA_LANG` overrides it, and `lang` in the config takes top priority.
+
 ---
 
 ## Recommended Models
@@ -406,12 +416,18 @@ Notes:
 ```
 COMMA_* environment variables
   ↓
-~/.local/bin/,.config.json
+~/.config/comma/config.json   (XDG; $XDG_CONFIG_HOME honored)
+  ↓
+,.config.json next to the binary   (portable installs)
+  ↓
+~/.local/bin/,.config.json    (legacy, still read if present)
   ↓
 ~/.claude/settings.json
   ↓
 Built-in defaults
 ```
+
+The same chain applies to `prompt.md` and the cache (`~/.cache/comma/cache.json`, `$XDG_CACHE_HOME` honored) — so a directory containing the binary plus `,.config.json`, `,.prompt.md`, and `,.cache.json` is fully portable. On Windows all three default to `%APPDATA%\comma\` (binary-adjacent and legacy files are still read).
 
 ### Environment variables
 
@@ -447,7 +463,7 @@ export COMMA_API_STYLE="openai"
 
 ### Response cache
 
-Repeated intents are answered from `~/.local/bin/,.cache.json` (default cap: 1000 entries). The cache is checked for all configured models in fallback order before any network request, so a cached fallback answer avoids a slow or unreachable primary call. Set `"cache_size": 0` in the config to disable the cache entirely.
+Repeated intents are answered from `~/.cache/comma/cache.json` (default cap: 1000 entries). The cache is checked for all configured models in fallback order before any network request, so a cached fallback answer avoids a slow or unreachable primary call. Set `"cache_size": 0` in the config to disable the cache entirely.
 
 ### Reasoning (Anthropic)
 
@@ -536,7 +552,7 @@ cd comma-cli
 
 ### First-time setup
 
-After install, configure a model. Edit `~/.local/bin/,.config.json`:
+After install, configure a model. Edit `~/.config/comma/config.json`:
 
 ```json
 {

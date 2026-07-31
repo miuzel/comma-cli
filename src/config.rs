@@ -187,11 +187,65 @@ pub fn home_dir() -> Result<String, String> {
         .map_err(|_| t!("config.home_not_set").to_string())
 }
 
+/// Directory of the running executable. Portable installs keep the runtime
+/// files (`,.config.json`, `,.prompt.md`, `,.cache.json`) next to the binary;
+/// falls back to `~/.local/bin` when the exe path cannot be determined.
+pub fn exe_dir(home: &str) -> PathBuf {
+    std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+        .unwrap_or_else(|| PathBuf::from(home).join(".local/bin"))
+}
+
+/// Resolve a user file: platform default location first, then next to the
+/// executable (portable installs), then the legacy `~/.local/bin` path,
+/// falling back to the platform default when none exists (where new
+/// installs/writes go). The platform default is the XDG location on
+/// Linux/macOS — `xdg_env`/`xdg_default` select the base dir:
+/// `XDG_CONFIG_HOME`/`~/.config` for config and prompt,
+/// `XDG_CACHE_HOME`/`~/.cache` for the cache — and `%APPDATA%\comma\` on
+/// Windows.
+pub fn xdg_or_legacy(home: &str, xdg_env: &str, xdg_default: &str, name: &str, legacy_name: &str) -> PathBuf {
+    let exe_legacy = exe_dir(home).join(format!(",{}", legacy_name));
+    let home_legacy = PathBuf::from(home).join(format!(".local/bin/,{}", legacy_name));
+    let primary = if cfg!(windows) {
+        match std::env::var("APPDATA") {
+            Ok(dir) if !dir.is_empty() => PathBuf::from(dir).join(format!("comma/{}", name)),
+            _ => PathBuf::from(home).join(format!("AppData/Roaming/comma/{}", name)),
+        }
+    } else {
+        match std::env::var(xdg_env) {
+            Ok(dir) if !dir.is_empty() => PathBuf::from(dir).join(format!("comma/{}", name)),
+            _ => PathBuf::from(home).join(format!("{}/comma/{}", xdg_default, name)),
+        }
+    };
+    if primary.exists() {
+        primary
+    } else if exe_legacy.exists() {
+        exe_legacy
+    } else if home_legacy.exists() {
+        home_legacy
+    } else {
+        primary
+    }
+}
+
+/// Path to the config file (see `xdg_or_legacy`).
+pub fn config_path(home: &str) -> PathBuf {
+    xdg_or_legacy(home, "XDG_CONFIG_HOME", ".config", "config.json", ".config.json")
+}
+
+/// Path to the response cache file: `$XDG_CACHE_HOME/comma/cache.json`
+/// (default `~/.cache/comma/cache.json`), same fallback chain as the config.
+pub fn cache_path(home: &str) -> PathBuf {
+    xdg_or_legacy(home, "XDG_CACHE_HOME", ".cache", "cache.json", ".cache.json")
+}
+
 pub fn load_config() -> Result<Config, String> {
     let home = home_dir()?;
 
     // Read config files
-    let local_path = PathBuf::from(&home).join(".local/bin/,.config.json");
+    let local_path = config_path(&home);
     let local: LocalConfig = match std::fs::read_to_string(&local_path) {
         Ok(data) => serde_json::from_str(&data)
             .map_err(|e| t!("config.invalid_file", "path" => local_path.display(), "e" => e).to_string())?,
@@ -270,7 +324,7 @@ pub fn load_config() -> Result<Config, String> {
             .or_else(|| non_empty(local.auth_token.clone()))
             .or_else(|| env_or("ANTHROPIC_API_KEY"))
             .or_else(|| claude_env.as_ref().and_then(|e| e.auth_token.clone()))
-            .ok_or(t!("error.no_api_key").to_string())?;
+            .ok_or(t!("error.no_api_key", "path" => local_path.display()).to_string())?;
         let model = env_or("COMMA_MODEL")
             .or_else(|| non_empty(local.model.clone()))
             .or_else(|| env_or("ANTHROPIC_MODEL"))

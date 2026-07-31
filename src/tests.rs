@@ -246,6 +246,102 @@ pub fn run_tests() {
         None => std::env::remove_var("COMMA_EVAL_SHELL"),
     }
 
+    // Test 23: every embedded locale substitutes named placeholders.
+    // rust-i18n v3 only replaces %{name} — a `{}` placeholder would show up
+    // literally, so a successful substitution also proves the locale file
+    // uses the right syntax for these keys.
+    for locale in rust_i18n::available_locales!() {
+        let running = t!("info.running", locale => locale, "cmd" => "MARKER_CMD");
+        check(
+            &format!("locale {}: running substitutes %{{cmd}}", locale),
+            running.contains("MARKER_CMD"),
+        );
+        let exit = t!("error.exit_code", locale => locale, "code" => 42);
+        check(
+            &format!("locale {}: exit_code substitutes %{{code}}", locale),
+            exit.contains("42"),
+        );
+        let mismatch = t!(
+            "update.checksum_mismatch",
+            locale => locale,
+            "name" => "N", "expected" => "E", "actual" => "A"
+        );
+        check(
+            &format!("locale {}: checksum_mismatch substitutes all", locale),
+            mismatch.contains('N') && mismatch.contains('E') && mismatch.contains('A'),
+        );
+    }
+
+    // Test 24: config_path — XDG location preferred on Unix, legacy
+    // ~/.local/bin/,.config.json kept as fallback for existing installs.
+    // Uses a fake HOME in a temp dir; XDG_CONFIG_HOME is saved/restored.
+    // Skipped on Windows, where the platform default is %APPDATA%\comma.
+    if !cfg!(windows) {
+        use crate::config::config_path;
+        let fake = std::env::temp_dir().join(format!("comma-test-home-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&fake);
+        let home = fake.to_string_lossy().to_string();
+        let xdg = fake.join(".config/comma/config.json");
+        let legacy = fake.join(".local/bin/,.config.json");
+        let saved_xdg = std::env::var("XDG_CONFIG_HOME").ok();
+        std::env::remove_var("XDG_CONFIG_HOME");
+
+        // Neither exists → XDG path (where new installs write the template)
+        check("config_path: defaults to XDG", config_path(&home) == xdg);
+        check(
+            "prompt_path: defaults to XDG",
+            crate::prompt::prompt_path(&home) == fake.join(".config/comma/prompt.md"),
+        );
+
+        // Only legacy exists → legacy wins (existing install)
+        std::fs::create_dir_all(legacy.parent().unwrap()).unwrap();
+        std::fs::write(&legacy, "{}").unwrap();
+        check("config_path: legacy fallback", config_path(&home) == legacy);
+        std::fs::write(fake.join(".local/bin/,.prompt.md"), "x").unwrap();
+        check(
+            "prompt_path: legacy fallback",
+            crate::prompt::prompt_path(&home) == fake.join(".local/bin/,.prompt.md"),
+        );
+
+        // Both exist → XDG wins
+        std::fs::create_dir_all(xdg.parent().unwrap()).unwrap();
+        std::fs::write(&xdg, "{}").unwrap();
+        check("config_path: XDG preferred", config_path(&home) == xdg);
+
+        // Cache: defaults to ~/.cache/comma/cache.json, legacy fallback works
+        use crate::config::cache_path;
+        let cache_xdg = fake.join(".cache/comma/cache.json");
+        std::fs::remove_file(&xdg).unwrap();
+        check("cache_path: defaults to XDG cache", cache_path(&home) == cache_xdg);
+        std::fs::write(fake.join(".local/bin/,.cache.json"), "{}").unwrap();
+        check(
+            "cache_path: legacy fallback",
+            cache_path(&home) == fake.join(".local/bin/,.cache.json"),
+        );
+
+        // Portable install: a file next to the executable beats ~/.local/bin
+        let exe_cfg = crate::config::exe_dir(&home).join(",.config.json");
+        std::fs::write(&exe_cfg, "{}").unwrap();
+        check("config_path: executable-adjacent (portable)", config_path(&home) == exe_cfg);
+        let _ = std::fs::remove_file(&exe_cfg);
+
+        // XDG_CONFIG_HOME honored
+        let custom = fake.join("custom-xdg");
+        std::env::set_var("XDG_CONFIG_HOME", &custom);
+        std::fs::create_dir_all(custom.join("comma")).unwrap();
+        std::fs::write(custom.join("comma/config.json"), "{}").unwrap();
+        check(
+            "config_path: XDG_CONFIG_HOME honored",
+            config_path(&home) == custom.join("comma/config.json"),
+        );
+
+        match &saved_xdg {
+            Some(v) => std::env::set_var("XDG_CONFIG_HOME", v),
+            None => std::env::remove_var("XDG_CONFIG_HOME"),
+        }
+        let _ = std::fs::remove_dir_all(&fake);
+    }
+
     // Summary
     println!("\n{} passed, {} failed", pass, fail);
     if fail > 0 {
