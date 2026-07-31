@@ -7,7 +7,7 @@ Guidance for AI coding agents working on this repository. Assumes no prior knowl
 **comma-cli** (binary name: `comma`, installed as `,`) is a tiny, stateless CLI that translates natural-language intent into a single shell command using an LLM, then optionally executes it after user confirmation. It is a command *generator*, not an agent: one intent → one command → execute → done.
 
 - Language: Rust (edition 2021), single crate, single binary.
-- Current version: `0.20.1` (see `Cargo.toml`; the binary reports `env!("CARGO_PKG_VERSION")`).
+- Current version: `0.21.0` (see `Cargo.toml`; the binary reports `env!("CARGO_PKG_VERSION")`).
 - Repository: https://github.com/miuzel/comma-cli
 - License: MIT.
 - Platforms: Linux (x86_64, aarch64), macOS (x86_64, aarch64), Windows (x86_64). On Unix the binary is installed as `,`; on Windows as `comma.exe` (PowerShell reserves `,`).
@@ -20,19 +20,21 @@ The application is a single binary crate split into modules under `src/` (no `li
 - `src/ui.rs` — terminal UI: rustyline `FileHelper` (filename Tab-completion), candidate selector (`|||` separated alternatives), spinner, print helpers (`print_info`/`print_error`/`print_debug`/`print_cmd`), confirm/edit/refine prompts (crossterm raw mode, `atty` checks, line-based fallbacks for piped stdin), char-boundary-safe `truncate`, clipboard copy. Raw-mode key loops act only on `KeyEventKind::Press` — Windows also reports Release/Repeat events, which must be ignored (a buffered Enter release would otherwise execute without a keypress); on Unix only Press is reported, so the filter is a no-op there.
 - `src/config.rs` — config loading: legacy single-model format and multi-provider `providers`/`models` format, `COMMA_*` env overrides, API-style auto-detection, `home_dir`.
 - `src/context.rs` — system context gathering (distro, kernel, arch, shell, CWD, user-installed packages) and privacy placeholders (`{{USER}}`, `{{HOSTNAME}}`, `{{HOME}}`) — collected locally, substituted into LLM output only after the response. `get_shell()` reports `COMMA_EVAL_SHELL` when set and non-empty (the eval wrapper declares the dialect the model should generate for — e.g. `powershell`), then `$SHELL` when set (Git Bash/MSYS users on Windows), falling back to `/bin/sh` on Unix and `cmd.exe` on Windows.
-- `src/prompt.rs` — system prompt loading (`~/.local/bin/,.prompt.md` with `DEFAULT_PROMPT` fallback compiled in), `prefer` tool-preference formatting.
+- `src/prompt.rs` — system prompt loading (`prompt_path()` resolves XDG-first like `config_path()`: `~/.config/comma/prompt.md` preferred, legacy `~/.local/bin/,.prompt.md` fallback, `DEFAULT_PROMPT` compiled in as last resort), `prefer` tool-preference formatting.
 - `src/llm.rs` — LLM clients: OpenAI-compatible (`/v1/chat/completions`) and Anthropic (`/v1/messages`, optional `reasoning` thinking budget), blocking `reqwest` with rustls; ordered fallback and per-model retries in `call_llm_with_retry`.
-- `src/cache.rs` — response cache (`~/.local/bin/,.cache.json`, oldest-entry eviction, atomic save only when dirty; entries cached only after the user executes the command; checked across ALL configured model entries in fallback order before any API call; `cache_size: 0` disables caching entirely).
+- `src/cache.rs` — response cache (`cache_path()` resolves `~/.cache/comma/cache.json` (`%APPDATA%\comma\cache.json` on Windows) first, then exe-adjacent `,.cache.json`, then legacy `~/.local/bin/,.cache.json`; oldest-entry eviction, atomic save only when dirty, parent dir auto-created; entries cached only after the user executes the command; checked across ALL configured model entries in fallback order before any API call; `cache_size: 0` disables caching entirely).
 - `src/update.rs` — self-update (`--update`) from GitHub releases, with archive verification against the release's `sha256sums.txt` and cross-device/locked-exe handling.
 - `src/protocol.rs` — `#CHECK:` (tool availability probe) and `#EXPLORE:` (run a help command once and learn from output) protocol handling, chained in `process_response`.
 - `src/danger.rs` — danger detection: `DANGER_PATTERNS` substring list (whitespace-normalized) plus exact-token pipe-to-shell matching (`curl x | sh` flags, `| shuf` does not), red ⚠ warning.
+- `src/i18n.rs` — UI language selection: `config.lang` > `COMMA_LANG` > `LANG`/`LC_ALL` > `"en"`, with `normalize_lang` mapping locale variants (`fr_FR`, `pt-BR`, ...) to a supported code. UI strings go through the `t!` macro (rust-i18n, embedded at compile time via `i18n!("locales", fallback = "en")` in main.rs).
+- `locales/` — one `<lang>.toml` per UI language (en, zh, ja, ko, fr, de, es, pt, ru); every file must contain the same keys as `en.toml`. Placeholders are rust-i18n v3 named syntax `%{name}` — `{}` is NOT substituted (this was a real bug in en/ja); match each `t!` call site's argument names. `run_tests` checks placeholder substitution for every locale.
 - `src/tests.rs` — `run_tests`, the built-in self-test suite (see Testing below).
-- `Cargo.toml` — dependencies: `reqwest` (blocking, json, rustls-tls), `serde`, `serde_json`, `sha2` (update checksums), `atty`, `crossterm`, `rustyline`. Release profile: `strip = true`, `opt-level = "z"`, `lto = true` (size-optimized ~3MB binary — keep it that way).
-- `config.json` — default config template (shipped and copied to `~/.local/bin/,.config.json` on install).
-- `prompt.md` — default system prompt template (shipped and copied to `~/.local/bin/,.prompt.md`). Placeholders: `{{SYSTEM_CONTEXT}}`, `{{PREFERENCES}}`.
+- `Cargo.toml` — dependencies: `reqwest` (blocking, json, rustls-tls), `serde`, `serde_json`, `sha2` (update checksums), `atty`, `crossterm`, `rustyline`, `rust-i18n`. Release profile: `strip = true`, `opt-level = "z"`, `lto = true` (size-optimized ~3MB binary — keep it that way).
+- `config.json` — default config template (on Linux/macOS installed to `~/.config/comma/config.json`, honoring `$XDG_CONFIG_HOME`; on Windows to `%APPDATA%\comma\config.json`). `config_path()` in config.rs resolves default-first with exe-adjacent (portable) and legacy `~/.local/bin` paths as fallback for existing installs.
+- `prompt.md` — default system prompt template (installed to `~/.config/comma/prompt.md` on Linux/macOS, `%APPDATA%\comma\prompt.md` on Windows). Placeholders: `{{SYSTEM_CONTEXT}}`, `{{PREFERENCES}}`.
 - `build.sh` — builds with cargo and installs to `~/.local/bin` (see below).
 - `install.sh` — end-user installer: downloads the latest GitHub release archive for the detected platform and verifies it against `sha256sums.txt` when available.
-- `uninstall.sh` — removes `,`, `,.config.json`, `,.prompt.md` from `~/.local/bin`.
+- `uninstall.sh` — removes `,`, `,.config.json`, `,.prompt.md` from `~/.local/bin`, `config.json`/`prompt.md` from `~/.config/comma/`, `cache.json` from `~/.cache/comma/`, and all three from `%APPDATA%\comma\` on Windows.
 - `.github/workflows/release.yml` — release pipeline (see Deployment).
 - `README.md` / `README.zh-CN.md` — user documentation (English / Chinese). Keep both in sync when changing user-visible behavior.
 
@@ -42,8 +44,7 @@ The application is a single binary crate split into modules under `src/` (no `li
 cargo build            # debug build
 cargo build --release  # release build (binary: target/release/comma)
 ./build.sh             # release build + install to ~/.local/bin/, (also copies
-                       # config.json → ~/.local/bin/,.config.json and
-                       # prompt.md → ~/.local/bin/,.prompt.md if missing)
+                       # config.json and prompt.md → ~/.config/comma/ if missing)
 ```
 
 There is no `cargo test` suite and no CI check workflow — do not assume one exists.
@@ -56,7 +57,7 @@ Testing is done via a built-in self-test flag compiled into the binary:
 cargo run -- --test          # or: ./target/release/comma --test
 ```
 
-`run_tests()` in `src/tests.rs` runs 68 ad-hoc assertions (placeholder substitution, privacy leak checks on gathered context, empty-HOME guard, `#CHECK:`/`#EXPLORE:` parsing, candidate parsing, char-boundary-safe `truncate`, `is_dangerous` pattern and pipe-to-shell matching, retry constants, `COMMA_EVAL_FILE` eval-file append, `COMMA_EVAL_SHELL` override in `get_shell`, `is_bare_cd` first-token detection) and exits non-zero on failure. When you change parsing or privacy-related logic, add matching checks to `run_tests()` and make sure `--test` passes. Manual smoke test (requires a configured API key): `, list files larger than 1G`.
+`run_tests()` in `src/tests.rs` runs ~95 ad-hoc assertions (placeholder substitution, privacy leak checks on gathered context, empty-HOME guard, `#CHECK:`/`#EXPLORE:` parsing, candidate parsing, char-boundary-safe `truncate`, `is_dangerous` pattern and pipe-to-shell matching, retry constants, `COMMA_EVAL_FILE` eval-file append, `COMMA_EVAL_SHELL` override in `get_shell`, `is_bare_cd` first-token detection, `%{name}` substitution for every embedded locale) and exits non-zero on failure. When you change parsing or privacy-related logic, add matching checks to `run_tests()` and make sure `--test` passes. Manual smoke test (requires a configured API key): `, list files larger than 1G`.
 
 ## Code style guidelines
 
@@ -69,13 +70,13 @@ cargo run -- --test          # or: ./target/release/comma --test
 
 ## Configuration and runtime data
 
-- Config resolution priority: `COMMA_*` env vars (`COMMA_BASE_URL`, `COMMA_API_KEY`, `COMMA_MODEL`, `COMMA_API_STYLE`) → `~/.local/bin/,.config.json` → `~/.claude/settings.json` env section (legacy path only) → built-in defaults. API style is auto-detected from URL (`anthropic` in URL → Anthropic Messages API, otherwise OpenAI-compatible).
+- Config resolution priority: `COMMA_*` env vars (`COMMA_BASE_URL`, `COMMA_API_KEY`, `COMMA_MODEL`, `COMMA_API_STYLE`) → config file (`~/.config/comma/config.json` on Linux/macOS, `%APPDATA%\comma\config.json` on Windows → exe-adjacent `,.config.json` → legacy `~/.local/bin/,.config.json`) → `~/.claude/settings.json` env section (legacy path only) → built-in defaults. API style is auto-detected from URL (`anthropic` in URL → Anthropic Messages API, otherwise OpenAI-compatible).
 - `COMMA_EVAL_FILE` is a runtime integration variable (not config): when set and non-empty, `execute()` in `src/main.rs` appends each confirmed command to that file instead of spawning a shell, and the shell-integration wrapper function evals the file in the user's current shell (rationale: a child process cannot change the parent shell's cwd/env).
 - `COMMA_EVAL_SHELL` is a runtime integration variable (not config): when set and non-empty, `get_shell()` in `src/context.rs` reports it as the shell in the system context, so the eval wrapper can declare the dialect the model should generate (the PowerShell wrapper sets it to `powershell`; bash/zsh rely on `$SHELL`, and cmd.exe is already the SHELL-less Windows default).
 - The multi-provider `providers` + `models` format in the config enables ordered fallback with per-model `retries`. In this format `COMMA_MODEL` overrides only the primary (first) entry's model.
 - `cache_size` sets the response-cache capacity; `cache_size: 0` disables the cache entirely (nothing read back or written).
 - `reasoning` (Anthropic only) sets the thinking budget in tokens; `max_tokens` is raised accordingly so values ≥ 1024 work.
-- Runtime files all live beside the binary in `~/.local/bin/`: `,.config.json`, `,.prompt.md`, `,.cache.json`.
+- Runtime files are resolved per-file, first match wins: platform default (`config.json`/`prompt.md` under `$XDG_CONFIG_HOME/comma/` resp. `~/.config/comma/`, `cache.json` under `$XDG_CACHE_HOME/comma/` resp. `~/.cache/comma/`; on Windows all three under `%APPDATA%\comma\`) → next to the executable (`,.config.json` / `,.prompt.md` / `,.cache.json`, for portable installs) → legacy `~/.local/bin/` → if none exists, the platform default (where new writes go). Resolution lives in `xdg_or_legacy()` / `exe_dir()` in config.rs.
 
 ## Security considerations
 
