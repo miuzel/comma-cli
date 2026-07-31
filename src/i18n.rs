@@ -61,16 +61,21 @@ fn normalize_lang(lang: &str) -> String {
     match lower.as_str() {
         "zh" | "zh-cn" | "zh_cn" | "zh-hans" | "zh-hant" | "chinese" => "zh".to_string(),
         "ja" | "jp" | "japanese" => "ja".to_string(),
+        "ko" | "kr" | "korean" => "ko".to_string(),
+        "fr" | "french" => "fr".to_string(),
+        "de" | "german" => "de".to_string(),
+        "es" | "spanish" => "es".to_string(),
+        "pt" | "portuguese" => "pt".to_string(),
+        "ru" | "russian" => "ru".to_string(),
         "en" | "english" | "c" | "posix" => "en".to_string(),
         _ => {
-            // Try prefix match
-            if lower.starts_with("zh") {
-                "zh".to_string()
-            } else if lower.starts_with("ja") {
-                "ja".to_string()
-            } else {
-                "en".to_string()
+            // Try prefix match (locale variants like "fr_FR", "pt-BR", "de_DE")
+            for prefix in ["zh", "ja", "ko", "fr", "de", "es", "pt", "ru"] {
+                if lower.starts_with(prefix) {
+                    return prefix.to_string();
+                }
             }
+            "en".to_string()
         }
     }
 }
