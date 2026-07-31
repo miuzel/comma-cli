@@ -516,7 +516,7 @@ The installer verifies the archive's SHA-256 checksum against the release's `sha
 brew install miuzel/tap/comma-cli
 ```
 
-The binary is installed as `,` (with `comma` as an alias). If you have no config yet, the installer offers to ask for your model API base URL, key and model name right away — press Enter to skip and edit `~/.config/comma/config.json` later (the prompt is skipped automatically when there's no terminal). Update with `brew upgrade comma-cli`.
+The binary is installed as `,` (with `comma` as an alias), plus a `comma-setup` helper: run it once to create `~/.config/comma/config.json` interactively (base URL, API key, model name). Update with `brew upgrade comma-cli`.
 
 ### Windows (PowerShell)
 
