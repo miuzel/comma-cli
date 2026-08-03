@@ -402,7 +402,11 @@ fn call_openai(entry: &ModelEntry, system: &str, messages: &[Message], v: Verbos
 
     let body = OpenAiRequest {
         model: entry.model.clone(),
-        max_tokens: max_output_tokens.unwrap_or(1024),
+        max_tokens: max_output_tokens.unwrap_or(match reasoning.effort_str() {
+            "none" => 1024,
+            "low" => 2048,
+            _ => 4096,
+        }),
         messages: oai_messages,
         reasoning_effort,
     };
