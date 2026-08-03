@@ -265,10 +265,10 @@ pub fn print_usage(u: &Usage) {
         };
         let _ = write!(out, "  tokens: {}in + {}out = {}", u.input_tokens, u.output_tokens, total);
         if u.cache_read > 0 {
-            let _ = write!(out, " (cached: {})", u.cache_read);
+            let _ = write!(out, " (prompt cache: {})", u.cache_read);
         }
         if u.cache_creation > 0 {
-            let _ = write!(out, " (cache_write: {})", u.cache_creation);
+            let _ = write!(out, " (prompt cache write: {})", u.cache_creation);
         }
         let _ = write!(out, " | {}ms", u.duration_ms);
     }
@@ -472,7 +472,7 @@ fn call_openai_responses(entry: &ModelEntry, system: &str, messages: &[Message],
     let body = ResponsesRequest {
         model: entry.model.clone(),
         input,
-        max_output_tokens: 1024,
+        max_output_tokens: 4096,
     };
 
     if v.show_debug() {
