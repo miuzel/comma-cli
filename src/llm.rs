@@ -98,7 +98,18 @@ struct ResponsesReasoning {
 #[derive(Serialize)]
 struct ResponsesInputItem {
     role: String,
-    content: Vec<ResponsesPart>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    content: Option<ResponsesContent>,
+}
+
+/// Polymorphic content: array for user/system, string for assistant.
+/// Some gateways (e.g. opencode zen) don't handle the array format
+/// for assistant messages when converting to chat completions format.
+#[derive(Serialize)]
+#[serde(untagged)]
+enum ResponsesContent {
+    Parts(Vec<ResponsesPart>),
+    Text(String),
 }
 
 #[derive(Serialize)]
@@ -482,17 +493,25 @@ fn call_openai_responses(entry: &ModelEntry, system: &str, messages: &[Message],
     let mut input: Vec<ResponsesInputItem> = Vec::with_capacity(messages.len() + 1);
     input.push(ResponsesInputItem {
         role: "system".into(),
-        content: vec![ResponsesPart {
+        content: Some(ResponsesContent::Parts(vec![ResponsesPart {
             part_type: "input_text".into(),
             text: system.to_string(),
-        }],
+        }])),
     });
-    input.extend(messages.iter().map(|m| ResponsesInputItem {
-        role: m.role.clone(),
-        content: vec![ResponsesPart {
-            part_type: if m.role == "assistant" { "output_text".into() } else { "input_text".into() },
-            text: m.content.clone(),
-        }],
+    input.extend(messages.iter().map(|m| {
+        let content = if m.role == "assistant" {
+            // Assistant messages use string format for gateway compatibility
+            ResponsesContent::Text(m.content.clone())
+        } else {
+            ResponsesContent::Parts(vec![ResponsesPart {
+                part_type: "input_text".into(),
+                text: m.content.clone(),
+            }])
+        };
+        ResponsesInputItem {
+            role: m.role.clone(),
+            content: Some(content),
+        }
     }));
 
     let reasoning_obj = if reasoning.is_none() {
