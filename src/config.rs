@@ -166,8 +166,8 @@ impl Reasoning {
         match self {
             Reasoning::Tokens(0) => "none",
             Reasoning::Tokens(n) => {
-                if *n <= 1024 { "low" }
-                else if *n <= 4096 { "medium" }
+                if *n <= 4096 { "low" }
+                else if *n <= 16384 { "medium" }
                 else { "high" }
             }
             Reasoning::Effort(s) => s,
