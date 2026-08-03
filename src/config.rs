@@ -54,6 +54,7 @@ struct LocalModelEntry {
     provider: String,
     model: String,
     retries: Option<usize>,
+    reasoning: Option<Reasoning>,
 }
 
 #[derive(Clone)]
@@ -64,6 +65,8 @@ pub struct ModelEntry {
     pub api_style: ApiStyle,
     /// Retry attempts for this model; always >= 1 (clamped at load time).
     pub retries: usize,
+    /// Per-model reasoning override; falls back to config-level reasoning.
+    pub reasoning: Option<Reasoning>,
 }
 
 #[derive(Deserialize, Default)]
@@ -79,7 +82,7 @@ struct LocalConfig {
     // Shared settings
     prefer: Option<HashMap<String, Vec<String>>>,
     cache_size: Option<usize>,
-    reasoning: Option<u32>,
+    reasoning: Option<Reasoning>,
     // Auto-update: true (default) enables weekly checks; false disables;
     // a number overrides the interval in days (0 = disabled).
     auto_update: Option<AutoUpdate>,
@@ -121,6 +124,62 @@ impl AutoUpdate {
     }
 }
 
+/// Reasoning / thinking configuration. Accepts either:
+///   - a number (Anthropic token budget, e.g. `"reasoning": 2048`)
+///   - a string effort level (e.g. `"reasoning": "low"`)
+///     → Anthropic: mapped to token budget
+///     → OpenAI: passed as `reasoning.effort` or `reasoning_effort`
+#[derive(Deserialize, Clone, Debug)]
+#[serde(untagged)]
+pub enum Reasoning {
+    Tokens(u32),
+    Effort(String),
+}
+
+impl Default for Reasoning {
+    fn default() -> Self {
+        Reasoning::Tokens(0)
+    }
+}
+
+impl Reasoning {
+    /// Token budget for Anthropic thinking.
+    pub fn budget_tokens(&self) -> u32 {
+        match self {
+            Reasoning::Tokens(n) => *n,
+            Reasoning::Effort(s) => match s.to_lowercase().as_str() {
+                "none" | "" => 0,
+                "low" => 1024,
+                "medium" => 2048,
+                "high" | "xhigh" | "max" => 4096,
+                _ => 0,
+            },
+        }
+    }
+
+    /// Effort string for OpenAI APIs ("none", "low", "medium", "high").
+    pub fn effort_str(&self) -> &str {
+        match self {
+            Reasoning::Tokens(0) => "none",
+            Reasoning::Tokens(n) => {
+                if *n <= 1024 { "low" }
+                else if *n <= 4096 { "medium" }
+                else { "high" }
+            }
+            Reasoning::Effort(s) => s,
+        }
+    }
+
+    /// Whether reasoning/thinking is effectively disabled.
+    pub fn is_none(&self) -> bool {
+        match self {
+            Reasoning::Tokens(0) => true,
+            Reasoning::Effort(s) => s.eq_ignore_ascii_case("none") || s.is_empty(),
+            _ => false,
+        }
+    }
+}
+
 #[derive(Deserialize)]
 struct ClaudeSettings {
     env: Option<ClaudeEnv>,
@@ -140,7 +199,7 @@ pub struct Config {
     pub entries: Vec<ModelEntry>,
     pub prefer: HashMap<String, Vec<String>>,
     pub cache_size: usize,
-    pub reasoning: u32,
+    pub reasoning: Reasoning,
     pub auto_update: AutoUpdate,
     pub lang: Option<String>,
 }
@@ -179,7 +238,7 @@ impl Config {
                     entries: vec![entry],
                     prefer: self.prefer.clone(),
                     cache_size: self.cache_size,
-                    reasoning: self.reasoning,
+                    reasoning: self.reasoning.clone(),
                     auto_update: self.auto_update,
                     lang: self.lang.clone(),
                 })
@@ -274,7 +333,7 @@ pub fn load_config() -> Result<Config, String> {
 
     let prefer = local.prefer.unwrap_or_default();
     let cache_size = local.cache_size.unwrap_or(1000);
-    let reasoning = local.reasoning.unwrap_or(0);
+    let reasoning = local.reasoning.unwrap_or_default();
     let auto_update = local.auto_update.unwrap_or_default();
     let lang = local.lang;
 
@@ -313,6 +372,8 @@ pub fn load_config() -> Result<Config, String> {
                 // Clamp retries to at least 1: `retries: 0` would mean zero
                 // attempts and a confusing "All models returned empty" error.
                 retries: m.retries.unwrap_or(1).max(1),
+                // Per-model reasoning override; falls back to config-level.
+                reasoning: m.reasoning.clone(),
             });
         }
         if entries.is_empty() {
@@ -347,6 +408,7 @@ pub fn load_config() -> Result<Config, String> {
             model,
             api_style,
             retries: MAX_RETRIES,
+            reasoning: None,
         }]
     };
 
