@@ -40,8 +40,7 @@ struct OpenAiRequest {
     model: String,
     max_tokens: u32,
     messages: Vec<OpenAiMessage>,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    reasoning_effort: Option<String>,
+    reasoning_effort: String,
 }
 
 #[derive(Serialize)]
@@ -86,8 +85,7 @@ struct ResponsesRequest {
     model: String,
     input: Vec<ResponsesInputItem>,
     max_output_tokens: u32,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    reasoning: Option<ResponsesReasoning>,
+    reasoning: ResponsesReasoning,
 }
 
 #[derive(Serialize)]
@@ -405,12 +403,6 @@ fn call_openai(entry: &ModelEntry, system: &str, messages: &[Message], v: Verbos
         });
     }
 
-    let reasoning_effort = if reasoning.is_none() {
-        None
-    } else {
-        Some(reasoning.effort_str().to_string())
-    };
-
     let body = OpenAiRequest {
         model: entry.model.clone(),
         max_tokens: max_output_tokens.unwrap_or(match reasoning.effort_str() {
@@ -419,7 +411,7 @@ fn call_openai(entry: &ModelEntry, system: &str, messages: &[Message], v: Verbos
             _ => 4096,
         }),
         messages: oai_messages,
-        reasoning_effort,
+        reasoning_effort: reasoning.effort_str().to_string(),
     };
 
     if v.show_debug() {
@@ -514,12 +506,8 @@ fn call_openai_responses(entry: &ModelEntry, system: &str, messages: &[Message],
         }
     }));
 
-    let reasoning_obj = if reasoning.is_none() {
-        None
-    } else {
-        Some(ResponsesReasoning {
-            effort: reasoning.effort_str().to_string(),
-        })
+    let reasoning_obj = ResponsesReasoning {
+        effort: reasoning.effort_str().to_string(),
     };
 
     let body = ResponsesRequest {

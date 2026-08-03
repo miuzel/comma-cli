@@ -173,15 +173,6 @@ impl Reasoning {
             Reasoning::Effort(s) => s,
         }
     }
-
-    /// Whether reasoning/thinking is effectively disabled.
-    pub fn is_none(&self) -> bool {
-        match self {
-            Reasoning::Tokens(0) => true,
-            Reasoning::Effort(s) => s.eq_ignore_ascii_case("none") || s.is_empty(),
-            _ => false,
-        }
-    }
 }
 
 #[derive(Deserialize)]
