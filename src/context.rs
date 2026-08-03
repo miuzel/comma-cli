@@ -97,6 +97,7 @@ fn get_packages() -> String {
     // Capped so large systems don't blow up the system prompt.
     const MAX_USER_PACKAGES: usize = 200;
     let user_pkgs = get_user_packages();
+    let pkg_list: String = user_pkgs.iter().cloned().collect::<Vec<_>>().join(" ");
     if !user_pkgs.is_empty() {
         let mut list = user_pkgs
             .iter()
@@ -110,7 +111,79 @@ fn get_packages() -> String {
         sections.push(format!("[User-installed packages: {}]", list));
     }
 
+    // Scan user-local bin directories for standalone executables not
+    // already listed by the package manager (e.g. kimi in ~/.kimi-code/bin/).
+    let user_bins = get_user_binaries(&pkg_list);
+    if !user_bins.is_empty() {
+        let list: Vec<&str> = user_bins.iter().take(50).map(|s| s.as_str()).collect();
+        let mut joined = list.join(", ");
+        if user_bins.len() > 50 {
+            joined.push_str(&format!(", ... ({} more)", user_bins.len() - 50));
+        }
+        sections.push(format!("[User binaries: {}]", joined));
+    }
+
     sections.join("\n")
+}
+
+/// Standalone executables installed outside the system package manager.
+/// Scans well-known user-local bin directories and reports tools not already
+/// listed by the package manager — e.g. `kimi` in `~/.kimi-code/bin/`.
+const LOCAL_BIN_DIRS: &[&str] = &[
+    ".local/bin",
+    ".cargo/bin",
+    "bin",
+    ".kimi-code/bin",
+    ".opencode/bin",
+    ".bun/bin",
+    ".local/share/pnpm/bin",
+];
+
+fn get_user_binaries(pkg_list: &str) -> Vec<String> {
+    let home = match home_dir() {
+        Ok(h) => h,
+        Err(_) => return Vec::new(),
+    };
+    let mut bins: Vec<String> = Vec::new();
+    for dir_name in LOCAL_BIN_DIRS {
+        let dir = std::path::Path::new(&home).join(dir_name);
+        if let Ok(entries) = std::fs::read_dir(&dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if !path.is_file() {
+                    continue;
+                }
+                // Skip hidden files, backups, and shell scripts
+                let name = match path.file_name().and_then(|n| n.to_str()) {
+                    Some(n) => n.to_string(),
+                    None => continue,
+                };
+                if name.starts_with('.') || name.ends_with(".bak") || name.ends_with(".sh") {
+                    continue;
+                }
+                // Skip if already reported by package manager
+                if pkg_list.contains(&name) {
+                    continue;
+                }
+                // Check it's actually executable (or likely intended to be)
+                #[cfg(unix)]
+                {
+                    use std::os::unix::fs::PermissionsExt;
+                    let ok = std::fs::metadata(&path)
+                        .map(|m| m.permissions().mode() & 0o111 != 0)
+                        .unwrap_or(false);
+                    if !ok {
+                        continue;
+                    }
+                }
+                if !bins.contains(&name) {
+                    bins.push(name);
+                }
+            }
+        }
+    }
+    bins.sort();
+    bins
 }
 
 /// Get packages explicitly installed by the user (not auto-installed deps).

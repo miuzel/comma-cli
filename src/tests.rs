@@ -94,6 +94,8 @@ pub fn run_tests() {
     check("shell value is non-empty", shell_line.len() > "Shell: ".len());
     check("context contains CWD", ctx.contains("CWD:"));
     check("context contains packages", ctx.contains("Installed packages"));
+    // Standalone executables in user-local dirs (e.g. ~/.kimi-code/bin/kimi)
+    check("context contains user binaries", ctx.contains("User binaries"));
 
     // Test 10: retry constants are sane
     check("MAX_RETRIES >= 2", MAX_RETRIES >= 2);
