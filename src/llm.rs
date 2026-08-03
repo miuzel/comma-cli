@@ -235,6 +235,7 @@ fn call_llm(
     v: Verbosity,
     cache: &ResponseCache,
     config_reasoning: &Reasoning,
+    config_max_output_tokens: Option<u32>,
 ) -> Result<LlmResponse, String> {
     // Check cache — only return non-empty cached responses
     if let Some(resp) = cached_response(entry, system, messages, v, cache) {
@@ -243,6 +244,8 @@ fn call_llm(
 
     // Per-model reasoning override falls back to config-level
     let reasoning = entry.reasoning.as_ref().unwrap_or(config_reasoning);
+    // Per-model max_output_tokens override falls back to config-level
+    let max_output_tokens = entry.max_output_tokens.or(config_max_output_tokens);
 
     // Call API
     let key = cache_key(&entry.model, system, messages);
@@ -250,9 +253,9 @@ fn call_llm(
         print_debug(&format!("Cache miss: {}", &key[..8]));
     }
     let mut result = match entry.api_style {
-        ApiStyle::OpenAI => call_openai(entry, system, messages, v, reasoning),
-        ApiStyle::OpenAIResponses => call_openai_responses(entry, system, messages, v, reasoning),
-        ApiStyle::Anthropic => call_anthropic(entry, system, messages, v, reasoning),
+        ApiStyle::OpenAI => call_openai(entry, system, messages, v, reasoning, max_output_tokens),
+        ApiStyle::OpenAIResponses => call_openai_responses(entry, system, messages, v, reasoning, max_output_tokens),
+        ApiStyle::Anthropic => call_anthropic(entry, system, messages, v, reasoning, max_output_tokens),
     };
 
     // Attach cache key (caller decides whether to store)
@@ -329,7 +332,7 @@ pub fn call_llm_with_retry(
         let mut attempt = 0;
         while attempt < entry.retries {
             attempt += 1;
-            match call_llm(entry, system, &msgs, v, cache, &config.reasoning) {
+            match call_llm(entry, system, &msgs, v, cache, &config.reasoning, config.max_output_tokens) {
                 Ok(resp) if !resp.content.is_empty() => return Ok(resp),
                 Ok(_) => {
                     // Empty response — retry with hint, consuming the next attempt
@@ -375,7 +378,7 @@ pub fn make_client() -> Result<reqwest::blocking::Client, String> {
         .map_err(|e| t!("llm.http_client", "e" => e).to_string())
 }
 
-fn call_openai(entry: &ModelEntry, system: &str, messages: &[Message], v: Verbosity, reasoning: &Reasoning) -> Result<LlmResponse, String> {
+fn call_openai(entry: &ModelEntry, system: &str, messages: &[Message], v: Verbosity, reasoning: &Reasoning, max_output_tokens: Option<u32>) -> Result<LlmResponse, String> {
     let base = normalize_base_url(&entry.base_url);
     let url = format!("{}/v1/chat/completions", base);
 
@@ -399,7 +402,7 @@ fn call_openai(entry: &ModelEntry, system: &str, messages: &[Message], v: Verbos
 
     let body = OpenAiRequest {
         model: entry.model.clone(),
-        max_tokens: 1024,
+        max_tokens: max_output_tokens.unwrap_or(1024),
         messages: oai_messages,
         reasoning_effort,
     };
@@ -468,7 +471,7 @@ fn call_openai(entry: &ModelEntry, system: &str, messages: &[Message], v: Verbos
 /// emulations of /v1/responses (chat-completions adapters) often drop
 /// `instructions` entirely, silently stripping the command-generator rules.
 /// History maps user→input_text, assistant→output_text.
-fn call_openai_responses(entry: &ModelEntry, system: &str, messages: &[Message], v: Verbosity, reasoning: &Reasoning) -> Result<LlmResponse, String> {
+fn call_openai_responses(entry: &ModelEntry, system: &str, messages: &[Message], v: Verbosity, reasoning: &Reasoning, max_output_tokens: Option<u32>) -> Result<LlmResponse, String> {
     let base = normalize_base_url(&entry.base_url);
     let url = format!("{}/v1/responses", base);
 
@@ -499,7 +502,7 @@ fn call_openai_responses(entry: &ModelEntry, system: &str, messages: &[Message],
     let body = ResponsesRequest {
         model: entry.model.clone(),
         input,
-        max_output_tokens: 4096,
+        max_output_tokens: max_output_tokens.unwrap_or(4096),
         reasoning: reasoning_obj,
     };
 
@@ -571,7 +574,7 @@ fn call_openai_responses(entry: &ModelEntry, system: &str, messages: &[Message],
     Ok(LlmResponse { content, usage, cache_key: None })
 }
 
-fn call_anthropic(entry: &ModelEntry, system: &str, messages: &[Message], v: Verbosity, reasoning: &Reasoning) -> Result<LlmResponse, String> {
+fn call_anthropic(entry: &ModelEntry, system: &str, messages: &[Message], v: Verbosity, reasoning: &Reasoning, max_output_tokens: Option<u32>) -> Result<LlmResponse, String> {
     let base = normalize_base_url(&entry.base_url);
     let url = format!("{}/v1/messages", base);
 
@@ -585,10 +588,17 @@ fn call_anthropic(entry: &ModelEntry, system: &str, messages: &[Message], v: Ver
         None
     };
 
+    // Anthropic requires max_tokens > thinking.budget_tokens
+    let base_max = max_output_tokens.unwrap_or(1024);
+    let effective_max = if budget > 0 && base_max <= budget {
+        budget + 1024
+    } else {
+        base_max
+    };
+
     let body = AnthropicRequest {
         model: entry.model.clone(),
-        // API requires max_tokens > thinking.budget_tokens
-        max_tokens: if budget > 0 { 1024 + budget } else { 1024 },
+        max_tokens: effective_max,
         system: system.to_string(),
         messages: messages.to_vec(),
         thinking,

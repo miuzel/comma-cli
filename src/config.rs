@@ -55,6 +55,7 @@ struct LocalModelEntry {
     model: String,
     retries: Option<usize>,
     reasoning: Option<Reasoning>,
+    max_output_tokens: Option<u32>,
 }
 
 #[derive(Clone)]
@@ -67,6 +68,8 @@ pub struct ModelEntry {
     pub retries: usize,
     /// Per-model reasoning override; falls back to config-level reasoning.
     pub reasoning: Option<Reasoning>,
+    /// Per-model max_output_tokens override; falls back to config-level.
+    pub max_output_tokens: Option<u32>,
 }
 
 #[derive(Deserialize, Default)]
@@ -83,6 +86,7 @@ struct LocalConfig {
     prefer: Option<HashMap<String, Vec<String>>>,
     cache_size: Option<usize>,
     reasoning: Option<Reasoning>,
+    max_output_tokens: Option<u32>,
     // Auto-update: true (default) enables weekly checks; false disables;
     // a number overrides the interval in days (0 = disabled).
     auto_update: Option<AutoUpdate>,
@@ -200,6 +204,7 @@ pub struct Config {
     pub prefer: HashMap<String, Vec<String>>,
     pub cache_size: usize,
     pub reasoning: Reasoning,
+    pub max_output_tokens: Option<u32>,
     pub auto_update: AutoUpdate,
     pub lang: Option<String>,
 }
@@ -239,6 +244,7 @@ impl Config {
                     prefer: self.prefer.clone(),
                     cache_size: self.cache_size,
                     reasoning: self.reasoning.clone(),
+                    max_output_tokens: self.max_output_tokens,
                     auto_update: self.auto_update,
                     lang: self.lang.clone(),
                 })
@@ -334,6 +340,7 @@ pub fn load_config() -> Result<Config, String> {
     let prefer = local.prefer.unwrap_or_default();
     let cache_size = local.cache_size.unwrap_or(1000);
     let reasoning = local.reasoning.unwrap_or_default();
+    let max_output_tokens = local.max_output_tokens;
     let auto_update = local.auto_update.unwrap_or_default();
     let lang = local.lang;
 
@@ -374,6 +381,7 @@ pub fn load_config() -> Result<Config, String> {
                 retries: m.retries.unwrap_or(1).max(1),
                 // Per-model reasoning override; falls back to config-level.
                 reasoning: m.reasoning.clone(),
+                max_output_tokens: m.max_output_tokens,
             });
         }
         if entries.is_empty() {
@@ -409,6 +417,7 @@ pub fn load_config() -> Result<Config, String> {
             api_style,
             retries: MAX_RETRIES,
             reasoning: None,
+            max_output_tokens: None,
         }]
     };
 
@@ -417,6 +426,7 @@ pub fn load_config() -> Result<Config, String> {
         prefer,
         cache_size,
         reasoning,
+        max_output_tokens,
         auto_update,
         lang,
     })
