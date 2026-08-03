@@ -157,7 +157,8 @@ struct ResponsesInputDetails {
 struct ThinkingConfig {
     #[serde(rename = "type")]
     thinking_type: String,
-    budget_tokens: u32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    budget_tokens: Option<u32>,
 }
 
 #[derive(Serialize)]
@@ -590,14 +591,10 @@ fn call_anthropic(entry: &ModelEntry, system: &str, messages: &[Message], v: Ver
     let url = format!("{}/v1/messages", base);
 
     let budget = reasoning.budget_tokens();
-    let thinking = if budget > 0 {
-        Some(ThinkingConfig {
-            thinking_type: "enabled".to_string(),
-            budget_tokens: budget,
-        })
-    } else {
-        None
-    };
+    let thinking = Some(ThinkingConfig {
+        thinking_type: if budget > 0 { "enabled" } else { "disabled" }.to_string(),
+        budget_tokens: if budget > 0 { Some(budget) } else { None },
+    });
 
     // Anthropic requires max_tokens > thinking.budget_tokens
     let base_max = max_output_tokens.unwrap_or(1024);
