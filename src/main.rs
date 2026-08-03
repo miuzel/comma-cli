@@ -237,7 +237,7 @@ fn run_oneshot(config: &Config, system: &str, intent: &str, v: Verbosity, auto_c
 
     // Initial LLM call
     let mut spinner = Spinner::start(&t!("interactive.thinking", "m" => config.model()));
-    let result = call_llm_with_retry(config, system, &messages, v, &cache);
+    let result = call_llm_with_retry(config, system, &messages, v, &cache, Some(&spinner));
     spinner.stop();
 
     let (final_raw, resp) = match result {
@@ -324,7 +324,7 @@ fn run_oneshot(config: &Config, system: &str, intent: &str, v: Verbosity, auto_c
                 });
 
                 let mut spinner = Spinner::start(&t!("interactive.thinking", "m" => config.model()));
-                let result = call_llm_with_retry(config, system, &messages, v, &cache);
+                let result = call_llm_with_retry(config, system, &messages, v, &cache, Some(&spinner));
                 spinner.stop();
 
                 match result {
@@ -435,7 +435,7 @@ fn run_interactive(config: &Config, system: &str, v: Verbosity, auto_confirm: bo
                                 print_debug(&format!("Refine: {}", messages.last().unwrap().content));
                             }
                             let mut spinner = Spinner::start(&t!("interactive.thinking_short"));
-                            let result = call_llm_with_retry(config, system, &messages, v, &cache);
+                            let result = call_llm_with_retry(config, system, &messages, v, &cache, Some(&spinner));
                             spinner.stop();
                             match result {
                                 Ok(resp) => {
@@ -501,7 +501,7 @@ fn run_interactive(config: &Config, system: &str, v: Verbosity, auto_confirm: bo
                     print_debug(&format!("User: {}", messages.last().unwrap().content));
                 }
                 let mut spinner = Spinner::start(&t!("interactive.thinking_short"));
-                let result = call_llm_with_retry(config, system, &messages, v, &cache);
+                let result = call_llm_with_retry(config, system, &messages, v, &cache, Some(&spinner));
                 spinner.stop();
                 match result {
                     Ok(resp) => {

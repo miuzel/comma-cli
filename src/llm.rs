@@ -5,7 +5,7 @@ use std::io::{self, Write};
 use crate::cache::{cache_key, ResponseCache};
 use crate::config::{ApiStyle, Config, ModelEntry};
 use crate::style_label;
-use crate::ui::{print_debug, print_info, truncate, Verbosity};
+use crate::ui::{print_debug, print_info, truncate, Spinner, Verbosity};
 use rust_i18n::t;
 
 // ── API ─────────────────────────────────────────────────────────────────────
@@ -228,12 +228,16 @@ pub fn print_usage(u: &Usage) {
 /// reachable — acceptable because entries are only cached after the user
 /// executed the command — and a dead/slow primary no longer delays a cached
 /// fallback hit.
+///
+/// `spinner`, when given, has its label updated to the model currently
+/// being tried, so fallback attempts no longer show the primary's name.
 pub fn call_llm_with_retry(
     config: &Config,
     system: &str,
     messages: &[Message],
     v: Verbosity,
     cache: &ResponseCache,
+    spinner: Option<&Spinner>,
 ) -> Result<LlmResponse, String> {
     // Cache-first pass across the whole fallback chain, in order.
     for entry in &config.entries {
@@ -246,6 +250,9 @@ pub fn call_llm_with_retry(
     for (idx, entry) in config.entries.iter().enumerate() {
         if idx > 0 {
             print_info(&format!("Trying fallback: {} ({})...", entry.model, style_label(entry.api_style)));
+        }
+        if let Some(sp) = spinner {
+            sp.set_message(&t!("interactive.thinking", "m" => entry.model));
         }
         // Per-entry message list; the hint pair is appended once after the
         // first empty response, and the hinted call is the next attempt.

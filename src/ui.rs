@@ -312,14 +312,16 @@ fn draw_candidates(candidates: &[String], selected: usize) -> u16 {
 pub struct Spinner {
     handle: Option<std::thread::JoinHandle<()>>,
     running: std::sync::Arc<std::sync::atomic::AtomicBool>,
+    msg: std::sync::Arc<std::sync::Mutex<String>>,
 }
 
 impl Spinner {
     pub fn start(msg: &str) -> Self {
         let running = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(true));
         let frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-        let msg = msg.to_string();
+        let msg = std::sync::Arc::new(std::sync::Mutex::new(msg.to_string()));
         let running_clone = running.clone();
+        let msg_clone = msg.clone();
 
         let handle = std::thread::spawn(move || {
             let mut i = 0;
@@ -329,12 +331,13 @@ impl Spinner {
                     crossterm::cursor::SavePosition,
                     crossterm::terminal::Clear(crossterm::terminal::ClearType::CurrentLine),
                 );
+                let m = msg_clone.lock().unwrap().clone();
                 let _ = write!(
                     io::stdout(),
                     "\r{}{} {}{}",
                     SetForegroundColor(Color::Cyan),
                     frames[i % frames.len()],
-                    msg,
+                    m,
                     ResetColor,
                 );
                 let _ = io::stdout().flush();
@@ -353,7 +356,13 @@ impl Spinner {
         Self {
             handle: Some(handle),
             running,
+            msg,
         }
+    }
+
+    /// Update the spinner text (e.g. which fallback model is being tried).
+    pub fn set_message(&self, msg: &str) {
+        *self.msg.lock().unwrap() = msg.to_string();
     }
 
     pub fn stop(&mut self) {

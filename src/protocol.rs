@@ -92,7 +92,7 @@ fn check_then_generate(
         content: format!("{}\n\nTool availability:\n{}", CHECK_HINT, report),
     });
 
-    let resp = call_llm_with_retry(config, system, &ext, v, cache)?;
+    let resp = call_llm_with_retry(config, system, &ext, v, cache, None)?;
     Ok(Some(resp.content))
 }
 
@@ -342,6 +342,6 @@ fn explore_then_generate(
         content: format!("{}\n\nCommand output:\n```\n{}\n```", EXPLORE_HINT, all_output),
     });
 
-    let resp = call_llm_with_retry(config, system, &ext, v, cache)?;
+    let resp = call_llm_with_retry(config, system, &ext, v, cache, None)?;
     Ok(Some(resp.content))
 }
