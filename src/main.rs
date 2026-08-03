@@ -50,7 +50,7 @@ fn main() {
     let mut i = 0;
     while i < args.len() {
         let s = args[i].as_str();
-        let is_flag = matches!(s, "-h" | "--help" | "-V" | "--version" | "--update" | "--test" | "-f" | "--model")
+        let is_flag = matches!(s, "-h" | "--help" | "-V" | "--version" | "--update" | "--test" | "-f" | "--nocache" | "--model")
             || (s.starts_with("-v") && s.chars().skip(1).all(|c| c == 'v'));
         if s == "--" {
             rest = &args[i + 1..];
@@ -93,7 +93,7 @@ fn main() {
         return;
     }
 
-    let force_refresh = flags.iter().any(|a| *a == "-f");
+    let force_refresh = flags.iter().any(|a| *a == "-f" || *a == "--nocache");
 
     // Count -v flags (supports -v, -vv, -vvv) among leading flags only
     let verbosity = Verbosity(
@@ -563,6 +563,7 @@ fn run_interactive(config: &Config, system: &str, v: Verbosity, auto_confirm: bo
 pub fn style_label(style: ApiStyle) -> &'static str {
     match style {
         ApiStyle::OpenAI => "openai",
+        ApiStyle::OpenAIResponses => "responses",
         ApiStyle::Anthropic => "anthropic",
     }
 }

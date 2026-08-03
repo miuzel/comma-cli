@@ -140,6 +140,8 @@ $dir = "D:\tools\bin"; Invoke-WebRequest -Uri "https://github.com/miuzel/comma-c
 }
 ```
 
+`api_style` 可选 `"openai"`（chat completions，默认）、`"responses"`（OpenAI Responses API，`/v1/responses`）或 `"anthropic"`。省略时根据 base URL 自动检测（URL 含 `anthropic` 或 `responses`）。
+
 ### ✏️ 执行前编辑
 
 得到命令后，你可以：

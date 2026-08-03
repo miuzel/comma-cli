@@ -140,6 +140,8 @@ Configure multiple providers with automatic fallback:
 }
 ```
 
+`api_style` can be `"openai"` (chat completions, the default), `"responses"` (OpenAI Responses API, `/v1/responses`) or `"anthropic"`. It's auto-detected from the base URL (`anthropic` or `responses` in the URL) when omitted.
+
 ### ✏️ Edit before execution
 
 After getting a command, you can:

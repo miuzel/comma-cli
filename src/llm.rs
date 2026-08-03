@@ -77,6 +77,63 @@ struct OpenAiError {
     message: Option<String>,
 }
 
+// ── OpenAI Responses API types ──────────────────────────────────────────────
+
+#[derive(Serialize)]
+struct ResponsesRequest {
+    model: String,
+    instructions: String,
+    input: Vec<ResponsesInputItem>,
+    max_output_tokens: u32,
+}
+
+#[derive(Serialize)]
+struct ResponsesInputItem {
+    role: String,
+    content: Vec<ResponsesPart>,
+}
+
+#[derive(Serialize)]
+struct ResponsesPart {
+    #[serde(rename = "type")]
+    part_type: String,
+    text: String,
+}
+
+#[derive(Deserialize)]
+struct ResponsesResponse {
+    output: Option<Vec<ResponsesOutputItem>>,
+    usage: Option<ResponsesUsage>,
+    error: Option<OpenAiError>,
+}
+
+#[derive(Deserialize)]
+struct ResponsesOutputItem {
+    #[serde(rename = "type")]
+    item_type: Option<String>,
+    content: Option<Vec<ResponsesOutputContent>>,
+}
+
+#[derive(Deserialize)]
+struct ResponsesOutputContent {
+    #[serde(rename = "type")]
+    content_type: Option<String>,
+    text: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct ResponsesUsage {
+    input_tokens: Option<u32>,
+    output_tokens: Option<u32>,
+    total_tokens: Option<u32>,
+    input_tokens_details: Option<ResponsesInputDetails>,
+}
+
+#[derive(Deserialize)]
+struct ResponsesInputDetails {
+    cached_tokens: Option<u32>,
+}
+
 // ── Anthropic types ─────────────────────────────────────────────────────────
 
 #[derive(Serialize)]
@@ -183,6 +240,7 @@ fn call_llm(
     }
     let mut result = match entry.api_style {
         ApiStyle::OpenAI => call_openai(entry, system, messages, v),
+        ApiStyle::OpenAIResponses => call_openai_responses(entry, system, messages, v),
         ApiStyle::Anthropic => call_anthropic(entry, system, messages, v, reasoning),
     };
 
@@ -385,6 +443,98 @@ fn call_openai(entry: &ModelEntry, system: &str, messages: &[Message], v: Verbos
     }
 
     Ok(LlmResponse { content: content.to_string(), usage, cache_key: None })
+}
+
+/// OpenAI Responses API (`/v1/responses`). The system prompt goes to
+/// `instructions`; history maps user→input_text, assistant→output_text.
+fn call_openai_responses(entry: &ModelEntry, system: &str, messages: &[Message], v: Verbosity) -> Result<LlmResponse, String> {
+    let base = normalize_base_url(&entry.base_url);
+    let url = format!("{}/v1/responses", base);
+
+    let input: Vec<ResponsesInputItem> = messages
+        .iter()
+        .map(|m| ResponsesInputItem {
+            role: m.role.clone(),
+            content: vec![ResponsesPart {
+                part_type: if m.role == "assistant" { "output_text".into() } else { "input_text".into() },
+                text: m.content.clone(),
+            }],
+        })
+        .collect();
+
+    let body = ResponsesRequest {
+        model: entry.model.clone(),
+        instructions: system.to_string(),
+        input,
+        max_output_tokens: 1024,
+    };
+
+    if v.show_debug() {
+        print_debug(&format!("POST {}", url));
+        if let Ok(json) = serde_json::to_string_pretty(&body) {
+            print_debug(&format!("Request body:\n{}", json));
+        }
+    }
+
+    let client = make_client()?;
+    let t0 = std::time::Instant::now();
+    let resp = client
+        .post(&url)
+        .header("Authorization", format!("Bearer {}", entry.auth_token))
+        .header("content-type", "application/json")
+        .json(&body)
+        .send()
+        .map_err(|e| t!("llm.request_failed", "e" => e).to_string())?;
+
+    let elapsed = t0.elapsed();
+    let status = resp.status();
+    let text = resp.text().map_err(|e| t!("llm.read_body", "e" => e).to_string())?;
+
+    if v.show_debug() {
+        print_debug(&format!("Status: {} ({:.1}s)", status, elapsed.as_secs_f64()));
+        print_debug(&format!("Response:\n{}", truncate(&text, 2000)));
+    }
+
+    if !status.is_success() {
+        return Err(t!("llm.api_error", "status" => status, "body" => text).to_string());
+    }
+
+    let api_resp: ResponsesResponse =
+        serde_json::from_str(&text).map_err(|e| t!("llm.parse_response", "e" => e).to_string())?;
+    if let Some(err) = api_resp.error {
+        return Err(err.message.unwrap_or_else(|| t!("llm.unknown_api_error").to_string()));
+    }
+
+    let usage = api_resp.usage.as_ref().map(|u| Usage {
+        input_tokens: u.input_tokens.unwrap_or(0),
+        output_tokens: u.output_tokens.unwrap_or(0),
+        total_tokens: u.total_tokens.unwrap_or(0),
+        cache_read: u.input_tokens_details.as_ref().and_then(|d| d.cached_tokens).unwrap_or(0),
+        duration_ms: elapsed.as_millis() as u64,
+        ..Usage::default()
+    }).unwrap_or(Usage { duration_ms: elapsed.as_millis() as u64, ..Usage::default() });
+
+    // Concatenate output_text parts of message items; reasoning and other
+    // item types are ignored.
+    let content = api_resp
+        .output
+        .as_deref()
+        .unwrap_or(&[])
+        .iter()
+        .filter(|item| item.item_type.as_deref() == Some("message"))
+        .flat_map(|item| item.content.as_deref().unwrap_or(&[]).iter())
+        .filter(|part| part.content_type.as_deref() == Some("output_text"))
+        .filter_map(|part| part.text.as_deref())
+        .collect::<Vec<_>>()
+        .join("")
+        .trim()
+        .to_string();
+
+    if v.show_prompt() {
+        print_debug(&format!("LLM reply: {}", content));
+    }
+
+    Ok(LlmResponse { content, usage, cache_key: None })
 }
 
 fn call_anthropic(entry: &ModelEntry, system: &str, messages: &[Message], v: Verbosity, reasoning: u32) -> Result<LlmResponse, String> {

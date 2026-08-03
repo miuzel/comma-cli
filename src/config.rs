@@ -8,23 +8,30 @@ use rust_i18n::t;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ApiStyle {
     OpenAI,
+    OpenAIResponses,
     Anthropic,
 }
 
 impl ApiStyle {
-    /// Auto-detect from URL. Defaults to OpenAI if not clearly Anthropic.
-    fn from_url(url: &str) -> Self {
+    /// Auto-detect from URL. Defaults to OpenAI chat completions if not
+    /// clearly Anthropic or the OpenAI Responses API.
+    pub(crate) fn from_url(url: &str) -> Self {
         let lower = url.to_lowercase();
         if lower.contains("anthropic") {
             ApiStyle::Anthropic
+        } else if lower.contains("responses") {
+            ApiStyle::OpenAIResponses
         } else {
             ApiStyle::OpenAI
         }
     }
 
-    fn from_str(s: &str) -> Option<Self> {
+    pub(crate) fn from_str(s: &str) -> Option<Self> {
         match s.to_lowercase().as_str() {
             "openai" | "open_ai" | "oai" => Some(ApiStyle::OpenAI),
+            "responses" | "openai-responses" | "openai_responses" | "oai-responses" => {
+                Some(ApiStyle::OpenAIResponses)
+            }
             "anthropic" | "claude" => Some(ApiStyle::Anthropic),
             _ => None,
         }

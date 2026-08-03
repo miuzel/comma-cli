@@ -1,9 +1,10 @@
 use crate::cache::cache_key;
-use crate::config::MAX_RETRIES;
+use crate::config::{ApiStyle, MAX_RETRIES};
 use crate::context::{apply_placeholders, collect_placeholders, gather_context, get_shell, Placeholders};
 use crate::danger::is_dangerous;
 use crate::llm::{Message, RETRY_HINT};
 use crate::protocol::{parse_check, parse_explore};
+use crate::style_label;
 use crate::ui::{is_bare_cd, parse_candidates, truncate};
 
 // ── Built-in self-test suite (`--test`) ─────────────────────────────────────
@@ -98,6 +99,32 @@ pub fn run_tests() {
     check("MAX_RETRIES >= 2", MAX_RETRIES >= 2);
     check("MAX_RETRIES <= 5", MAX_RETRIES <= 5);
     check("RETRY_HINT is non-empty", !RETRY_HINT.is_empty());
+
+    // Test 10b: API style parsing, URL auto-detection and labels
+    check("api_style: openai", ApiStyle::from_str("openai") == Some(ApiStyle::OpenAI));
+    check(
+        "api_style: responses",
+        ApiStyle::from_str("responses") == Some(ApiStyle::OpenAIResponses),
+    );
+    check(
+        "api_style: openai-responses alias",
+        ApiStyle::from_str("openai-responses") == Some(ApiStyle::OpenAIResponses),
+    );
+    check("api_style: anthropic", ApiStyle::from_str("claude") == Some(ApiStyle::Anthropic));
+    check("api_style: unknown", ApiStyle::from_str("gemini").is_none());
+    check(
+        "api_style from_url: anthropic",
+        ApiStyle::from_url("https://api.anthropic.com") == ApiStyle::Anthropic,
+    );
+    check(
+        "api_style from_url: responses",
+        ApiStyle::from_url("https://api.openai.com/v1/responses") == ApiStyle::OpenAIResponses,
+    );
+    check(
+        "api_style from_url: default openai",
+        ApiStyle::from_url("https://api.cerebras.ai/v1") == ApiStyle::OpenAI,
+    );
+    check("style_label: responses", style_label(ApiStyle::OpenAIResponses) == "responses");
 
     // Test 11: #EXPLORE: prefix detection
     check("parse_explore: basic", parse_explore("#EXPLORE: openclaw --help") == Some("openclaw --help"));
