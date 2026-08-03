@@ -1,5 +1,5 @@
 use crate::cache::cache_key;
-use crate::config::{ApiStyle, MAX_RETRIES};
+use crate::config::{ApiStyle, MAX_RETRIES, Reasoning};
 use crate::context::{apply_placeholders, collect_placeholders, gather_context, get_shell, Placeholders};
 use crate::danger::is_dangerous;
 use crate::llm::{Message, RETRY_HINT};
@@ -370,6 +370,52 @@ pub fn run_tests() {
         }
         let _ = std::fs::remove_dir_all(&fake);
     }
+
+    // ── Reasoning enum ──────────────────────────────────────────────────────
+
+    // Tokens(0) defaults
+    let r = Reasoning::Tokens(0);
+    check("reasoning tokens(0) budget_tokens", r.budget_tokens() == 0);
+    check("reasoning tokens(0) effort_str", r.effort_str() == "none");
+
+    // Tokens mapping to effort
+    let r = Reasoning::Tokens(512);
+    check("reasoning tokens(512) effort", r.effort_str() == "low");
+    let r = Reasoning::Tokens(1024);
+    check("reasoning tokens(1024) effort", r.effort_str() == "low");
+    let r = Reasoning::Tokens(2048);
+    check("reasoning tokens(2048) effort", r.effort_str() == "low");
+    let r = Reasoning::Tokens(4096);
+    check("reasoning tokens(4096) effort", r.effort_str() == "low");
+    let r = Reasoning::Tokens(8192);
+    check("reasoning tokens(8192) effort", r.effort_str() == "medium");
+    let r = Reasoning::Tokens(16384);
+    check("reasoning tokens(16384) effort", r.effort_str() == "medium");
+    let r = Reasoning::Tokens(32768);
+    check("reasoning tokens(32768) effort", r.effort_str() == "high");
+
+    // Effort mapping to budget_tokens
+    let r = Reasoning::Effort("none".into());
+    check("reasoning effort(none) budget", r.budget_tokens() == 0);
+    let r = Reasoning::Effort("low".into());
+    check("reasoning effort(low) budget", r.budget_tokens() == 1024);
+    let r = Reasoning::Effort("medium".into());
+    check("reasoning effort(medium) budget", r.budget_tokens() == 2048);
+    let r = Reasoning::Effort("high".into());
+    check("reasoning effort(high) budget", r.budget_tokens() == 4096);
+    let r = Reasoning::Effort("unknown".into());
+    check("reasoning effort(unknown) budget", r.budget_tokens() == 0);
+
+    // Effort passthrough
+    let r = Reasoning::Effort("low".into());
+    check("reasoning effort(low) passthrough", r.effort_str() == "low");
+    let r = Reasoning::Effort("custom".into());
+    check("reasoning effort(custom) passthrough", r.effort_str() == "custom");
+
+    // Default reasoning is Tokens(0) = disabled
+    let r = Reasoning::default();
+    check("reasoning default is disabled", r.budget_tokens() == 0);
+    check("reasoning default effort is none", r.effort_str() == "none");
 
     // Summary
     println!("\n{} passed, {} failed", pass, fail);
