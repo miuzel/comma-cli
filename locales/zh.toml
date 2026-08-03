@@ -9,6 +9,7 @@ no_api_key = """未找到 API 密钥。请配置:
   1. 编辑 %{path}
   2. 设置 COMMA_API_KEY 或 ANTHROPIC_API_KEY 环境变量"""
 model_requires_keyword = "--model 需要一个关键字参数"
+reasoning_requires_keyword = "--reasoning 需要一个级别参数 (none/low/medium/high)"
 no_command_execute = "没有可执行的命令。"
 no_command_copy = "没有可复制的命令。"
 exit_code = "退出码: %{code}"

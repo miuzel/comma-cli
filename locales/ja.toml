@@ -9,6 +9,7 @@ no_api_key = """APIキーが見つかりません。設定してください:
   1. %{path} を編集
   2. COMMA_API_KEY または ANTHROPIC_API_KEY 環境変数を設定"""
 model_requires_keyword = "--model にはキーワード引数が必要です"
+reasoning_requires_keyword = "--reasoning にはレベル引数が必要です (none/low/medium/high)"
 no_command_execute = "実行するコマンドがありません。"
 no_command_copy = "コピーするコマンドがありません。"
 exit_code = "終了コード: %{code}"

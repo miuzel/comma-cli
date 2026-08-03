@@ -9,6 +9,7 @@ no_api_key = """API 키를 찾을 수 없습니다. 설정하세요:
   1. %{path} 편집
   2. COMMA_API_KEY 또는 ANTHROPIC_API_KEY 환경 변수 설정"""
 model_requires_keyword = "--model 에는 키워드 인수가 필요합니다"
+reasoning_requires_keyword = "--reasoning 에는 레벨 인수가 필요합니다 (none/low/medium/high)"
 no_command_execute = "실행할 명령이 없습니다."
 no_command_copy = "복사할 명령이 없습니다."
 exit_code = "종료 코드: %{code}"

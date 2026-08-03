@@ -9,6 +9,7 @@ no_api_key = """Nenhuma chave de API encontrada. Configure uma:
   1. Edite %{path}
   2. Defina a variável de ambiente COMMA_API_KEY ou ANTHROPIC_API_KEY"""
 model_requires_keyword = "--model requer um argumento de palavra-chave"
+reasoning_requires_keyword = "--reasoning requer um nível (none/low/medium/high)"
 no_command_execute = "Nenhum comando para executar."
 no_command_copy = "Nenhum comando para copiar."
 exit_code = "Código de saída: %{code}"

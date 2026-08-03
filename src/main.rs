@@ -20,7 +20,7 @@ use rustyline::Editor;
 use std::io;
 
 use crate::cache::{CacheEntry, ResponseCache};
-use crate::config::{load_config, ApiStyle, Config};
+use crate::config::{load_config, ApiStyle, Config, Reasoning};
 use crate::context::{apply_placeholders, collect_placeholders};
 use crate::llm::{call_llm_with_retry, print_usage, Message};
 use crate::prompt::load_prompt;
@@ -46,11 +46,12 @@ fn main() {
     // explicitly ends the flag run. Unrecognized `-...` words start the intent.
     let mut flags: Vec<&str> = Vec::new();
     let mut model_keyword: Option<String> = None;
+    let mut reasoning_keyword: Option<String> = None;
     let mut rest: &[String] = &[];
     let mut i = 0;
     while i < args.len() {
         let s = args[i].as_str();
-        let is_flag = matches!(s, "-h" | "--help" | "-V" | "--version" | "--update" | "--test" | "-f" | "--nocache" | "--model")
+        let is_flag = matches!(s, "-h" | "--help" | "-V" | "--version" | "--update" | "--test" | "-f" | "--nocache" | "--model" | "--reasoning" | "-r")
             || (s.starts_with("-v") && s.chars().skip(1).all(|c| c == 'v'));
         if s == "--" {
             rest = &args[i + 1..];
@@ -62,6 +63,15 @@ fn main() {
                 model_keyword = Some(args[i].clone());
             } else {
                 print_error(&t!("error.model_requires_keyword"));
+                std::process::exit(1);
+            }
+        } else if s == "--reasoning" || s == "-r" {
+            // Consume next arg as the reasoning level
+            i += 1;
+            if i < args.len() {
+                reasoning_keyword = Some(args[i].clone());
+            } else {
+                print_error(&t!("error.reasoning_requires_keyword"));
                 std::process::exit(1);
             }
         } else if is_flag {
@@ -116,7 +126,7 @@ fn main() {
     i18n::init(&config);
 
     // If --model is set, fuzzy-match and disable fallbacks
-    let config = if let Some(ref keyword) = model_keyword {
+    let mut config = if let Some(ref keyword) = model_keyword {
         match config.filter_by_model(keyword) {
             Ok(c) => c,
             Err(e) => {
@@ -127,6 +137,11 @@ fn main() {
     } else {
         config
     };
+
+    // If --reasoning/-r is set, override the config reasoning level
+    if let Some(ref level) = reasoning_keyword {
+        config.reasoning = Reasoning::Effort(level.clone());
+    }
 
     let system = load_prompt(&config);
 

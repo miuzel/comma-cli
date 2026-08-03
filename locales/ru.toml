@@ -9,6 +9,7 @@ no_api_key = """API-ключ не найден. Настройте его:
   1. Отредактируйте %{path}
   2. Установите переменную окружения COMMA_API_KEY или ANTHROPIC_API_KEY"""
 model_requires_keyword = "--model требует ключевой аргумент"
+reasoning_requires_keyword = "--reasoning требует уровень (none/low/medium/high)"
 no_command_execute = "Нет команды для выполнения."
 no_command_copy = "Нет команды для копирования."
 exit_code = "Код выхода: %{code}"
