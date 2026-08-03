@@ -115,12 +115,8 @@ fn get_packages() -> String {
     // already listed by the package manager (e.g. kimi in ~/.kimi-code/bin/).
     let user_bins = get_user_binaries(&pkg_list);
     if !user_bins.is_empty() {
-        let list: Vec<&str> = user_bins.iter().take(50).map(|s| s.as_str()).collect();
-        let mut joined = list.join(", ");
-        if user_bins.len() > 50 {
-            joined.push_str(&format!(", ... ({} more)", user_bins.len() - 50));
-        }
-        sections.push(format!("[User binaries: {}]", joined));
+        let list: Vec<&str> = user_bins.iter().map(|s| s.as_str()).collect();
+        sections.push(format!("[User binaries: {}]", list.join(", ")));
     }
 
     sections.join("\n")
@@ -222,6 +218,10 @@ fn get_user_packages() -> Vec<String> {
 /// Non-private system context sent to the API.
 /// Sanitizes CWD to avoid leaking username/home path.
 pub fn gather_context() -> String {
+    gather_context_inner()
+}
+
+fn gather_context_inner() -> String {
     let distro = get_distro();
     let (kernel, arch) = get_kernel_arch();
     let shell = get_shell();
