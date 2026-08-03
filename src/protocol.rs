@@ -196,6 +196,22 @@ fn run_and_capture(cmd: &str) -> Result<String, String> {
     Ok(result)
 }
 
+/// Strip markdown code fences (``` ... ```) from an LLM response.
+/// Some models wrap commands in fences despite instructions not to.
+pub fn strip_markdown_fences(raw: &str) -> String {
+    let trimmed = raw.trim();
+    // Match opening fence: ``` optionally followed by a language tag
+    if let Some(rest) = trimmed.strip_prefix("```") {
+        let rest = rest.trim_start_matches(|c: char| c.is_alphanumeric() || c == '-');
+        if let Some(inner) = rest.strip_suffix("```") {
+            return inner.trim().to_string();
+        }
+        // Opening fence but no closing — still strip the opening
+        return rest.trim().to_string();
+    }
+    raw.to_string()
+}
+
 /// Chain: #CHECK → #EXPLORE → final command.
 /// #CHECK can loop (to handle #CHECK after #EXPLORE), but #EXPLORE runs only once.
 pub fn process_response(
@@ -208,7 +224,7 @@ pub fn process_response(
     cache: &ResponseCache,
     auto_confirm: bool,
 ) -> String {
-    let mut current = raw.to_string();
+    let mut current = strip_markdown_fences(raw);
     let mut explored = false;
 
     for _ in 0..5 {

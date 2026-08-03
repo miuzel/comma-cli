@@ -3,7 +3,7 @@ use crate::config::{ApiStyle, MAX_RETRIES, Reasoning};
 use crate::context::{apply_placeholders, collect_placeholders, gather_context, get_shell, Placeholders};
 use crate::danger::is_dangerous;
 use crate::llm::{Message, RETRY_HINT};
-use crate::protocol::{parse_check, parse_explore};
+use crate::protocol::{parse_check, parse_explore, strip_markdown_fences};
 use crate::style_label;
 use crate::ui::{is_bare_cd, parse_candidates, truncate};
 
@@ -416,6 +416,14 @@ pub fn run_tests() {
     let r = Reasoning::default();
     check("reasoning default is disabled", r.budget_tokens() == 0);
     check("reasoning default effort is none", r.effort_str() == "none");
+
+    // ── strip_markdown_fences ───────────────────────────────────────────────
+    check("strip fences: basic", strip_markdown_fences("```bash\nls -la\n```") == "ls -la");
+    check("strip fences: no lang tag", strip_markdown_fences("```\nls -la\n```") == "ls -la");
+    check("strip fences: no fences", strip_markdown_fences("ls -la") == "ls -la");
+    check("strip fences: opening only", strip_markdown_fences("```bash\nls -la") == "ls -la");
+    check("strip fences: leading text", strip_markdown_fences("Here:\n```bash\nls -la\n```") == "Here:\n```bash\nls -la\n```");
+    check("strip fences: trailing newline", strip_markdown_fences("```bash\nls -la\n```\n") == "ls -la");
 
     // Summary
     println!("\n{} passed, {} failed", pass, fail);
