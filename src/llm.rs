@@ -82,7 +82,6 @@ struct OpenAiError {
 #[derive(Serialize)]
 struct ResponsesRequest {
     model: String,
-    instructions: String,
     input: Vec<ResponsesInputItem>,
     max_output_tokens: u32,
 }
@@ -445,26 +444,33 @@ fn call_openai(entry: &ModelEntry, system: &str, messages: &[Message], v: Verbos
     Ok(LlmResponse { content: content.to_string(), usage, cache_key: None })
 }
 
-/// OpenAI Responses API (`/v1/responses`). The system prompt goes to
-/// `instructions`; history maps user→input_text, assistant→output_text.
+/// OpenAI Responses API (`/v1/responses`). The system prompt is sent as a
+/// leading system input item, NOT the `instructions` field: gateway
+/// emulations of /v1/responses (chat-completions adapters) often drop
+/// `instructions` entirely, silently stripping the command-generator rules.
+/// History maps user→input_text, assistant→output_text.
 fn call_openai_responses(entry: &ModelEntry, system: &str, messages: &[Message], v: Verbosity) -> Result<LlmResponse, String> {
     let base = normalize_base_url(&entry.base_url);
     let url = format!("{}/v1/responses", base);
 
-    let input: Vec<ResponsesInputItem> = messages
-        .iter()
-        .map(|m| ResponsesInputItem {
-            role: m.role.clone(),
-            content: vec![ResponsesPart {
-                part_type: if m.role == "assistant" { "output_text".into() } else { "input_text".into() },
-                text: m.content.clone(),
-            }],
-        })
-        .collect();
+    let mut input: Vec<ResponsesInputItem> = Vec::with_capacity(messages.len() + 1);
+    input.push(ResponsesInputItem {
+        role: "system".into(),
+        content: vec![ResponsesPart {
+            part_type: "input_text".into(),
+            text: system.to_string(),
+        }],
+    });
+    input.extend(messages.iter().map(|m| ResponsesInputItem {
+        role: m.role.clone(),
+        content: vec![ResponsesPart {
+            part_type: if m.role == "assistant" { "output_text".into() } else { "input_text".into() },
+            text: m.content.clone(),
+        }],
+    }));
 
     let body = ResponsesRequest {
         model: entry.model.clone(),
-        instructions: system.to_string(),
         input,
         max_output_tokens: 1024,
     };
