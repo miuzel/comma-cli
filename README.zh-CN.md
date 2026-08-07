@@ -197,6 +197,18 @@ ffmpeg -i input.mp4 -b:v 8M output.mp4
 
 探测命令运行前总会询问确认（单个探测也一样），除非加 `!`。
 
+### 🌐 网络搜索
+
+当答案依赖时效性信息（最新版本、近期变更、下载地址）时，模型可以先通过 `#SEARCH:` 搜索网络：
+
+```
+$ , upgrade rust to the latest stable release
+▸ 网络搜索: latest stable rust version
+rustup update stable  # Update Rust to the latest stable toolchain
+```
+
+搜索结果（标题、URL、摘要）会反馈给模型，模型再生成最终命令。**搜索默认关闭**——在 `search` 配置中选择后端才会启用（见下文）。Brave 和 Tavily 需要 API key；DuckDuckGo 和 Mojeek 无需 key，但属于页面抓取，在部分网络下可能触发反爬限制；自托管 SearXNG 也是不错的选择。搜索关键词由模型生成，不会包含你的用户名、主机名或路径。
+
 ### 🌍 多语言界面
 
 界面支持 9 种语言 —— English、中文、日本語、한국어、Français、Deutsch、Español、Português、Русский：
@@ -473,6 +485,23 @@ export COMMA_API_STYLE="openai"
 ### Reasoning（Anthropic）
 
 对 Anthropic 模型，`"reasoning": <tokens>` 按给定预算启用 extended thinking。`max_tokens` 会自动提高，因此 ≥ 1024 的预算可以正常使用。
+
+### 网络搜索
+
+`#SEARCH:` 协议的后端配置（见上文"网络搜索"功能）：
+
+```json
+{
+  "search": {
+    "provider": "off",
+    "api_key": "",
+    "base_url": "",
+    "max_results": 5
+  }
+}
+```
+
+提供商：`off`（默认——模型不会被告知可以搜索）、`brave`（需要 `api_key`）、`tavily`（需要 `api_key`）、`searxng`（需要实例的 `base_url`）、`duckduckgo` / `mojeek`（无需 key 的页面抓取——方便，但反爬机制可能会限制你的 IP；`duckduckgo` 受限时自动回退 Mojeek）。`max_results` 默认 5（最大 10）。
 
 ---
 

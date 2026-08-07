@@ -75,6 +75,11 @@ all_models_failed = "All models failed. Last error: %{error}"
 trying_fallback = "Trying fallback: %{m} (%{s})..."
 empty_response_retry = "Empty response from %{m}, retrying (%{attempt}/%{retries})..."
 model_failed = "%{m} failed: %{e}"
+usage_cached = "  tokens: %{input}in + %{output}out (from cache)"
+usage_line = "  tokens: %{input}in + %{output}out = %{total}"
+usage_prompt_cache = " (prompt cache: %{n})"
+usage_prompt_cache_write = " (prompt cache write: %{n})"
+usage_duration = " | %{ms}ms"
 
 [protocol]
 checking_tools = "Checking tools: %{tools}"
@@ -90,6 +95,21 @@ explore_failed = "Explore failed: %{e}"
 failed_run = "Failed to run: %{e}"
 tools_available = "Available: %{tools}"
 tools_not_found = "Not found: %{tools}"
+searching = "Searching the web: %{query}"
+search_no_results = "No search results."
+search_failed = "Search failed: %{e}"
+search_error = "Search: %{e}"
+search_disabled = "Web search is disabled (search.provider = off)."
+search_once = "Already searched once — not searching again."
+
+[search]
+unknown_provider = "Unknown search provider: %{provider}"
+missing_key = "Search provider '%{provider}' requires search.api_key in the config"
+missing_base_url = "SearXNG requires search.base_url in the config"
+request_failed = "Search request failed: %{e}"
+parse_failed = "Failed to parse search response: %{e}"
+api_error = "Search API error (%{status}): %{body}"
+ddg_fallback = "DuckDuckGo unavailable, falling back to Mojeek..."
 
 [ui]
 execute_confirm = "Execute?"

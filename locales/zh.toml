@@ -75,6 +75,11 @@ all_models_failed = "所有模型失败。最后错误: %{error}"
 trying_fallback = "尝试备用模型: %{m} (%{s})..."
 empty_response_retry = "%{m} 返回空响应，重试中 (%{attempt}/%{retries})..."
 model_failed = "%{m} 失败: %{e}"
+usage_cached = "  tokens: %{input}输入 + %{output}输出 (来自缓存)"
+usage_line = "  tokens: %{input}输入 + %{output}输出 = %{total}"
+usage_prompt_cache = " (提示词缓存: %{n})"
+usage_prompt_cache_write = " (提示词缓存写入: %{n})"
+usage_duration = " | %{ms}ms"
 
 [protocol]
 checking_tools = "检查工具: %{tools}"
@@ -90,6 +95,21 @@ explore_failed = "探索失败: %{e}"
 failed_run = "运行失败: %{e}"
 tools_available = "可用: %{tools}"
 tools_not_found = "未找到: %{tools}"
+searching = "网络搜索: %{query}"
+search_no_results = "搜索无结果。"
+search_failed = "搜索失败: %{e}"
+search_error = "搜索: %{e}"
+search_disabled = "网络搜索已禁用 (search.provider = off)。"
+search_once = "已搜索过一次，不再重复搜索。"
+
+[search]
+unknown_provider = "未知的搜索提供商: %{provider}"
+missing_key = "搜索提供商 '%{provider}' 需要在配置中设置 search.api_key"
+missing_base_url = "SearXNG 需要在配置中设置 search.base_url"
+request_failed = "搜索请求失败: %{e}"
+parse_failed = "解析搜索响应失败: %{e}"
+api_error = "搜索 API 错误 (%{status}): %{body}"
+ddg_fallback = "DuckDuckGo 不可用，改用 Mojeek..."
 
 [ui]
 execute_confirm = "执行？"

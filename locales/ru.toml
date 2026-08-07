@@ -75,6 +75,11 @@ all_models_failed = "Все модели завершились ошибкой. 
 trying_fallback = "Пробуем резервную модель: %{m} (%{s})..."
 empty_response_retry = "Пустой ответ от %{m}, повтор (%{attempt}/%{retries})..."
 model_failed = "%{m} завершилась ошибкой: %{e}"
+usage_cached = "  tokens: %{input}вх + %{output}вых (из кэша)"
+usage_line = "  tokens: %{input}вх + %{output}вых = %{total}"
+usage_prompt_cache = " (кэш промпта: %{n})"
+usage_prompt_cache_write = " (запись кэша промпта: %{n})"
+usage_duration = " | %{ms}ms"
 
 [protocol]
 checking_tools = "Проверка инструментов: %{tools}"
@@ -90,6 +95,21 @@ explore_failed = "Исследование не удалось: %{e}"
 failed_run = "Не удалось запустить: %{e}"
 tools_available = "Доступно: %{tools}"
 tools_not_found = "Не найдено: %{tools}"
+searching = "Поиск в сети: %{query}"
+search_no_results = "Результатов не найдено."
+search_failed = "Ошибка поиска: %{e}"
+search_error = "Поиск: %{e}"
+search_disabled = "Веб-поиск отключён (search.provider = off)."
+search_once = "Поиск уже выполнен — повторный поиск не выполняется."
+
+[search]
+unknown_provider = "Неизвестный поисковый провайдер: %{provider}"
+missing_key = "Провайдер '%{provider}' требует search.api_key в конфигурации"
+missing_base_url = "SearXNG требует search.base_url в конфигурации"
+request_failed = "Ошибка поискового запроса: %{e}"
+parse_failed = "Не удалось разобрать ответ поиска: %{e}"
+api_error = "Ошибка поискового API (%{status}): %{body}"
+ddg_fallback = "DuckDuckGo недоступен, переключаюсь на Mojeek..."
 
 [ui]
 execute_confirm = "Выполнить?"

@@ -75,6 +75,11 @@ all_models_failed = "すべてのモデルが失敗。最後のエラー: %{erro
 trying_fallback = "フォールバック試行: %{m} (%{s})..."
 empty_response_retry = "%{m} が空レスポンス、リトライ中 (%{attempt}/%{retries})..."
 model_failed = "%{m} 失敗: %{e}"
+usage_cached = "  tokens: %{input}入力 + %{output}出力 (キャッシュから)"
+usage_line = "  tokens: %{input}入力 + %{output}出力 = %{total}"
+usage_prompt_cache = " (プロンプトキャッシュ: %{n})"
+usage_prompt_cache_write = " (プロンプトキャッシュ書込: %{n})"
+usage_duration = " | %{ms}ms"
 
 [protocol]
 checking_tools = "ツール確認: %{tools}"
@@ -90,6 +95,21 @@ explore_failed = "探索失敗: %{e}"
 failed_run = "実行失敗: %{e}"
 tools_available = "利用可能: %{tools}"
 tools_not_found = "見つかりません: %{tools}"
+searching = "ウェブ検索: %{query}"
+search_no_results = "検索結果がありません。"
+search_failed = "検索失敗: %{e}"
+search_error = "検索: %{e}"
+search_disabled = "ウェブ検索は無効です (search.provider = off)。"
+search_once = "既に検索済みです。再検索しません。"
+
+[search]
+unknown_provider = "不明な検索プロバイダー: %{provider}"
+missing_key = "検索プロバイダー '%{provider}' には設定で search.api_key が必要です"
+missing_base_url = "SearXNG には設定で search.base_url が必要です"
+request_failed = "検索リクエスト失敗: %{e}"
+parse_failed = "検索レスポンスの解析に失敗: %{e}"
+api_error = "検索 API エラー (%{status}): %{body}"
+ddg_fallback = "DuckDuckGo が利用できません。Mojeek にフォールバック..."
 
 [ui]
 execute_confirm = "実行しますか？"

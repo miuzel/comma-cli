@@ -3,7 +3,7 @@ use crate::config::{ApiStyle, MAX_RETRIES, Reasoning};
 use crate::context::{apply_placeholders, collect_placeholders, gather_context, get_shell, Placeholders};
 use crate::danger::is_dangerous;
 use crate::llm::{Message, RETRY_HINT};
-use crate::protocol::{parse_check, parse_explore, strip_markdown_fences};
+use crate::protocol::{parse_check, parse_explore, parse_search, strip_markdown_fences};
 use crate::style_label;
 use crate::ui::{is_bare_cd, parse_candidates, truncate};
 
@@ -140,6 +140,62 @@ pub fn run_tests() {
     check("parse_check: single", parse_check("#CHECK: jq") == Some(vec!["jq"]));
     check("parse_check: no prefix", parse_check("ls -la").is_none());
     check("parse_check: just prefix", parse_check("#CHECK:").is_none());
+
+    // Test 12b: #SEARCH: prefix detection
+    check("parse_search: basic", parse_search("#SEARCH: ffmpeg latest version") == Some("ffmpeg latest version".to_string()));
+    check("parse_search: with spaces", parse_search("  #SEARCH: rust release  ") == Some("rust release".to_string()));
+    check("parse_search: no prefix", parse_search("ls -la").is_none());
+    check("parse_search: just prefix", parse_search("#SEARCH:").is_none());
+    check("parse_search: comment stripped", parse_search("#SEARCH: ffmpeg changelog # latest") == Some("ffmpeg changelog".to_string()));
+
+    // Test 12c: search config defaults and toggles
+    let sc_default = crate::config::SearchConfig::default();
+    check("search config: default provider is off", sc_default.provider() == "off");
+    check("search config: disabled by default", !sc_default.enabled());
+    check("search config: default max_results is 5", sc_default.max_results() == 5);
+    let sc_ddg = crate::config::SearchConfig { provider: Some("duckduckgo".into()), ..Default::default() };
+    check("search config: explicit provider enables", sc_ddg.enabled());
+    let sc_clamp = crate::config::SearchConfig { max_results: Some(99), ..Default::default() };
+    check("search config: max_results clamped to 10", sc_clamp.max_results() == 10);
+
+    // Test 12d: DDG lite HTML parsing
+    let ddg_html = r#"
+<a rel="nofollow" href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fexample.com%2Fpage&amp;rut=abc123" class='result-link'>Example Page</a>
+<td class='result-snippet'>
+  Some &lt;b&gt;snippet&lt;/b&gt; with <b>tags</b> and &#x27;entities&#x27;.
+</td>
+<a rel="nofollow" href="https://direct.example.org/" class='result-link'>Direct Link</a>
+<td class='result-snippet'>Second &amp; snippet</td>
+"#;
+    let hits = crate::search::parse_ddg_lite(ddg_html, 5);
+    check("ddg parse: 2 hits", hits.len() == 2);
+    check("ddg parse: title decoded", hits[0].title == "Example Page");
+    check("ddg parse: uddg redirect unwrapped", hits[0].url == "https://example.com/page");
+    check("ddg parse: snippet cleaned", hits[0].snippet == "Some <b>snippet</b> with tags and 'entities'.");
+    check("ddg parse: direct url kept", hits[1].url == "https://direct.example.org/");
+    check("ddg parse: max respected", crate::search::parse_ddg_lite(ddg_html, 1).len() == 1);
+    check("ddg parse: garbage yields no hits", crate::search::parse_ddg_lite("<html></html>", 5).is_empty());
+    check("percent_decode: basic", crate::search::percent_decode("a%20b+c%3A%2F%2Fd") == "a b c://d");
+    check("percent_decode: bad hex kept", crate::search::percent_decode("100%zz") == "100%zz");
+    check("url_encode: space becomes plus", crate::search::url_encode("a b") == "a+b");
+    check("url_encode: reserved encoded", crate::search::url_encode("a&b=c?") == "a%26b%3Dc%3F");
+
+    // Test 12e: Mojeek HTML parsing
+    let moj_html = r#"
+<li class="r1"><a title="https://nodejs.org/en" href="https://nodejs.org/en" class="ob"><p class="i"><span class="url">https://nodejs.org</span></p></a><h2><a class="title" title="https://nodejs.org/en" href="https://nodejs.org/en">Node.js — Run JavaScript Everywhere</a></h2><p class="s">Get Node.js® v24.18.0 Latest <strong>LTS</strong> release</p></li>
+<li class="r2"><a title="https://example.com/x" href="https://example.com/x" class="ob"><p class="i"></p></a><h2><a class="title" title="https://example.com/x" href="https://example.com/x">Example &amp; Co</a></h2><p class="s">Second snippet</p><p class="more"><a href="/search?q=site%3Aexample.com">See more</a></p></li>
+"#;
+    let mhits = crate::search::parse_mojeek(moj_html, 5);
+    check("mojeek parse: 2 hits", mhits.len() == 2);
+    check("mojeek parse: title", mhits[0].title == "Node.js — Run JavaScript Everywhere");
+    check("mojeek parse: url", mhits[0].url == "https://nodejs.org/en");
+    check("mojeek parse: snippet cleaned", mhits[0].snippet == "Get Node.js® v24.18.0 Latest LTS release");
+    check("mojeek parse: entity in title", mhits[1].title == "Example & Co");
+    check("mojeek parse: skips more-link", mhits[1].snippet == "Second snippet");
+    check("mojeek parse: max respected", crate::search::parse_mojeek(moj_html, 1).len() == 1);
+    check("mojeek parse: garbage yields no hits", crate::search::parse_mojeek("<html></html>", 5).is_empty());
+    let hit = crate::search::SearchHit { title: "T".into(), url: "U".into(), snippet: "S".into() };
+    check("format_hits: numbered", crate::search::format_hits(&[hit]) == "1. T\n   U\n   S");
 
     // Test 13: parse_candidates
     let c = parse_candidates("ls -la ||| exa -la ||| eza -la");

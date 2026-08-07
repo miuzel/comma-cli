@@ -92,6 +92,41 @@ struct LocalConfig {
     auto_update: Option<AutoUpdate>,
     // Language override (e.g., "en", "zh", "ja")
     lang: Option<String>,
+    // Web search backend for the #SEARCH: protocol
+    search: Option<SearchConfig>,
+}
+
+/// Web search configuration for the `#SEARCH:` protocol. Deserializes from
+/// the optional `"search"` object in the config file:
+///   "search": { "provider": "duckduckgo" }                     — keyless scraping (bot-detection prone)
+///   "search": { "provider": "mojeek" }                         — keyless scraping
+///   "search": { "provider": "brave", "api_key": "..." }
+///   "search": { "provider": "tavily", "api_key": "..." }
+///   "search": { "provider": "searxng", "base_url": "https://searx.example.com" }
+/// Search is OFF by default (unset/empty provider): the keyless scraping
+/// backends trigger aggressive anti-bot measures (DDG anomaly pages, Mojeek
+/// ALTCHA) that can get the user's IP flagged, so #SEARCH only activates
+/// when the user explicitly picks a backend.
+#[derive(Deserialize, Clone, Default)]
+pub struct SearchConfig {
+    pub provider: Option<String>,
+    pub api_key: Option<String>,
+    pub base_url: Option<String>,
+    pub max_results: Option<usize>,
+}
+
+impl SearchConfig {
+    /// Backend name; "off" (disabled) when unset or empty.
+    pub fn provider(&self) -> &str {
+        self.provider.as_deref().filter(|s| !s.is_empty()).unwrap_or("off")
+    }
+    /// #SEARCH is compiled into the prompt only when a provider is chosen.
+    pub fn enabled(&self) -> bool {
+        self.provider() != "off"
+    }
+    pub fn max_results(&self) -> usize {
+        self.max_results.unwrap_or(5).clamp(1, 10)
+    }
 }
 
 /// Config-level auto-update setting. Accepts a bool (true/false) or a number
@@ -198,6 +233,7 @@ pub struct Config {
     pub max_output_tokens: Option<u32>,
     pub auto_update: AutoUpdate,
     pub lang: Option<String>,
+    pub search: SearchConfig,
 }
 
 impl Config {
@@ -238,6 +274,7 @@ impl Config {
                     max_output_tokens: self.max_output_tokens,
                     auto_update: self.auto_update,
                     lang: self.lang.clone(),
+                    search: self.search.clone(),
                 })
             }
         }
@@ -334,6 +371,7 @@ pub fn load_config() -> Result<Config, String> {
     let max_output_tokens = local.max_output_tokens;
     let auto_update = local.auto_update.unwrap_or_default();
     let lang = local.lang;
+    let search = local.search.unwrap_or_default();
 
     // Build model entries
     // Priority: COMMA_* env > ,.config.json legacy > ,.config.json providers/models > claude settings
@@ -420,5 +458,6 @@ pub fn load_config() -> Result<Config, String> {
         max_output_tokens,
         auto_update,
         lang,
+        search,
     })
 }

@@ -6,6 +6,7 @@ mod i18n;
 mod llm;
 mod prompt;
 mod protocol;
+mod search;
 mod tests;
 mod ui;
 mod update;

@@ -197,6 +197,18 @@ ffmpeg -i input.mp4 -b:v 8M output.mp4
 
 Probe commands always ask for confirmation before running (a single probe too), unless you pass `!`.
 
+### 🌐 Web search
+
+When the answer depends on current information (latest versions, recent changes, download URLs), the model can search the web first via `#SEARCH:`:
+
+```
+$ , upgrade rust to the latest stable release
+▸ Searching the web: latest stable rust version
+rustup update stable  # Update Rust to the latest stable toolchain
+```
+
+Search results (titles, URLs, snippets) are fed back to the model, which then generates the final command. **Search is off by default** — pick a backend in the `search` config to enable it (see below). Brave and Tavily need an API key; DuckDuckGo and Mojeek are keyless but scrape result pages, which can trigger anti-bot measures on some networks; a self-hosted SearXNG instance works great too. Search queries are model-generated and never contain your username, hostname, or paths.
+
 ### 🌍 Multi-language UI
 
 The interface speaks 9 languages — English, 中文, 日本語, 한국어, Français, Deutsch, Español, Português, Русский:
@@ -473,6 +485,23 @@ Repeated intents are answered from `~/.cache/comma/cache.json` (default cap: 100
 ### Reasoning (Anthropic)
 
 For Anthropic models, `"reasoning": <tokens>` enables extended thinking with that budget. `max_tokens` is raised automatically, so budgets ≥ 1024 work.
+
+### Web search
+
+Backend for the `#SEARCH:` protocol (see the Web search feature above):
+
+```json
+{
+  "search": {
+    "provider": "off",
+    "api_key": "",
+    "base_url": "",
+    "max_results": 5
+  }
+}
+```
+
+Providers: `off` (default — the model is not told it can search), `brave` (requires `api_key`), `tavily` (requires `api_key`), `searxng` (requires `base_url` of your instance), `duckduckgo` / `mojeek` (keyless page scraping — convenient, but bot detection may rate-limit your IP; `duckduckgo` automatically falls back to Mojeek). `max_results` defaults to 5 (max 10).
 
 ---
 

@@ -18,5 +18,13 @@
     "search": ["grep", "rg"]
   },
   "cache_size": 1000,
-  "reasoning": 0
+  "reasoning": 0,
+
+  "_comment3": "Web search for the #SEARCH: protocol, OFF by default. Pick a backend to enable: duckduckgo/mojeek (keyless scraping, bot-detection prone), brave/tavily (need api_key), searxng (needs base_url):",
+  "search": {
+    "provider": "off",
+    "api_key": "",
+    "base_url": "",
+    "max_results": 5
+  }
 }

@@ -75,6 +75,11 @@ all_models_failed = "Todos os modelos falharam. Último erro: %{error}"
 trying_fallback = "Tentando fallback: %{m} (%{s})..."
 empty_response_retry = "Resposta vazia de %{m}, tentando novamente (%{attempt}/%{retries})..."
 model_failed = "%{m} falhou: %{e}"
+usage_cached = "  tokens: %{input}in + %{output}out (do cache)"
+usage_line = "  tokens: %{input}in + %{output}out = %{total}"
+usage_prompt_cache = " (cache de prompt: %{n})"
+usage_prompt_cache_write = " (escrita no cache de prompt: %{n})"
+usage_duration = " | %{ms}ms"
 
 [protocol]
 checking_tools = "Verificando ferramentas: %{tools}"
@@ -90,6 +95,21 @@ explore_failed = "Falha na exploração: %{e}"
 failed_run = "Falha ao executar: %{e}"
 tools_available = "Disponíveis: %{tools}"
 tools_not_found = "Não encontradas: %{tools}"
+searching = "Pesquisando na web: %{query}"
+search_no_results = "Nenhum resultado de pesquisa."
+search_failed = "Pesquisa falhou: %{e}"
+search_error = "Pesquisa: %{e}"
+search_disabled = "A pesquisa web está desativada (search.provider = off)."
+search_once = "Já pesquisado uma vez — não pesquisar novamente."
+
+[search]
+unknown_provider = "Provedor de pesquisa desconhecido: %{provider}"
+missing_key = "O provedor '%{provider}' requer search.api_key na configuração"
+missing_base_url = "SearXNG requer search.base_url na configuração"
+request_failed = "Falha na requisição de pesquisa: %{e}"
+parse_failed = "Falha ao analisar a resposta da pesquisa: %{e}"
+api_error = "Erro da API de pesquisa (%{status}): %{body}"
+ddg_fallback = "DuckDuckGo indisponível, usando Mojeek..."
 
 [ui]
 execute_confirm = "Executar?"

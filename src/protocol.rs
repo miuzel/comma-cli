@@ -21,7 +21,7 @@ const CHECK_PREFIX: &str = "#CHECK:";
 const CHECK_HINT: &str = "\
 Here is which tools are available on this system. \
 Now generate the best shell command using what's actually installed. \
-Output ONLY the final command. Do NOT prefix with #CHECK: or #EXPLORE:.";
+Output ONLY the final command. Do NOT prefix with #CHECK:, #EXPLORE:, or #SEARCH:.";
 
 /// If raw starts with `#CHECK:`, extract the tool names.
 pub fn parse_check(raw: &str) -> Option<Vec<&str>> {
@@ -96,13 +96,101 @@ fn check_then_generate(
     Ok(Some(resp.content))
 }
 
+// ── #SEARCH: web search query ───────────────────────────────────────────────
+
+const SEARCH_PREFIX: &str = "#SEARCH:";
+
+const SEARCH_HINT: &str = "\
+Here are the web search results for your query. \
+Now generate the FINAL shell command the user originally wanted. \
+Output ONLY the command, nothing else. \
+Do NOT prefix with #CHECK:, #EXPLORE:, or #SEARCH:.";
+
+/// If raw starts with `#SEARCH:`, extract the query (comment stripped).
+pub fn parse_search(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    let rest = trimmed.strip_prefix(SEARCH_PREFIX)?.trim();
+    if rest.is_empty() {
+        return None;
+    }
+    let (query, _) = split_comment(rest);
+    let query = query.trim();
+    if query.is_empty() {
+        None
+    } else {
+        Some(query.to_string())
+    }
+}
+
+/// If the model returned `#SEARCH: <query>`, run a web search, feed the
+/// results back to the LLM, and return the real command. Search failures are
+/// fed back as context (instead of aborting) so the model can still answer
+/// from its own knowledge. `already_searched` enforces the once-per-intent
+/// rule even when a model ignores it: a repeated #SEARCH gets a nudge instead
+/// of another live search.
+fn search_then_generate(
+    config: &Config,
+    system: &str,
+    messages: &[Message],
+    raw: &str,
+    v: Verbosity,
+    cache: &ResponseCache,
+    already_searched: bool,
+) -> Result<Option<String>, String> {
+    let query = match parse_search(raw) {
+        Some(q) => q,
+        None => return Ok(None),
+    };
+
+    let results = if already_searched {
+        print_info(&t!("protocol.search_once"));
+        "You have already searched once for this intent. Do NOT search again. \
+         Generate the command from your own knowledge.".to_string()
+    } else if !config.search.enabled() {
+        print_info(&t!("protocol.search_disabled"));
+        "Web search is disabled in the comma config. Generate the command from your own knowledge.".to_string()
+    } else {
+        print_info(&t!("protocol.searching", "query" => query));
+        match crate::search::web_search(&config.search, &query) {
+            Ok(hits) if !hits.is_empty() => {
+                let formatted = crate::search::format_hits(&hits);
+                if v.show_debug() {
+                    print_debug(&formatted);
+                }
+                formatted
+            }
+            Ok(_) => {
+                print_info(&t!("protocol.search_no_results"));
+                "The search returned no results. Generate the command from your own knowledge.".to_string()
+            }
+            Err(e) => {
+                print_error(&t!("protocol.search_failed", "e" => e));
+                format!("The web search failed ({}). Generate the command from your own knowledge.", e)
+            }
+        }
+    };
+
+    let mut ext = messages.to_vec();
+    ext.push(Message {
+        role: "assistant".into(),
+        content: raw.to_string(),
+    });
+    ext.push(Message {
+        role: "user".into(),
+        content: format!("{}\n\nSearch results:\n{}", SEARCH_HINT, results),
+    });
+
+    let resp = call_llm_with_retry(config, system, &ext, v, cache, None)?;
+    Ok(Some(resp.content))
+}
+
 // ── Exploration: #EXPLORE: prefix ───────────────────────────────────────────
 
 const EXPLORE_PREFIX: &str = "#EXPLORE:";
 
 const EXPLORE_HINT: &str = "\
 The command output is shown above. You have already explored this tool. \
-DO NOT use #EXPLORE: or #CHECK: again. \
+DO NOT use #EXPLORE:, #CHECK:, or #SEARCH: again. \
 Now generate the FINAL shell command the user originally wanted. \
 Output ONLY the command, nothing else.";
 
@@ -212,8 +300,10 @@ pub fn strip_markdown_fences(raw: &str) -> String {
     raw.to_string()
 }
 
-/// Chain: #CHECK → #EXPLORE → final command.
-/// #CHECK can loop (to handle #CHECK after #EXPLORE), but #EXPLORE runs only once.
+/// Chain: #CHECK → #SEARCH → #EXPLORE → final command.
+/// #CHECK can repeat (each iteration continues the loop), but #SEARCH and
+/// #EXPLORE run only once per intent (repeated requests get a nudge instead
+/// of another live search / probe prompt). The loop is bounded at 5 rounds.
 pub fn process_response(
     config: &Config,
     system: &str,
@@ -226,42 +316,51 @@ pub fn process_response(
 ) -> String {
     let mut current = strip_markdown_fences(raw);
     let mut explored = false;
+    let mut searched = false;
 
     for _ in 0..5 {
-        let after_check = match check_then_generate(config, system, messages, &current, v, cache) {
-            Ok(Some(cmd)) => cmd,
-            Ok(None) => current.clone(),
+        match check_then_generate(config, system, messages, &current, v, cache) {
+            Ok(Some(cmd)) => {
+                current = cmd;
+                continue;
+            }
+            Ok(None) => {}
             Err(e) => {
                 print_error(&t!("protocol.check_error", "e" => e));
-                current.clone()
+                return current;
             }
-        };
-
-        if explored {
-            // Already explored once, stop here
-            return after_check;
         }
 
-        match explore_then_generate(config, system, messages, &after_check, ph, v, cache, auto_confirm) {
+        match search_then_generate(config, system, messages, &current, v, cache, searched) {
             Ok(Some(cmd)) => {
-                explored = true;
+                searched = true;
                 current = cmd;
+                continue;
             }
-            Ok(None) => {
-                // Explore was attempted (or not applicable), mark as explored
-                if parse_explore(&after_check).is_some() {
-                    explored = true;
-                }
-                if after_check == current {
-                    return current; // No change from either step
-                }
-                current = after_check;
-            }
+            Ok(None) => {}
             Err(e) => {
-                print_error(&t!("protocol.explore_error", "e" => e));
-                return after_check;
+                print_error(&t!("protocol.search_error", "e" => e));
+                return current;
             }
         }
+
+        if !explored {
+            match explore_then_generate(config, system, messages, &current, ph, v, cache, auto_confirm) {
+                Ok(Some(cmd)) => {
+                    explored = true;
+                    current = cmd;
+                    continue;
+                }
+                Ok(None) => {} // No #EXPLORE: prefix, user declined, or no output — done
+                Err(e) => {
+                    print_error(&t!("protocol.explore_error", "e" => e));
+                    return current;
+                }
+            }
+        }
+
+        // Nothing applied this round — we're done.
+        return current;
     }
     current
 }

@@ -20,9 +20,28 @@ pub fn load_prompt(config: &Config) -> String {
     let ctx = gather_context();
     let prefs = format_preferences(&config.prefer);
 
-    raw.replace("{{SYSTEM_CONTEXT}}", &ctx)
-        .replace("{{PREFERENCES}}", &prefs)
+    let mut prompt = raw.replace("{{SYSTEM_CONTEXT}}", &ctx)
+        .replace("{{PREFERENCES}}", &prefs);
+
+    // #SEARCH rules are appended at runtime (not baked into prompt.md) so
+    // users with an existing custom prompt.md get them on upgrade too.
+    if config.search.enabled() {
+        prompt.push_str(SEARCH_SECTION);
+    }
+    prompt
 }
+
+/// Appended to the system prompt when web search is enabled (see
+/// `SearchConfig::enabled`).
+const SEARCH_SECTION: &str = "\n\nWeb search:\n\
+When fulfilling the intent requires current or external information you may not know \
+(latest version numbers, recent CLI changes, current download URLs), output #SEARCH: <query>.\n\
+Example: #SEARCH: latest Node.js LTS version\n\
+The tool runs a web search and feeds the results back, then you generate the final command.\n\
+Keep the query short and NEVER include personal data (no names, paths, or hostnames).\n\
+Search at most ONCE per intent; after receiving results, generate the FINAL command immediately.\n\
+Do NOT search when the tool resolves \"latest\" by itself (rustup update, brew upgrade, pip install -U) — \
+search only when you would otherwise have to guess a version number, URL, or fact.";
 
 fn format_preferences(prefer: &HashMap<String, Vec<String>>) -> String {
     if prefer.is_empty() {

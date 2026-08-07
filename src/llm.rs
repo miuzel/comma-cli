@@ -281,21 +281,21 @@ pub fn print_usage(u: &Usage) {
     let mut out = stdout.lock();
     let _ = write!(out, "{}", SetForegroundColor(Color::DarkGrey));
     if u.from_cache {
-        let _ = write!(out, "  tokens: {}in + {}out (from cache)", u.input_tokens, u.output_tokens);
+        let _ = write!(out, "{}", t!("llm.usage_cached", "input" => u.input_tokens, "output" => u.output_tokens));
     } else {
         let total = if u.total_tokens > 0 {
             u.total_tokens
         } else {
             u.input_tokens + u.output_tokens
         };
-        let _ = write!(out, "  tokens: {}in + {}out = {}", u.input_tokens, u.output_tokens, total);
+        let _ = write!(out, "{}", t!("llm.usage_line", "input" => u.input_tokens, "output" => u.output_tokens, "total" => total));
         if u.cache_read > 0 {
-            let _ = write!(out, " (prompt cache: {})", u.cache_read);
+            let _ = write!(out, "{}", t!("llm.usage_prompt_cache", "n" => u.cache_read));
         }
         if u.cache_creation > 0 {
-            let _ = write!(out, " (prompt cache write: {})", u.cache_creation);
+            let _ = write!(out, "{}", t!("llm.usage_prompt_cache_write", "n" => u.cache_creation));
         }
-        let _ = write!(out, " | {}ms", u.duration_ms);
+        let _ = write!(out, "{}", t!("llm.usage_duration", "ms" => u.duration_ms));
     }
     let _ = write!(out, "{}", ResetColor);
     let _ = writeln!(out);
