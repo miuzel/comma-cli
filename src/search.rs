@@ -6,12 +6,18 @@ use crate::config::SearchConfig;
 use crate::llm::make_client;
 use rust_i18n::t;
 
-/// One search result.
+/// One search result. `page_text` carries richer per-result content when the
+/// backend provides it natively (Tavily `raw_content`, Brave `extra_snippets`);
+/// scraping backends leave it `None`.
 pub struct SearchHit {
     pub title: String,
     pub url: String,
     pub snippet: String,
+    pub page_text: Option<String>,
 }
+
+/// Max chars of per-result page content fed back to the LLM.
+const PAGE_TEXT_MAX: usize = 3000;
 
 /// Run a web search with the configured backend.
 pub fn web_search(cfg: &SearchConfig, query: &str) -> Result<Vec<SearchHit>, String> {
@@ -48,9 +54,24 @@ pub fn web_search(cfg: &SearchConfig, query: &str) -> Result<Vec<SearchHit>, Str
 pub fn format_hits(hits: &[SearchHit]) -> String {
     let mut out = String::new();
     for (i, h) in hits.iter().enumerate() {
-        out.push_str(&format!("{}. {}\n   {}\n   {}\n\n", i + 1, h.title, h.url, h.snippet));
+        out.push_str(&format!("{}. {}\n   {}\n   {}\n", i + 1, h.title, h.url, h.snippet));
+        if let Some(text) = &h.page_text {
+            out.push_str(&format!("   Page content:\n   {}\n", text));
+        }
+        out.push('\n');
     }
     out.trim_end().to_string()
+}
+
+/// Truncate backend-provided page content to `PAGE_TEXT_MAX` chars
+/// (char-boundary safe); empty/whitespace-only becomes `None`.
+pub(crate) fn clipped_page_text(s: &str) -> Option<String> {
+    let t = s.trim();
+    if t.is_empty() {
+        None
+    } else {
+        Some(crate::ui::truncate(t, PAGE_TEXT_MAX).to_string())
+    }
 }
 
 /// Fetch an HTML page for the scraping backends. Prefers an external `curl`:
@@ -121,7 +142,7 @@ pub(crate) fn parse_ddg_lite(html: &str, max: usize) -> Vec<SearchHit> {
             None => String::new(),
         };
         if !title.is_empty() {
-            hits.push(SearchHit { title, url, snippet });
+            hits.push(SearchHit { title, url, snippet, page_text: None });
         }
         pos = a_end + 4;
     }
@@ -215,20 +236,22 @@ pub(crate) fn parse_mojeek(html: &str, max: usize) -> Vec<SearchHit> {
             None => String::new(),
         };
         if !title.is_empty() {
-            hits.push(SearchHit { title, url, snippet });
+            hits.push(SearchHit { title, url, snippet, page_text: None });
         }
         pos = a_end + 4;
     }
     hits
 }
 
-// ── Brave Search API ────────────────────────────────────────────────────────
+// ── Brave Search API (LLM Context endpoint) ─────────────────────────────────
 
 fn brave_search(cfg: &SearchConfig, query: &str) -> Result<Vec<SearchHit>, String> {
     let key = cfg.api_key.as_deref().filter(|s| !s.is_empty())
         .ok_or_else(|| t!("search.missing_key", "provider" => "brave").to_string())?;
+    // The LLM Context endpoint returns pre-extracted page content made for
+    // LLM grounding — same key, included in every Search plan.
     let url = format!(
-        "https://api.search.brave.com/res/v1/web/search?q={}&count={}",
+        "https://api.search.brave.com/res/v1/llm/context?q={}&max_urls={}",
         url_encode(query),
         cfg.max_results()
     );
@@ -241,17 +264,31 @@ fn brave_search(cfg: &SearchConfig, query: &str) -> Result<Vec<SearchHit>, Strin
     let body = check_status(body)?;
     let json: serde_json::Value = serde_json::from_str(&body)
         .map_err(|e| t!("search.parse_failed", "e" => e).to_string())?;
+    Ok(parse_brave_llm_context(&json, cfg.max_results()))
+}
+
+/// Parse `grounding.generic[]`: each entry has url, title and `snippets` —
+/// plain strings of extracted page content (text, tables, code). The first
+/// snippet doubles as the summary line; all of them join into `page_text`.
+pub(crate) fn parse_brave_llm_context(json: &serde_json::Value, max: usize) -> Vec<SearchHit> {
     let mut hits = Vec::new();
-    if let Some(results) = json["web"]["results"].as_array() {
-        for r in results.iter().take(cfg.max_results()) {
+    if let Some(results) = json["grounding"]["generic"].as_array() {
+        for r in results.iter().take(max) {
+            let snippets: Vec<&str> = r["snippets"]
+                .as_array()
+                .map(|a| a.iter().filter_map(|s| s.as_str()).collect())
+                .unwrap_or_default();
             hits.push(SearchHit {
                 title: r["title"].as_str().unwrap_or_default().to_string(),
                 url: r["url"].as_str().unwrap_or_default().to_string(),
-                snippet: r["description"].as_str().unwrap_or_default().to_string(),
+                snippet: snippets.first()
+                    .map(|s| crate::ui::truncate(s, 200).to_string())
+                    .unwrap_or_default(),
+                page_text: clipped_page_text(&snippets.join("\n")),
             });
         }
     }
-    Ok(hits)
+    hits
 }
 
 // ── Tavily Search API ───────────────────────────────────────────────────────
@@ -259,25 +296,28 @@ fn brave_search(cfg: &SearchConfig, query: &str) -> Result<Vec<SearchHit>, Strin
 fn tavily_search(cfg: &SearchConfig, query: &str) -> Result<Vec<SearchHit>, String> {
     let key = cfg.api_key.as_deref().filter(|s| !s.is_empty())
         .ok_or_else(|| t!("search.missing_key", "provider" => "tavily").to_string())?;
-    let body = make_client()?
-        .post("https://api.tavily.com/search")
-        .json(&serde_json::json!({
-            "api_key": key,
-            "query": query,
-            "max_results": cfg.max_results(),
-        }))
-        .send()
-        .map_err(|e| t!("search.request_failed", "e" => e).to_string())?;
-    let body = check_status(body)?;
+    let payload = serde_json::json!({
+        "api_key": key,
+        "query": query,
+        "max_results": cfg.max_results(),
+        // raw_content is only populated on the advanced depth (2 credits/call).
+        // Tavily fetches and cleans each result page server-side; one call
+        // returns full content, no client-side fetching needed.
+        "search_depth": "advanced",
+        "include_raw_content": true,
+    });
+    let body = post_json("https://api.tavily.com/search", &payload)?;
     let json: serde_json::Value = serde_json::from_str(&body)
         .map_err(|e| t!("search.parse_failed", "e" => e).to_string())?;
     let mut hits = Vec::new();
     if let Some(results) = json["results"].as_array() {
         for r in results.iter().take(cfg.max_results()) {
+            // raw_content is null when Tavily could not extract the page.
             hits.push(SearchHit {
                 title: r["title"].as_str().unwrap_or_default().to_string(),
                 url: r["url"].as_str().unwrap_or_default().to_string(),
                 snippet: r["content"].as_str().unwrap_or_default().to_string(),
+                page_text: r["raw_content"].as_str().and_then(clipped_page_text),
             });
         }
     }
@@ -305,6 +345,7 @@ fn searxng_search(cfg: &SearchConfig, query: &str) -> Result<Vec<SearchHit>, Str
                 title: r["title"].as_str().unwrap_or_default().to_string(),
                 url: r["url"].as_str().unwrap_or_default().to_string(),
                 snippet: r["content"].as_str().unwrap_or_default().to_string(),
+                page_text: None,
             });
         }
     }
@@ -312,6 +353,50 @@ fn searxng_search(cfg: &SearchConfig, query: &str) -> Result<Vec<SearchHit>, Str
 }
 
 // ── Helpers ─────────────────────────────────────────────────────────────────
+
+/// POST a JSON body, preferring an external `curl`: its TLS fingerprint passes
+/// bot checks that degrade reqwest/rustls responses (Tavily serves a degraded
+/// Google-grounding pipeline to rustls clients — same reason `fetch_html`
+/// prefers curl). Falls back to reqwest when curl is missing.
+fn post_json(url: &str, payload: &serde_json::Value) -> Result<String, String> {
+    if let Some(res) = curl_post_json(url, &payload.to_string()) {
+        return res;
+    }
+    let resp = make_client()?
+        .post(url)
+        .json(payload)
+        .send()
+        .map_err(|e| t!("search.request_failed", "e" => e).to_string())?;
+    check_status(resp)
+}
+
+/// `curl -s -X POST --data-binary @-`: body piped via stdin so API keys never
+/// appear in the process list. `-w` appends the HTTP status on its own line.
+/// None = curl missing or failed to run (caller falls back to reqwest).
+fn curl_post_json(url: &str, body: &str) -> Option<Result<String, String>> {
+    use std::io::Write;
+    use std::process::{Command, Stdio};
+    let mut child = Command::new("curl")
+        .args(["-s", "-m", "20", "-X", "POST", "-H", "Content-Type: application/json",
+               "--data-binary", "@-", "-w", "\n%{http_code}", url])
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+        .ok()?;
+    child.stdin.take()?.write_all(body.as_bytes()).ok()?;
+    let out = child.wait_with_output().ok()?;
+    if !out.status.success() {
+        return None;
+    }
+    let raw = String::from_utf8(out.stdout).ok()?;
+    let (body, status) = raw.rsplit_once('\n')?;
+    if status.trim().starts_with('2') {
+        Some(Ok(body.to_string()))
+    } else {
+        Some(Err(t!("search.api_error", "status" => status.trim(), "body" => crate::ui::truncate(body, 200)).to_string()))
+    }
+}
 
 /// Error out on non-2xx with the response body as context.
 fn check_status(resp: reqwest::blocking::Response) -> Result<String, String> {

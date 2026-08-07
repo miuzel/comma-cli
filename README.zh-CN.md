@@ -212,7 +212,7 @@ $ , upgrade rust to the latest stable release
 rustup update stable  # Update Rust to the latest stable toolchain
 ```
 
-搜索结果（标题、URL、摘要）会反馈给模型，模型再生成最终命令。**搜索默认关闭**——在 `search` 配置中选择后端才会启用（见下文）。Brave 和 Tavily 需要 API key；DuckDuckGo 和 Mojeek 无需 key，但属于页面抓取，在部分网络下可能触发反爬限制；自托管 SearXNG 也是不错的选择。搜索关键词由模型生成，不会包含你的用户名、主机名或路径。
+搜索结果（标题、URL、摘要）会反馈给模型，模型再生成最终命令。能返回更丰富内容的后端会原生返回——我们不做网页抓取：Tavily 附带清洗后的正文（`search_depth: "advanced"` + `include_raw_content`——注意 advanced 深度每次搜索计 2 credits），Brave 使用 LLM Context 端点（`/res/v1/llm/context`），直接返回为 LLM 场景提取好的正文——所有 Search 套餐均包含；DuckDuckGo、Mojeek 和 SearXNG 只有摘要。**搜索默认关闭**——在 `search` 配置中选择后端才会启用（见下文）。Brave 和 Tavily 需要 API key；DuckDuckGo 和 Mojeek 无需 key，但属于页面抓取，在部分网络下可能触发反爬限制；自托管 SearXNG 也是不错的选择。搜索关键词由模型生成，不会包含你的用户名、主机名或路径。
 
 ### 🌍 多语言界面
 

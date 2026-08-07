@@ -214,8 +214,32 @@ pub fn run_tests() {
     check("mojeek parse: skips more-link", mhits[1].snippet == "Second snippet");
     check("mojeek parse: max respected", crate::search::parse_mojeek(moj_html, 1).len() == 1);
     check("mojeek parse: garbage yields no hits", crate::search::parse_mojeek("<html></html>", 5).is_empty());
-    let hit = crate::search::SearchHit { title: "T".into(), url: "U".into(), snippet: "S".into() };
+    let hit = crate::search::SearchHit { title: "T".into(), url: "U".into(), snippet: "S".into(), page_text: None };
     check("format_hits: numbered", crate::search::format_hits(&[hit]) == "1. T\n   U\n   S");
+    let hit2 = crate::search::SearchHit { title: "T".into(), url: "U".into(), snippet: "S".into(), page_text: Some("full text".into()) };
+    check("format_hits: page content", crate::search::format_hits(&[hit2]) == "1. T\n   U\n   S\n   Page content:\n   full text");
+    // clipped_page_text: blank → None; long → char-boundary-safe truncation
+    check("clipped_page_text: blank is None", crate::search::clipped_page_text("   ").is_none());
+    let long_cjk = "你".repeat(3100);
+    let clipped = crate::search::clipped_page_text(&long_cjk).unwrap();
+    check("clipped_page_text: truncated to 3000 bytes", clipped.len() == 3000);
+    // Brave LLM Context parsing: snippets are plain strings of page content
+    let brave_json = serde_json::json!({
+        "grounding": { "generic": [
+            { "url": "https://a.dev/x", "title": "A", "snippets": ["first chunk", "second chunk"] },
+            { "url": "https://b.dev/y", "title": "B", "snippets": [] }
+        ] }
+    });
+    let bhits = crate::search::parse_brave_llm_context(&brave_json, 5);
+    check("brave llm-context: 2 hits", bhits.len() == 2);
+    check("brave llm-context: url", bhits[0].url == "https://a.dev/x");
+    check("brave llm-context: snippet is first chunk", bhits[0].snippet == "first chunk");
+    check("brave llm-context: page_text joins chunks",
+        bhits[0].page_text.as_deref() == Some("first chunk\nsecond chunk"));
+    check("brave llm-context: empty snippets → no page_text", bhits[1].page_text.is_none());
+    check("brave llm-context: max respected", crate::search::parse_brave_llm_context(&brave_json, 1).len() == 1);
+    check("brave llm-context: missing grounding yields no hits",
+        crate::search::parse_brave_llm_context(&serde_json::json!({}), 5).is_empty());
 
     // Test 13: parse_candidates
     let c = parse_candidates("ls -la ||| exa -la ||| eza -la");

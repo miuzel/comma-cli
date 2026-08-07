@@ -212,7 +212,7 @@ $ , upgrade rust to the latest stable release
 rustup update stable  # Update Rust to the latest stable toolchain
 ```
 
-Search results (titles, URLs, snippets) are fed back to the model, which then generates the final command. **Search is off by default** — pick a backend in the `search` config to enable it (see below). Brave and Tavily need an API key; DuckDuckGo and Mojeek are keyless but scrape result pages, which can trigger anti-bot measures on some networks; a self-hosted SearXNG instance works great too. Search queries are model-generated and never contain your username, hostname, or paths.
+Search results (titles, URLs, snippets) are fed back to the model, which then generates the final command. Backends that can return richer per-result content do so natively — no page fetching on our side: Tavily includes the cleaned page text (`search_depth: "advanced"` + `include_raw_content` — note the advanced depth costs 2 credits per search), Brave uses the LLM Context endpoint (`/res/v1/llm/context`), which returns pre-extracted page content made for LLM grounding — included in every Search plan; DuckDuckGo, Mojeek and SearXNG only have snippets. **Search is off by default** — pick a backend in the `search` config to enable it (see below). Brave and Tavily need an API key; DuckDuckGo and Mojeek are keyless but scrape result pages, which can trigger anti-bot measures on some networks; a self-hosted SearXNG instance works great too. Search queries are model-generated and never contain your username, hostname, or paths.
 
 ### 🌍 Multi-language UI
 
