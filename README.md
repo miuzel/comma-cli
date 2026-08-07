@@ -177,12 +177,17 @@ Check for updates and update the binary from GitHub releases:
 
 ```bash
 , --update
-# ▸ Checking for updates (current: 0.14.0)...
-#   Update available: 0.14.0 → 0.15.0
-# ▸ Updated to 0.15.0
+# ▸ Checking for updates (current: 0.22.3)...
+#   Update available: 0.22.3 → 0.23.0
+# Release notes (0.23.0):
+#   ...changelog...
+# Upgrade now? [Enter/y/N]
+# ▸ Updated to 0.23.0
 ```
 
-The downloaded archive is verified against the release's `sha256sums.txt` before the binary is replaced.
+The release changelog is shown before you confirm — the binary is never replaced unasked. The downloaded archive is verified against the release's `sha256sums.txt` before the binary is replaced.
+
+The weekly auto-update check (`auto_update` in the config) works the same way: when a new version is found, the changelog is shown and you choose whether to upgrade. Declining offers to disable future checks — answering `y` writes `auto_update: false` to your config for you.
 
 ### 📚 Exploration mode
 

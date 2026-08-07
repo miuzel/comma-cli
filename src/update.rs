@@ -2,12 +2,13 @@ use std::path::Path;
 
 use crate::config::{AutoUpdate, home_dir};
 use crate::llm::make_client;
-use crate::ui::{print_error, print_info, Spinner};
+use crate::ui::{print_error, print_info, prompt_confirm, prompt_confirm_default_no, Spinner};
 use rust_i18n::t;
 
 // ── Version check & self-update ─────────────────────────────────────────────
 
-fn get_latest_version() -> Result<(String, String), String> {
+/// Fetch the latest release: (version, tag, changelog body).
+fn get_latest_version() -> Result<(String, String, String), String> {
     let client = make_client()?;
     let resp = client
         .get("https://api.github.com/repos/miuzel/comma-cli/releases/latest")
@@ -24,7 +25,22 @@ fn get_latest_version() -> Result<(String, String), String> {
         .as_str()
         .ok_or_else(|| t!("update.github_missing_tag").to_string())?;
     let version = tag.strip_prefix('v').unwrap_or(tag).to_string();
-    Ok((version, tag.to_string()))
+    let changelog = body["body"].as_str().unwrap_or_default().to_string();
+    Ok((version, tag.to_string(), changelog))
+}
+
+/// Print the release notes for a pending upgrade (up to 20 lines); falls back
+/// to the compare URL when the release has no body.
+fn print_changelog(changelog: &str, current: &str, latest: &str) {
+    println!("{}", t!("update.changelog_header", "to" => latest));
+    let trimmed = changelog.trim();
+    if trimmed.is_empty() {
+        println!("  https://github.com/miuzel/comma-cli/compare/v{}...v{}", current, latest);
+        return;
+    }
+    for line in trimmed.lines().take(20) {
+        println!("  {}", line);
+    }
 }
 
 fn version_newer(latest: &str, current: &str) -> bool {
@@ -112,7 +128,7 @@ pub fn do_update() {
     let current = env!("CARGO_PKG_VERSION");
     print_info(&t!("update.checking", "v" => current));
 
-    let (latest, _tag) = match get_latest_version() {
+    let (latest, _tag, changelog) = match get_latest_version() {
         Ok(v) => v,
         Err(e) => { print_error(&e); return; }
     };
@@ -123,7 +139,19 @@ pub fn do_update() {
     }
 
     println!("{}", t!("update.available", "from" => current, "to" => latest));
+    print_changelog(&changelog, current, &latest);
 
+    // Changelog first, consent second — never replace the binary unasked.
+    if !prompt_confirm(&t!("update.prompt_upgrade")) {
+        print_info(&t!("update.cancelled"));
+        return;
+    }
+    install_version(&latest);
+}
+
+/// Download, verify and install the given version (the steps after consent).
+fn install_version(latest: &str) {
+    let current = env!("CARGO_PKG_VERSION");
     let platform = match detect_platform() {
         Some(p) => p,
         None => { print_error(&t!("update.unsupported_platform")); return; }
@@ -282,8 +310,11 @@ fn write_last_check() {
     let _ = std::fs::write(&path, now.to_string());
 }
 
-/// Check for updates if enough time has passed. Prints a one-line notice when
-/// a newer version is available; does NOT auto-install.
+/// Check for updates if enough time has passed. On a TTY, a newer version
+/// triggers an interactive offer: show the changelog, ask for upgrade
+/// consent, and — when declined — ask whether to disable future auto-update
+/// checks (written to the config as `auto_update: false`). Non-TTY (piped)
+/// keeps the old one-line notice and never prompts.
 ///
 /// Call this after the main work (command execution) is done.
 pub fn check_and_notify(auto_update: AutoUpdate) {
@@ -306,12 +337,46 @@ pub fn check_and_notify(auto_update: AutoUpdate) {
     write_last_check();
 
     let current = env!("CARGO_PKG_VERSION");
-    let (latest, _tag) = match get_latest_version() {
+    let (latest, _tag, changelog) = match get_latest_version() {
         Ok(v) => v,
         Err(_) => return, // Silent: network errors are not user-facing here
     };
 
-    if version_newer(&latest, current) {
-        print_info(&t!("info.update_available", "from" => current, "to" => latest));
+    if !version_newer(&latest, current) {
+        return;
     }
+
+    // Piped stdin/stdout: never prompt, just notify as before.
+    if !atty::is(atty::Stream::Stdin) || !atty::is(atty::Stream::Stdout) {
+        print_info(&t!("info.update_available", "from" => current, "to" => latest));
+        return;
+    }
+
+    println!("{}", t!("update.available", "from" => current, "to" => latest));
+    print_changelog(&changelog, current, &latest);
+    if prompt_confirm(&t!("update.prompt_upgrade")) {
+        install_version(&latest);
+        return;
+    }
+
+    // Upgrade declined — offer to stop asking (Enter keeps checks enabled).
+    if prompt_confirm_default_no(&t!("update.prompt_disable_auto")) {
+        match disable_auto_update() {
+            Ok(path) => print_info(&t!("update.auto_disabled", "path" => path.display().to_string())),
+            Err(e) => print_error(&e),
+        }
+    }
+}
+
+/// Persist `auto_update: false` to the user's config file.
+fn disable_auto_update() -> Result<std::path::PathBuf, String> {
+    let home = home_dir()?;
+    let path = crate::config::config_path(&home);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| t!("update.auto_disable_failed", "path" => path.display().to_string(), "e" => e).to_string())?;
+    }
+    crate::config::write_auto_update_flag(&path, false)
+        .map_err(|e| t!("update.auto_disable_failed", "path" => path.display().to_string(), "e" => e).to_string())?;
+    Ok(path)
 }

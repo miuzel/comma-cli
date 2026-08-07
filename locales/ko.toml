@@ -51,6 +51,12 @@ replace_binary = "바이너리 교체: %{e}"
 github_api_error = "GitHub API: %{e}"
 github_http_error = "GitHub API: HTTP %{status}"
 github_missing_tag = "GitHub API: tag_name 이 없습니다"
+changelog_header = "릴리스 노트 (%{to}):"
+prompt_upgrade = "지금 업그레이드할까요?"
+cancelled = "업그레이드가 취소되었습니다."
+prompt_disable_auto = "자동 업데이트 확인을 끄시겠습니까?"
+auto_disabled = "자동 업데이트 확인이 꺼졌습니다 (auto_update: false가 %{path}에 기록됨)."
+auto_disable_failed = "%{path} 쓰기 실패: %{e}"
 
 [config]
 home_not_set = "HOME 이 설정되어 있지 않습니다"

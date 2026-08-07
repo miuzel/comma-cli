@@ -335,6 +335,24 @@ pub fn config_path(home: &str) -> PathBuf {
     xdg_or_legacy(home, "XDG_CONFIG_HOME", ".config", "config.json", ".config.json")
 }
 
+/// Set `auto_update` in the config file at `path`, preserving all other keys.
+/// A missing file is created with just the flag; invalid JSON is an error
+/// (never clobber a config we can't parse).
+pub fn write_auto_update_flag(path: &std::path::Path, enabled: bool) -> Result<(), String> {
+    let mut json: serde_json::Value = match std::fs::read_to_string(path) {
+        Ok(data) => serde_json::from_str(&data)
+            .map_err(|e| t!("config.invalid_file", "path" => path.display(), "e" => e).to_string())?,
+        Err(_) => serde_json::json!({}),
+    };
+    if !json.is_object() {
+        json = serde_json::json!({});
+    }
+    json["auto_update"] = serde_json::Value::Bool(enabled);
+    let out = serde_json::to_string_pretty(&json)
+        .map_err(|e| e.to_string())?;
+    std::fs::write(path, out).map_err(|e| e.to_string())
+}
+
 /// Path to the response cache file: `$XDG_CACHE_HOME/comma/cache.json`
 /// (default `~/.cache/comma/cache.json`), same fallback chain as the config.
 pub fn cache_path(home: &str) -> PathBuf {

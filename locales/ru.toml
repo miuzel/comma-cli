@@ -51,6 +51,12 @@ replace_binary = "Замена бинарника: %{e}"
 github_api_error = "GitHub API: %{e}"
 github_http_error = "GitHub API: HTTP %{status}"
 github_missing_tag = "GitHub API: отсутствует tag_name"
+changelog_header = "Список изменений (%{to}):"
+prompt_upgrade = "Обновить сейчас?"
+cancelled = "Обновление отменено."
+prompt_disable_auto = "Отключить автоматическую проверку обновлений?"
+auto_disabled = "Автоматическая проверка обновлений отключена (auto_update: false записано в %{path})."
+auto_disable_failed = "Не удалось записать %{path}: %{e}"
 
 [config]
 home_not_set = "HOME не установлена"

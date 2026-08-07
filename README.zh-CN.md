@@ -177,12 +177,17 @@ ffmpeg -i input.png -quality 85 output.jpg
 
 ```bash
 , --update
-# ▸ Checking for updates (current: 0.14.0)...
-#   Update available: 0.14.0 → 0.15.0
-# ▸ Updated to 0.15.0
+# ▸ 检查更新 (current: 0.22.3)...
+#   Update available: 0.22.3 → 0.23.0
+# 更新日志 (0.23.0):
+#   ...changelog...
+# 现在升级？ [Enter/y/N]
+# ▸ Updated to 0.23.0
 ```
 
-下载的压缩包会先对照 release 的 `sha256sums.txt` 校验，然后才替换二进制。
+升级前会先展示 release 更新日志，确认后才替换二进制。下载的压缩包会先对照 release 的 `sha256sums.txt` 校验，然后才替换二进制。
+
+每周自动更新检查（配置里的 `auto_update`）流程相同：发现新版本时展示更新日志，由你决定是否升级。拒绝后会询问是否关闭自动检查——回答 `y` 会自动把 `auto_update: false` 写入你的配置文件。
 
 ### 📚 探索模式
 

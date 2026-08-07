@@ -431,14 +431,26 @@ pub fn truncate(s: &str, max: usize) -> &str {
 }
 
 pub fn prompt_confirm(msg: &str) -> bool {
+    prompt_confirm_enter(msg, true)
+}
+
+/// Same as prompt_confirm, but Enter means NO — only an explicit `y`
+/// confirms. For destructive/opt-out questions (e.g. disabling a feature).
+pub fn prompt_confirm_default_no(msg: &str) -> bool {
+    prompt_confirm_enter(msg, false)
+}
+
+fn prompt_confirm_enter(msg: &str, enter_means_yes: bool) -> bool {
     let stdout = io::stdout();
     let mut out = stdout.lock();
+    let suffix = if enter_means_yes { "[Enter/y/N]" } else { "[y/N]" };
     let _ = write!(
         out,
-        "{}{}{} [Enter/y/N] ",
+        "{}{}{} {} ",
         SetForegroundColor(Color::Yellow),
         msg,
-        ResetColor
+        ResetColor,
+        suffix
     );
     let _ = out.flush();
     drop(out);
@@ -459,7 +471,8 @@ pub fn prompt_confirm(msg: &str) -> bool {
                 continue;
             }
             let answer = match code {
-                KeyCode::Enter | KeyCode::Char('y') | KeyCode::Char('Y') => Some(true),
+                KeyCode::Enter => Some(enter_means_yes),
+                KeyCode::Char('y') | KeyCode::Char('Y') => Some(true),
                 KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Esc => Some(false),
                 KeyCode::Char('c') if modifiers.contains(KeyModifiers::CONTROL) => Some(false),
                 _ => None,

@@ -51,6 +51,12 @@ replace_binary = "替换二进制: %{e}"
 github_api_error = "GitHub API: %{e}"
 github_http_error = "GitHub API: HTTP %{status}"
 github_missing_tag = "GitHub API: 缺少 tag_name"
+changelog_header = "更新日志 (%{to}):"
+prompt_upgrade = "现在升级？"
+cancelled = "已取消升级。"
+prompt_disable_auto = "要关闭自动更新检查吗？"
+auto_disabled = "自动更新检查已关闭（auto_update: false 已写入 %{path}）。"
+auto_disable_failed = "写入 %{path} 失败: %{e}"
 
 [config]
 home_not_set = "HOME 未设置"

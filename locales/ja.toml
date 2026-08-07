@@ -51,6 +51,12 @@ replace_binary = "バイナリ置換: %{e}"
 github_api_error = "GitHub API: %{e}"
 github_http_error = "GitHub API: HTTP %{status}"
 github_missing_tag = "GitHub API: tag_name がありません"
+changelog_header = "リリースノート (%{to}):"
+prompt_upgrade = "今すぐアップグレードしますか？"
+cancelled = "アップグレードをキャンセルしました。"
+prompt_disable_auto = "自動更新チェックを無効にしますか？"
+auto_disabled = "自動更新チェックを無効にしました（auto_update: false を %{path} に書き込みました）。"
+auto_disable_failed = "%{path} への書き込み失敗: %{e}"
 
 [config]
 home_not_set = "HOME が設定されていません"

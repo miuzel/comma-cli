@@ -180,6 +180,26 @@ pub fn run_tests() {
     check("url_encode: space becomes plus", crate::search::url_encode("a b") == "a+b");
     check("url_encode: reserved encoded", crate::search::url_encode("a&b=c?") == "a%26b%3Dc%3F");
 
+    // Test 12f: write_auto_update_flag
+    let pid = std::process::id();
+    let tmp1 = std::env::temp_dir().join(format!("comma-test-autoupdate-{}.json", pid));
+    std::fs::write(&tmp1, r#"{"model": "x", "cache_size": 100}"#).unwrap();
+    check("write_auto_update_flag: ok on existing", crate::config::write_auto_update_flag(&tmp1, false).is_ok());
+    let data: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&tmp1).unwrap()).unwrap();
+    check("write_auto_update_flag: flag set", data["auto_update"] == false);
+    check("write_auto_update_flag: keeps other keys", data["model"] == "x" && data["cache_size"] == 100);
+    let _ = std::fs::remove_file(&tmp1);
+    let tmp2 = std::env::temp_dir().join(format!("comma-test-autoupdate-missing-{}.json", pid));
+    let _ = std::fs::remove_file(&tmp2);
+    check("write_auto_update_flag: creates missing file", crate::config::write_auto_update_flag(&tmp2, false).is_ok()
+        && std::fs::read_to_string(&tmp2).unwrap().contains("\"auto_update\": false"));
+    let _ = std::fs::remove_file(&tmp2);
+    let tmp3 = std::env::temp_dir().join(format!("comma-test-autoupdate-bad-{}.json", pid));
+    std::fs::write(&tmp3, "{not json").unwrap();
+    check("write_auto_update_flag: invalid json errors, file kept", crate::config::write_auto_update_flag(&tmp3, false).is_err()
+        && std::fs::read_to_string(&tmp3).unwrap() == "{not json");
+    let _ = std::fs::remove_file(&tmp3);
+
     // Test 12e: Mojeek HTML parsing
     let moj_html = r#"
 <li class="r1"><a title="https://nodejs.org/en" href="https://nodejs.org/en" class="ob"><p class="i"><span class="url">https://nodejs.org</span></p></a><h2><a class="title" title="https://nodejs.org/en" href="https://nodejs.org/en">Node.js — Run JavaScript Everywhere</a></h2><p class="s">Get Node.js® v24.18.0 Latest <strong>LTS</strong> release</p></li>

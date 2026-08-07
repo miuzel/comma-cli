@@ -51,6 +51,12 @@ replace_binary = "Substituir binário: %{e}"
 github_api_error = "GitHub API: %{e}"
 github_http_error = "GitHub API: HTTP %{status}"
 github_missing_tag = "GitHub API: tag_name ausente"
+changelog_header = "Notas da versão (%{to}):"
+prompt_upgrade = "Atualizar agora?"
+cancelled = "Atualização cancelada."
+prompt_disable_auto = "Desativar as verificações automáticas de atualização?"
+auto_disabled = "Verificações automáticas desativadas (auto_update: false gravado em %{path})."
+auto_disable_failed = "Falha ao gravar %{path}: %{e}"
 
 [config]
 home_not_set = "HOME não definida"
