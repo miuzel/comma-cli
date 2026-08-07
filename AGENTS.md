@@ -95,6 +95,8 @@ Releases are fully automated via `.github/workflows/release.yml`:
 1. Push a git tag matching `v*` (after bumping `version` in `Cargo.toml`).
 2. GitHub Actions builds release binaries for 5 targets: `x86_64-unknown-linux-gnu`, `aarch64-unknown-linux-gnu` (via `cross`), `x86_64-apple-darwin`, `aarch64-apple-darwin`, `x86_64-pc-windows-msvc`.
 3. Each is packaged (`comma-<os>-<arch>.tar.gz`, or `.zip` for Windows); a `sha256sums.txt` covering all archives is generated and published to the GitHub release by `softprops/action-gh-release`, together with `install.sh`.
+4. **Write real release notes.** The workflow's `generate_release_notes: true` only emits a `**Full Changelog**: ...compare...` link (we release from direct main commits, no PRs to list), and since v0.24.0 the update flow (`--update` and the auto-update check) shows the release body to users before they consent to upgrading — a bare compare link is not acceptable. After CI publishes the release, set notes that lead with 1–3 lines of what the release actually does (feature name + user-visible effect), keeping the compare link at the bottom:
+   `gh release edit vX.Y.Z --repo miuzel/comma-cli --notes-file <file>` (write the file first; avoid inline `--notes` quoting pitfalls). Backfill older releases the same way when they lack notes.
 
 End users install/update via `install.sh` or the built-in `, --update`, both of which pull from GitHub releases and verify the archive against `sha256sums.txt` — so archive names in the workflow, `install.sh`, and `do_update()` in `src/update.rs` must stay consistent.
 
