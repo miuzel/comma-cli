@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use crate::config::{home_dir, xdg_or_legacy, Config};
+use crate::config::{config_path, home_dir, xdg_or_legacy, Config};
 use crate::context::gather_context;
 
 // ── Prompt ──────────────────────────────────────────────────────────────────
@@ -12,10 +12,60 @@ pub fn prompt_path(home: &str) -> PathBuf {
     xdg_or_legacy(home, "XDG_CONFIG_HOME", ".config", "prompt.md", ".prompt.md")
 }
 
+/// Path to the additional prompt file: appended to the compiled default
+/// template so upgrades to the default keep working for customized setups.
+pub fn additional_prompt_path(home: &str) -> PathBuf {
+    xdg_or_legacy(home, "XDG_CONFIG_HOME", ".config", "additional_prompt.md", ".additional_prompt.md")
+}
+
+/// Resolve a `full_prompt` config value to template text: `~/` expands to the
+/// home dir, a relative path is tried under the config file's directory, and
+/// a value naming an existing file is read; anything else is the inline
+/// template itself.
+fn read_full_prompt(value: &str, home: &str) -> String {
+    let path = if let Some(rest) = value.strip_prefix("~/") {
+        PathBuf::from(home).join(rest)
+    } else {
+        let p = PathBuf::from(value);
+        match config_path(home).parent() {
+            Some(dir) if !p.is_absolute() && dir.join(&p).exists() => dir.join(&p),
+            _ => p,
+        }
+    };
+    if path.is_file() {
+        std::fs::read_to_string(&path).unwrap_or_else(|_| value.to_string())
+    } else {
+        value.to_string()
+    }
+}
+
+/// Pick the prompt template, in priority order:
+/// 1. explicit `full_prompt` (already file-resolved) — total override;
+/// 2. a legacy prompt.md whose content differs from the compiled default —
+///    a real customization, honored as a full override;
+/// 3. the compiled default with additional_prompt.md appended (if any).
+/// A legacy prompt.md identical to the default is just the installed copy and
+/// is ignored so upgrades to the default template take effect.
+pub(crate) fn pick_template(full: Option<&str>, legacy: Option<&str>, additional: Option<&str>) -> String {
+    if let Some(f) = full.filter(|s| !s.trim().is_empty()) {
+        return f.to_string();
+    }
+    if let Some(l) = legacy.filter(|l| l.trim_end() != DEFAULT_PROMPT.trim_end()) {
+        return l.to_string();
+    }
+    match additional.filter(|a| !a.trim().is_empty()) {
+        Some(a) => format!("{}\n\n{}", DEFAULT_PROMPT, a.trim()),
+        None => DEFAULT_PROMPT.to_string(),
+    }
+}
+
 pub fn load_prompt(config: &Config) -> String {
     let home = home_dir().unwrap_or_default();
-    let path = prompt_path(&home);
-    let raw = std::fs::read_to_string(&path).unwrap_or_else(|_| DEFAULT_PROMPT.into());
+
+    let full = config.full_prompt.as_deref().map(|v| read_full_prompt(v, &home));
+    let legacy = std::fs::read_to_string(prompt_path(&home)).ok();
+    let additional = std::fs::read_to_string(additional_prompt_path(&home)).ok();
+    let raw = pick_template(full.as_deref(), legacy.as_deref(), additional.as_deref());
 
     let ctx = gather_context();
     let prefs = format_preferences(&config.prefer);
@@ -23,8 +73,8 @@ pub fn load_prompt(config: &Config) -> String {
     let mut prompt = raw.replace("{{SYSTEM_CONTEXT}}", &ctx)
         .replace("{{PREFERENCES}}", &prefs);
 
-    // #SEARCH rules are appended at runtime (not baked into prompt.md) so
-    // users with an existing custom prompt.md get them on upgrade too.
+    // #SEARCH rules are appended at runtime (not baked into the template) so
+    // users with an existing custom prompt get them on upgrade too.
     if config.search.enabled() {
         prompt.push_str(SEARCH_SECTION);
     }
@@ -58,7 +108,7 @@ fn format_preferences(prefer: &HashMap<String, Vec<String>>) -> String {
     lines.join("\n")
 }
 
-const DEFAULT_PROMPT: &str = r#"You are a shell command generator. The user describes intent in natural language; you output the corresponding shell command.
+pub(crate) const DEFAULT_PROMPT: &str = r#"You are a shell command generator. The user describes intent in natural language; you output the corresponding shell command.
 
 Rules:
 - Output exactly ONE shell command that can be executed directly. No explanations.

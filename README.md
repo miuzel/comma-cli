@@ -449,7 +449,7 @@ COMMA_* environment variables
 Built-in defaults
 ```
 
-The same chain applies to `prompt.md` and the cache (`~/.cache/comma/cache.json`, `$XDG_CACHE_HOME` honored) — so a directory containing the binary plus `,.config.json`, `,.prompt.md`, and `,.cache.json` is fully portable. On Windows all three default to `%APPDATA%\comma\` (binary-adjacent and legacy files are still read).
+The same chain applies to the cache (`~/.cache/comma/cache.json`, `$XDG_CACHE_HOME` honored) and `additional_prompt.md` — so a directory containing the binary plus `,.config.json`, `,.additional_prompt.md`, and `,.cache.json` is fully portable. On Windows they default to `%APPDATA%\comma\` (binary-adjacent and legacy files are still read).
 
 ### Environment variables
 
@@ -507,6 +507,15 @@ Backend for the `#SEARCH:` protocol (see the Web search feature above):
 ```
 
 Providers: `off` (default — the model is not told it can search), `brave` (requires `api_key`), `tavily` (requires `api_key`), `searxng` (requires `base_url` of your instance), `duckduckgo` / `mojeek` (keyless page scraping — convenient, but bot detection may rate-limit your IP; `duckduckgo` automatically falls back to Mojeek). `max_results` defaults to 5 (max 10).
+
+### Custom prompt
+
+The default system prompt is compiled into the binary, so upgrades always bring the latest version. To customize:
+
+- **`additional_prompt.md`** (resolved like the config: `~/.config/comma/`, next to the binary as `,.additional_prompt.md`, or legacy `~/.local/bin/`) — appended to the default prompt. This is the recommended way to add your own rules (placeholders `{{SYSTEM_CONTEXT}}` / `{{PREFERENCES}}` work there too).
+- **`"full_prompt"` in config.json** — a total override. The value is either a path to a prompt file (`~/` and paths relative to the config dir work) or the inline template itself. When set, neither the default nor `additional_prompt.md` is used.
+
+A legacy `~/.config/comma/prompt.md` whose content differs from the built-in default is still honored as a full override; a copy identical to the default is ignored (it was only ever the installed template).
 
 ---
 
@@ -599,7 +608,13 @@ cd comma-cli
 
 ### First-time setup
 
-After install, configure a model. Edit `~/.config/comma/config.json`:
+Run the interactive wizard (it also starts automatically on the first run when no provider is configured):
+
+```bash
+, --setup
+```
+
+It manages LLM providers (add/edit/delete/reorder — the order is the fallback order) and the web-search backend, then writes `~/.config/comma/config.json` (the previous file is backed up with a timestamp). Prefer editing by hand? A minimal config:
 
 ```json
 {

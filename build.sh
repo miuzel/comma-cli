@@ -13,17 +13,18 @@ command -v cargo >/dev/null 2>&1 || { echo "Error: cargo not found. Install Rust
 rm -rf "$DIST"
 mkdir -p "$DIST"
 cp "$SCRIPT_DIR/target/release/comma" "$DIST/comma"
-for f in config.json prompt.md; do
-    cp "$SCRIPT_DIR/$f" "$DIST/,$f"
-done
+cp "$SCRIPT_DIR/config.json" "$DIST/,config.json"
 echo "Staged to $DIST"
 
 # Install to PREFIX
 mkdir -p "$PREFIX"
 cp "$DIST/comma" "$PREFIX/,"
 
-# Config and prompt templates go to the XDG location on Linux/macOS;
-# existing legacy files in ~/.local/bin are respected and left alone.
+# The config template goes to the XDG location on Linux/macOS; existing
+# legacy files in ~/.local/bin are respected and left alone. The prompt
+# template is compiled into the binary — no prompt.md is installed, so
+# upgrades to the default prompt take effect (customize via
+# additional_prompt.md or the full_prompt config key).
 XDG_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/comma"
 if [ ! -f "$XDG_CONFIG/config.json" ] && [ ! -f "$PREFIX/,.config.json" ]; then
     mkdir -p "$XDG_CONFIG"
@@ -31,14 +32,6 @@ if [ ! -f "$XDG_CONFIG/config.json" ] && [ ! -f "$PREFIX/,.config.json" ]; then
     echo "  Created $XDG_CONFIG/config.json"
 else
     echo "  Skipped config (already exists)"
-fi
-
-if [ ! -f "$XDG_CONFIG/prompt.md" ] && [ ! -f "$PREFIX/,.prompt.md" ]; then
-    mkdir -p "$XDG_CONFIG"
-    cp "$DIST/,prompt.md" "$XDG_CONFIG/prompt.md"
-    echo "  Created $XDG_CONFIG/prompt.md"
-else
-    echo "  Skipped prompt (already exists)"
 fi
 
 echo ""

@@ -97,9 +97,12 @@ else
     chmod +x "$PREFIX/,"
 fi
 
-# Download config/prompt files if not exists. The config template goes to
+# Download the config file if not exists. The config template goes to
 # the XDG location on Linux/macOS; an existing legacy config is respected.
 # Windows (Git Bash/MSYS) keeps the legacy path beside the binary.
+# The prompt template is compiled into the binary — no prompt.md is
+# installed, so upgrades to the default prompt take effect (customize via
+# additional_prompt.md or the full_prompt config key).
 XDG_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/comma"
 LEGACY_CONFIG="$PREFIX/,.config.json"
 if [ "$PLATFORM" != "windows-x86_64" ]; then
@@ -111,13 +114,6 @@ if [ "$PLATFORM" != "windows-x86_64" ]; then
     else
         echo "  Skipped config (already exists)"
         [ -f "$XDG_CONFIG/config.json" ] && CONFIG_FILE="$XDG_CONFIG/config.json" || CONFIG_FILE="$LEGACY_CONFIG"
-    fi
-    if [ ! -f "$XDG_CONFIG/prompt.md" ] && [ ! -f "$PREFIX/,.prompt.md" ]; then
-        mkdir -p "$XDG_CONFIG"
-        curl -sSL "https://raw.githubusercontent.com/${REPO}/main/prompt.md" -o "$XDG_CONFIG/prompt.md" 2>/dev/null || true
-        echo "  Created $XDG_CONFIG/prompt.md"
-    else
-        echo "  Skipped prompt (already exists)"
     fi
 else
     # Windows (Git Bash/MSYS): default to %APPDATA%\comma, keep legacy files respected
@@ -134,33 +130,19 @@ else
         echo "  Skipped config (already exists)"
     fi
     [ -f "$WIN_APPDATA/config.json" ] && CONFIG_FILE="$WIN_APPDATA/config.json" || CONFIG_FILE="$LEGACY_CONFIG"
-    if [ ! -f "$WIN_APPDATA/prompt.md" ] && [ ! -f "$PREFIX/,.prompt.md" ]; then
-        mkdir -p "$WIN_APPDATA"
-        curl -sSL "https://raw.githubusercontent.com/${REPO}/main/prompt.md" -o "$WIN_APPDATA/prompt.md" 2>/dev/null || true
-        echo "  Created $WIN_APPDATA/prompt.md"
-    else
-        echo "  Skipped prompt (already exists)"
-    fi
 fi
 
 echo ""
 echo "Installed files:"
 ls -lh "$PREFIX/," 2>/dev/null || ls -lh "$PREFIX/comma.exe" 2>/dev/null || true
 [ -f "$CONFIG_FILE" ] && ls -lh "$CONFIG_FILE"
-[ -f "$PREFIX/,.prompt.md" ] && ls -lh "$PREFIX/,.prompt.md"
 
 # Check if model is configured
 if [ -f "$CONFIG_FILE" ]; then
     if ! grep -q '"auth_token"' "$CONFIG_FILE" || grep -q '"auth_token": ""' "$CONFIG_FILE"; then
         echo ""
         echo "⚠  No API key configured!"
-        echo "Edit $CONFIG_FILE and set your API key:"
-        echo ""
-        echo '  {'
-        echo '    "base_url": "https://api.cerebras.ai/v1",'
-        echo '    "auth_token": "your-api-key",'
-        echo '    "model": "gemma-4-31b"'
-        echo '  }'
+        echo "Run ', --setup' for the interactive wizard, or edit $CONFIG_FILE manually."
         echo ""
         echo "Free options: Cerebras (cerebras.ai), Groq (groq.com), Ollama (local)"
     fi

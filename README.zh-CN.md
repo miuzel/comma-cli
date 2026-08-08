@@ -449,7 +449,7 @@ COMMA_* 环境变量
 内置默认值
 ```
 
-`prompt.md` 和缓存（`~/.cache/comma/cache.json`，支持 $XDG_CACHE_HOME）使用同样的查找链——因此一个目录里放上二进制加 `,.config.json`、`,.prompt.md`、`,.cache.json` 即可整体便携迁移。在 Windows 上三者默认放在 `%APPDATA%\comma\`（二进制旁和旧路径的文件仍会读取）。
+`prompt.md` 和缓存（`~/.cache/comma/cache.json`，支持 $XDG_CACHE_HOME）的查找链同样适用于 `additional_prompt.md`——因此一个目录里放上二进制加 `,.config.json`、`,.additional_prompt.md`、`,.cache.json` 即可整体便携迁移。在 Windows 上它们默认放在 `%APPDATA%\comma\`（二进制旁和旧路径的文件仍会读取）。
 
 ### 环境变量
 
@@ -507,6 +507,15 @@ export COMMA_API_STYLE="openai"
 ```
 
 提供商：`off`（默认——模型不会被告知可以搜索）、`brave`（需要 `api_key`）、`tavily`（需要 `api_key`）、`searxng`（需要实例的 `base_url`）、`duckduckgo` / `mojeek`（无需 key 的页面抓取——方便，但反爬机制可能会限制你的 IP；`duckduckgo` 受限时自动回退 Mojeek）。`max_results` 默认 5（最大 10）。
+
+### 自定义提示词
+
+默认系统提示词编译在二进制里，升级即可生效。定制方式：
+
+- **`additional_prompt.md`**（查找链与配置相同：`~/.config/comma/`、二进制旁的 `,.additional_prompt.md`、旧路径 `~/.local/bin/`）——追加到默认提示词之后。这是添加自定义规则的推荐方式（占位符 `{{SYSTEM_CONTEXT}}` / `{{PREFERENCES}}` 同样可用）。
+- **配置里的 `"full_prompt"`**——整体覆盖。值可以是指向提示词文件的路径（支持 `~/` 和相对配置目录的路径），也可以是内联的模板文本。设置后默认提示词和 `additional_prompt.md` 都不再使用。
+
+向后兼容：内容与内置默认不同的旧版 `~/.config/comma/prompt.md` 仍会作为整体覆盖生效；与默认完全相同的副本会被忽略（那只是过去安装的模板）。
 
 ---
 
@@ -599,7 +608,13 @@ cd comma-cli
 
 ### 首次配置
 
-安装后需要配置模型。编辑 `~/.config/comma/config.json`：
+运行交互式向导（首次使用、没有配置任何 provider 时也会自动进入）：
+
+```bash
+, --setup
+```
+
+向导可管理 LLM provider（增/删/改/排序——顺序即 fallback 顺序）和搜索后端，然后写入 `~/.config/comma/config.json`（原文件会自动按时间戳备份）。想手动编辑也行，最小配置：
 
 ```json
 {

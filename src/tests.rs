@@ -525,6 +525,119 @@ pub fn run_tests() {
     check("strip fences: leading text", strip_markdown_fences("Here:\n```bash\nls -la\n```") == "Here:\n```bash\nls -la\n```");
     check("strip fences: trailing newline", strip_markdown_fences("```bash\nls -la\n```\n") == "ls -la");
 
+    // ── setup.rs: entries <-> json, move_item, backup ───────────────────────
+    let cfg_json = serde_json::json!({
+        "providers": {
+            "cerebras": { "base_url": "https://api.cerebras.ai/v1", "auth_token": "k1" },
+            "local": { "base_url": "http://localhost:11434/v1", "auth_token": "k2", "api_style": "openai" }
+        },
+        "models": [
+            { "provider": "cerebras", "model": "gemma-4-31b", "retries": 2 },
+            { "provider": "local", "model": "qwen3" }
+        ],
+        "prefer": { "grep": ["rg"] },
+        "custom_key": "keepme"
+    });
+    let entries = crate::setup::json_to_entries(&cfg_json);
+    check("setup json_to_entries: 2 entries", entries.len() == 2);
+    check("setup json_to_entries: joined fields",
+        entries[0].provider == "cerebras" && entries[0].auth_token == "k1"
+        && entries[0].model == "gemma-4-31b" && entries[0].retries == 2);
+    check("setup json_to_entries: api_style kept", entries[1].api_style.as_deref() == Some("openai"));
+    check("setup json_to_entries: retries defaults to 1", entries[1].retries == 1);
+
+    let search = crate::setup::SetupSearch::from_json(&cfg_json);
+    check("setup search: default off", search.provider == "off" && search.to_json().is_none());
+    let rebuilt = crate::setup::entries_to_json(&entries, &search, &cfg_json);
+    check("setup entries_to_json: preserves other keys",
+        rebuilt["prefer"]["grep"][0] == "rg" && rebuilt["custom_key"] == "keepme");
+    check("setup entries_to_json: providers rebuilt",
+        rebuilt["providers"]["cerebras"]["auth_token"] == "k1"
+        && rebuilt["providers"]["local"]["api_style"] == "openai");
+    check("setup entries_to_json: model order kept",
+        rebuilt["models"][0]["provider"] == "cerebras" && rebuilt["models"][1]["model"] == "qwen3");
+    check("setup entries_to_json: retries 1 omitted",
+        rebuilt["models"][1].get("retries").is_none() && rebuilt["models"][0]["retries"] == 2);
+    check("setup entries_to_json: search dropped when off", rebuilt.get("search").is_none());
+    check("setup round-trip: entries equal", crate::setup::json_to_entries(&rebuilt) == entries);
+
+    // mask_secret: head + last two chars, short secrets fully hidden
+    check("setup mask_secret: head…tail",
+        crate::setup::mask_secret("sk-abcdef123456") == "sk-a…56");
+    check("setup mask_secret: short hidden",
+        crate::setup::mask_secret("sk") == "…" && crate::setup::mask_secret("").is_empty());
+
+    // Legacy single-model format upgrades to providers+models on save
+    let legacy_json = serde_json::json!({
+        "base_url": "https://api.anthropic.com", "auth_token": "sk", "model": "claude-x", "lang": "zh"
+    });
+    let legacy_entries = crate::setup::json_to_entries(&legacy_json);
+    check("setup legacy: one default entry",
+        legacy_entries.len() == 1 && legacy_entries[0].provider == "default"
+        && legacy_entries[0].auth_token == "sk" && legacy_entries[0].model == "claude-x");
+    let upgraded = crate::setup::entries_to_json(&legacy_entries, &search, &legacy_json);
+    check("setup legacy: upgraded format",
+        upgraded["models"][0]["provider"] == "default" && upgraded["providers"]["default"]["base_url"] == "https://api.anthropic.com");
+    check("setup legacy: old keys removed, lang kept",
+        upgraded.get("base_url").is_none() && upgraded.get("auth_token").is_none()
+        && upgraded.get("model").is_none() && upgraded["lang"] == "zh");
+
+    let search_on = crate::setup::SetupSearch {
+        provider: "tavily".into(), api_key: Some("tv".into()), base_url: None, max_results: Some(7),
+    };
+    let with_search = crate::setup::entries_to_json(&entries, &search_on, &cfg_json);
+    check("setup search: written",
+        with_search["search"]["provider"] == "tavily" && with_search["search"]["api_key"] == "tv"
+        && with_search["search"]["max_results"] == 7);
+
+    let mut v = vec![1, 2, 3];
+    check("move_item: down", crate::setup::move_item(&mut v, 0, false) && v == [2, 1, 3]);
+    check("move_item: up", crate::setup::move_item(&mut v, 1, true) && v == [1, 2, 3]);
+    check("move_item: up at top is no-op", !crate::setup::move_item(&mut v, 0, true) && v == [1, 2, 3]);
+    check("move_item: down at bottom is no-op", !crate::setup::move_item(&mut v, 2, false) && v == [1, 2, 3]);
+
+    // Timestamped backup + atomic save
+    check("utc_timestamp: epoch", crate::setup::utc_timestamp(0) == "19700101-000000");
+    check("utc_timestamp: known date", crate::setup::utc_timestamp(1754604000) == "20250807-220000");
+    let tmp_cfg = std::env::temp_dir().join(format!("comma-test-setup-{}.json", std::process::id()));
+    std::fs::write(&tmp_cfg, r#"{"old": true}"#).unwrap();
+    let new_json = serde_json::json!({"new": true});
+    let backup = crate::setup::save_config(&tmp_cfg, &new_json).unwrap();
+    check("setup save: backup created", backup.is_some());
+    let backup = backup.unwrap();
+    check("setup save: backup has original content",
+        std::fs::read_to_string(&backup).unwrap() == r#"{"old": true}"#);
+    check("setup save: new content written",
+        std::fs::read_to_string(&tmp_cfg).unwrap().contains("\"new\": true"));
+    check("setup save: backup name pattern",
+        backup.file_name().unwrap().to_str().unwrap().starts_with("comma-test-setup-")
+        && backup.extension().and_then(|e| e.to_str()) == Some("bak"));
+    let _ = std::fs::remove_file(&tmp_cfg);
+    let _ = std::fs::remove_file(&backup);
+    let tmp_missing = std::env::temp_dir().join(format!("comma-test-setup-missing-{}.json", std::process::id()));
+    let _ = std::fs::remove_file(&tmp_missing);
+    check("setup save: no backup for missing file",
+        crate::setup::save_config(&tmp_missing, &new_json).unwrap().is_none()
+        && tmp_missing.is_file());
+    let _ = std::fs::remove_file(&tmp_missing);
+
+    // ── prompt.rs: template picking ─────────────────────────────────────────
+    let default = crate::prompt::pick_template(None, None, None);
+    check("prompt: bare default", default == crate::prompt::DEFAULT_PROMPT);
+    let with_add = crate::prompt::pick_template(None, None, Some("Always use sudo."));
+    check("prompt: additional appended",
+        with_add.starts_with(crate::prompt::DEFAULT_PROMPT) && with_add.ends_with("Always use sudo."));
+    check("prompt: empty additional ignored", crate::prompt::pick_template(None, None, Some("  ")) == crate::prompt::DEFAULT_PROMPT);
+    let same_legacy = format!("{}\n", crate::prompt::DEFAULT_PROMPT);
+    check("prompt: identical legacy ignored",
+        crate::prompt::pick_template(None, Some(&same_legacy), Some("EXTRA")) .ends_with("EXTRA"));
+    check("prompt: customized legacy honored",
+        crate::prompt::pick_template(None, Some("MY OWN PROMPT"), Some("EXTRA")) == "MY OWN PROMPT");
+    check("prompt: full_prompt wins over all",
+        crate::prompt::pick_template(Some("FULL OVERRIDE"), Some("MY OWN PROMPT"), Some("EXTRA")) == "FULL OVERRIDE");
+    check("prompt: blank full_prompt ignored",
+        crate::prompt::pick_template(Some("  "), None, None) == crate::prompt::DEFAULT_PROMPT);
+
     // Summary
     println!("\n{} passed, {} failed", pass, fail);
     if fail > 0 {

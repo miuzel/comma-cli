@@ -94,6 +94,9 @@ struct LocalConfig {
     lang: Option<String>,
     // Web search backend for the #SEARCH: protocol
     search: Option<SearchConfig>,
+    // Explicit full system-prompt override: a path to a prompt file, or the
+    // inline template itself. Replaces the default + additional_prompt.md.
+    full_prompt: Option<String>,
 }
 
 /// Web search configuration for the `#SEARCH:` protocol. Deserializes from
@@ -168,7 +171,7 @@ impl AutoUpdate {
 ///   - a string effort level (e.g. `"reasoning": "low"`)
 ///     → Anthropic: mapped to token budget
 ///     → OpenAI: passed as `reasoning.effort` or `reasoning_effort`
-#[derive(Deserialize, Clone, Debug)]
+#[derive(Deserialize, Clone, Debug, PartialEq)]
 #[serde(untagged)]
 pub enum Reasoning {
     Tokens(u32),
@@ -234,6 +237,7 @@ pub struct Config {
     pub auto_update: AutoUpdate,
     pub lang: Option<String>,
     pub search: SearchConfig,
+    pub full_prompt: Option<String>,
 }
 
 impl Config {
@@ -275,6 +279,7 @@ impl Config {
                     auto_update: self.auto_update,
                     lang: self.lang.clone(),
                     search: self.search.clone(),
+                    full_prompt: self.full_prompt.clone(),
                 })
             }
         }
@@ -390,6 +395,7 @@ pub fn load_config() -> Result<Config, String> {
     let auto_update = local.auto_update.unwrap_or_default();
     let lang = local.lang;
     let search = local.search.unwrap_or_default();
+    let full_prompt = non_empty(local.full_prompt);
 
     // Build model entries
     // Priority: COMMA_* env > ,.config.json legacy > ,.config.json providers/models > claude settings
@@ -477,5 +483,6 @@ pub fn load_config() -> Result<Config, String> {
         auto_update,
         lang,
         search,
+        full_prompt,
     })
 }

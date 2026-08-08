@@ -7,6 +7,7 @@ mod llm;
 mod prompt;
 mod protocol;
 mod search;
+mod setup;
 mod tests;
 mod ui;
 mod update;
@@ -52,7 +53,7 @@ fn main() {
     let mut i = 0;
     while i < args.len() {
         let s = args[i].as_str();
-        let is_flag = matches!(s, "-h" | "--help" | "-V" | "--version" | "--update" | "--test" | "-f" | "--nocache" | "--model" | "--reasoning" | "-r")
+        let is_flag = matches!(s, "-h" | "--help" | "-V" | "--version" | "--update" | "--test" | "--setup" | "-f" | "--nocache" | "--model" | "--reasoning" | "-r")
             || (s.starts_with("-v") && s.chars().skip(1).all(|c| c == 'v'));
         if s == "--" {
             rest = &args[i + 1..];
@@ -104,6 +105,17 @@ fn main() {
         return;
     }
 
+    if flags.iter().any(|a| *a == "--setup") {
+        match setup::run_setup() {
+            Ok(_) => {}
+            Err(e) => {
+                print_error(&e);
+                std::process::exit(1);
+            }
+        }
+        return;
+    }
+
     let force_refresh = flags.iter().any(|a| *a == "-f" || *a == "--nocache");
 
     // Count -v flags (supports -v, -vv, -vvv) among leading flags only
@@ -118,8 +130,28 @@ fn main() {
     let config = match load_config() {
         Ok(c) => c,
         Err(e) => {
-            print_error(&t!("error.config_load", "e" => e));
-            std::process::exit(1);
+            // No usable provider configured: launch the setup wizard
+            // interactively and retry; non-TTY keeps the plain error.
+            if atty::is(atty::Stream::Stdin) {
+                print_info(&t!("setup.auto_setup"));
+                match setup::run_setup() {
+                    Ok(true) => match load_config() {
+                        Ok(c) => c,
+                        Err(e2) => {
+                            print_error(&t!("error.config_load", "e" => e2));
+                            std::process::exit(1);
+                        }
+                    },
+                    Ok(false) => std::process::exit(0),
+                    Err(e2) => {
+                        print_error(&e2);
+                        std::process::exit(1);
+                    }
+                }
+            } else {
+                print_error(&t!("error.config_load", "e" => e));
+                std::process::exit(1);
+            }
         }
     };
 
@@ -194,6 +226,7 @@ fn print_help() {
     println!("{}", t!("help.help_desc"));
     println!("{}", t!("help.version_desc"));
     println!("{}", t!("help.update_desc"));
+    println!("{}", t!("help.setup_desc"));
     println!("{}", t!("help.test_desc"));
     println!("{}", t!("help.force_desc"));
     println!("{}", t!("help.verbose_desc"));
