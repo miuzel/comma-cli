@@ -63,13 +63,22 @@ pub fn get_shell() -> String {
             return s;
         }
     }
-    std::env::var("SHELL").unwrap_or_else(|_| {
-        if cfg!(target_os = "windows") {
-            "cmd.exe".into()
-        } else {
-            "/bin/sh".into()
+    if let Ok(s) = std::env::var("SHELL") {
+        if !s.is_empty() {
+            return s;
         }
-    })
+    }
+    if cfg!(target_os = "windows") {
+        // Heuristic: PowerShell sets PSModulePath; cmd does not. This lets
+        // users running comma directly from a PowerShell window get PowerShell
+        // dialect without needing the eval wrapper or an explicit env var.
+        if std::env::var("PSModulePath").map_or(false, |p| !p.is_empty()) {
+            return "powershell".into();
+        }
+        "cmd.exe".into()
+    } else {
+        "/bin/sh".into()
+    }
 }
 
 /// Return the program and arguments used to execute a generated shell command.

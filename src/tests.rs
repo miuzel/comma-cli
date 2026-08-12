@@ -371,8 +371,9 @@ pub fn run_tests() {
         with_empty == without && !without.is_empty(),
     );
     // Test 22b: shell_command() mirrors get_shell() for execution.
-    // Saves/restores SHELL and COMMA_EVAL_SHELL around the checks.
+    // Saves/restores SHELL, COMMA_EVAL_SHELL and PSModulePath around the checks.
     let saved_shell = std::env::var("SHELL").ok();
+    let saved_ps_module_path = std::env::var("PSModulePath").ok();
     std::env::remove_var("COMMA_EVAL_SHELL");
     if cfg!(unix) {
         std::env::set_var("SHELL", "/bin/zsh");
@@ -381,8 +382,12 @@ pub fn run_tests() {
     }
     if cfg!(windows) {
         std::env::remove_var("SHELL");
+        std::env::remove_var("PSModulePath");
         let (prog, args) = shell_command();
         check("shell_command: falls back to cmd /C on Windows", prog == "cmd" && args == ["/C"]);
+        std::env::set_var("PSModulePath", "C:\\Users\\x\\Documents\\PowerShell\\Modules");
+        let (prog2, args2) = shell_command();
+        check("shell_command: detects PowerShell via PSModulePath", prog2 == "powershell" && args2 == ["-c"]);
     }
     std::env::set_var("COMMA_EVAL_SHELL", "powershell");
     let (prog2, args2) = shell_command();
@@ -397,6 +402,10 @@ pub fn run_tests() {
     match &saved_shell {
         Some(v) => std::env::set_var("SHELL", v),
         None => std::env::remove_var("SHELL"),
+    }
+    match &saved_ps_module_path {
+        Some(v) => std::env::set_var("PSModulePath", v),
+        None => std::env::remove_var("PSModulePath"),
     }
 
     // Test 23: every embedded locale substitutes named placeholders.
