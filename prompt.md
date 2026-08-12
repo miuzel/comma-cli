@@ -12,6 +12,7 @@ Rules:
   Example: find . -name "*.log" -delete # Delete all .log files recursively
   For ||| candidates, each candidate gets its own comment.
   Keep comments concise (one line, under 60 chars).
+- Commands run in a non-interactive child shell of $SHELL (see system context). Shell aliases, functions, and unexported variables from ~/.zshrc / ~/.bashrc are NOT available. Only use standard exported environment variables ($HOME, $USER, $SHELL, $PATH, $XDG_*). Do NOT rely on shell-specific or plugin-specific variables like $ZSH_CUSTOM; use an absolute path or the {{HOME}} placeholder instead.
 
 Multiple candidates:
 When there are genuinely different approaches (e.g. different tools or styles), you may output up to 3 alternatives separated by |||.

@@ -222,13 +222,10 @@ fn pipe_reader(pipe: Option<impl Read + Send + 'static>, tx: mpsc::Sender<Vec<u8
 /// appended — best effort, since output held by surviving grandchildren of the
 /// shell may be lost. Err is returned only when the command fails to spawn.
 fn run_and_capture(cmd: &str) -> Result<String, String> {
-    let (prog, args): (&str, [&str; 2]) = if cfg!(target_os = "windows") {
-        ("cmd", ["/C", cmd])
-    } else {
-        ("sh", ["-c", cmd])
-    };
-    let mut child = Command::new(prog)
-        .args(args)
+    let (prog, args) = crate::context::shell_command();
+    let mut child = Command::new(&prog)
+        .args(&args)
+        .arg(cmd)
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()

@@ -1,6 +1,6 @@
 use crate::cache::cache_key;
 use crate::config::{ApiStyle, MAX_RETRIES, Reasoning};
-use crate::context::{apply_placeholders, collect_placeholders, gather_context, get_shell, Placeholders};
+use crate::context::{apply_placeholders, collect_placeholders, gather_context, get_shell, shell_command, Placeholders};
 use crate::danger::is_dangerous;
 use crate::llm::{Message, RETRY_HINT};
 use crate::protocol::{parse_check, parse_explore, parse_search, strip_markdown_fences};
@@ -370,9 +370,33 @@ pub fn run_tests() {
         "get_shell: empty COMMA_EVAL_SHELL ignored",
         with_empty == without && !without.is_empty(),
     );
+    // Test 22b: shell_command() mirrors get_shell() for execution.
+    // Saves/restores SHELL and COMMA_EVAL_SHELL around the checks.
+    let saved_shell = std::env::var("SHELL").ok();
+    std::env::remove_var("COMMA_EVAL_SHELL");
+    if cfg!(unix) {
+        std::env::set_var("SHELL", "/bin/zsh");
+        let (prog, args) = shell_command();
+        check("shell_command: uses $SHELL on Unix", prog == "/bin/zsh" && args == ["-c"]);
+    }
+    if cfg!(windows) {
+        std::env::remove_var("SHELL");
+        let (prog, args) = shell_command();
+        check("shell_command: falls back to cmd /C on Windows", prog == "cmd" && args == ["/C"]);
+    }
+    std::env::set_var("COMMA_EVAL_SHELL", "powershell");
+    let (prog2, args2) = shell_command();
+    check(
+        "shell_command: COMMA_EVAL_SHELL wins",
+        prog2 == "powershell" && args2 == ["-c"],
+    );
     match &saved_eval_shell {
         Some(v) => std::env::set_var("COMMA_EVAL_SHELL", v),
         None => std::env::remove_var("COMMA_EVAL_SHELL"),
+    }
+    match &saved_shell {
+        Some(v) => std::env::set_var("SHELL", v),
+        None => std::env::remove_var("SHELL"),
     }
 
     // Test 23: every embedded locale substitutes named placeholders.
@@ -637,6 +661,9 @@ pub fn run_tests() {
         crate::prompt::pick_template(Some("FULL OVERRIDE"), Some("MY OWN PROMPT"), Some("EXTRA")) == "FULL OVERRIDE");
     check("prompt: blank full_prompt ignored",
         crate::prompt::pick_template(Some("  "), None, None) == crate::prompt::DEFAULT_PROMPT);
+    check("prompt: warns against shell-specific env vars",
+        crate::prompt::DEFAULT_PROMPT.contains("$ZSH_CUSTOM")
+        && crate::prompt::DEFAULT_PROMPT.contains("unexported variables"));
 
     // Summary
     println!("\n{} passed, {} failed", pass, fail);

@@ -617,19 +617,6 @@ pub fn style_label(style: ApiStyle) -> &'static str {
     }
 }
 
-/// Interpreter for running generated commands. Mirrors the rule in
-/// `get_shell()` (src/context.rs) so execution matches the shell the model
-/// was told to generate for: on Windows, `sh -c` when SHELL is set (Git
-/// Bash/MSYS users get POSIX commands), otherwise `cmd /C`. On Unix always
-/// `sh -c`.
-fn shell_interp() -> (&'static str, [&'static str; 1]) {
-    if cfg!(target_os = "windows") && std::env::var("SHELL").is_err() {
-        ("cmd", ["/C"])
-    } else {
-        ("sh", ["-c"])
-    }
-}
-
 /// Run the confirmed command. When `COMMA_EVAL_FILE` is set (shell
 /// integration, see README), the comment-stripped command is appended to
 /// that file — one per line — instead of being spawned: the wrapper shell
@@ -637,7 +624,8 @@ fn shell_interp() -> (&'static str, [&'static str; 1]) {
 /// effect there (a child process could never change the parent shell's cwd).
 /// In interactive mode each execution appends one line; the wrapper evals
 /// them in order when the session exits. Without the variable, the command
-/// runs in a child shell (`sh -c` / `cmd /C`) as before.
+/// runs in a child shell matching the dialect reported in the system context
+/// (`$SHELL` on Unix, `cmd /C` on Windows without a POSIX `SHELL`).
 pub(crate) fn execute(cmd: &str) {
     let (command, _) = split_comment(cmd);
     print_info(&t!("info.running", "cmd" => command));
@@ -662,9 +650,9 @@ pub(crate) fn execute(cmd: &str) {
         print_info(&t!("info.cd_subprocess"));
     }
 
-    let (prog, args) = shell_interp();
-    let status = std::process::Command::new(prog)
-        .args(args)
+    let (prog, args) = crate::context::shell_command();
+    let status = std::process::Command::new(&prog)
+        .args(&args)
         .arg(command)
         .status();
     match status {

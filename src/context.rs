@@ -72,6 +72,19 @@ pub fn get_shell() -> String {
     })
 }
 
+/// Return the program and arguments used to execute a generated shell command.
+/// Mirrors `get_shell()` so execution uses the same dialect the model was told
+/// to generate for. On Windows without a POSIX `SHELL`, `cmd.exe` is used with
+/// `/C`; every other shell is invoked as `<shell> -c`.
+pub fn shell_command() -> (String, Vec<String>) {
+    let shell = get_shell();
+    if cfg!(target_os = "windows") && shell.eq_ignore_ascii_case("cmd.exe") {
+        ("cmd".into(), vec!["/C".into()])
+    } else {
+        (shell, vec!["-c".into()])
+    }
+}
+
 fn get_user() -> String {
     run_cmd("whoami", &[])
         .or_else(|| std::env::var("USER").ok())
