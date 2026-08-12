@@ -664,6 +664,10 @@ pub fn run_tests() {
     check("prompt: warns against shell-specific env vars",
         crate::prompt::DEFAULT_PROMPT.contains("$ZSH_CUSTOM")
         && crate::prompt::DEFAULT_PROMPT.contains("unexported variables"));
+    check("prompt: PowerShell syntax guidance",
+        crate::prompt::DEFAULT_PROMPT.contains("PowerShell")
+        && crate::prompt::DEFAULT_PROMPT.contains("NOT `&&`")
+        && crate::prompt::DEFAULT_PROMPT.contains("$env:VAR"));
 
     // Summary
     println!("\n{} passed, {} failed", pass, fail);

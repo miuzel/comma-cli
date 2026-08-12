@@ -510,10 +510,16 @@ Providers: `off` (default — the model is not told it can search), `brave` (req
 
 ### Custom prompt
 
-The default system prompt is compiled into the binary, so upgrades always bring the latest version. To customize:
+The default system prompt is compiled into the binary, so upgrades always bring the latest version. View it with:
+
+```
+, --default-prompt
+```
+
+To customize:
 
 - **`additional_prompt.md`** (resolved like the config: `~/.config/comma/`, next to the binary as `,.additional_prompt.md`, or legacy `~/.local/bin/`) — appended to the default prompt. This is the recommended way to add your own rules (placeholders `{{SYSTEM_CONTEXT}}` / `{{PREFERENCES}}` work there too).
-- **`"full_prompt"` in config.json** — a total override. The value is either a path to a prompt file (`~/` and paths relative to the config dir work) or the inline template itself. When set, neither the default nor `additional_prompt.md` is used.
+- **`"full_prompt"` in config.json** — a total override for experts. The value is either a path to a prompt file (`~/` and paths relative to the config dir work) or the inline template itself. When set, neither the default nor `additional_prompt.md` is used.
 
 A legacy `~/.config/comma/prompt.md` whose content differs from the built-in default is still honored as a full override; a copy identical to the default is ignored (it was only ever the installed template).
 

@@ -53,7 +53,7 @@ fn main() {
     let mut i = 0;
     while i < args.len() {
         let s = args[i].as_str();
-        let is_flag = matches!(s, "-h" | "--help" | "-V" | "--version" | "--update" | "--test" | "--setup" | "-f" | "--nocache" | "--model" | "--reasoning" | "-r")
+        let is_flag = matches!(s, "-h" | "--help" | "-V" | "--version" | "--update" | "--test" | "--setup" | "--default-prompt" | "-f" | "--nocache" | "--model" | "--reasoning" | "-r")
             || (s.starts_with("-v") && s.chars().skip(1).all(|c| c == 'v'));
         if s == "--" {
             rest = &args[i + 1..];
@@ -102,6 +102,11 @@ fn main() {
 
     if flags.iter().any(|a| *a == "--test") {
         run_tests();
+        return;
+    }
+
+    if flags.iter().any(|a| *a == "--default-prompt") {
+        println!("{}", crate::prompt::DEFAULT_PROMPT);
         return;
     }
 
@@ -228,6 +233,7 @@ fn print_help() {
     println!("{}", t!("help.update_desc"));
     println!("{}", t!("help.setup_desc"));
     println!("{}", t!("help.test_desc"));
+    println!("{}", t!("help.default_prompt_desc"));
     println!("{}", t!("help.force_desc"));
     println!("{}", t!("help.verbose_desc"));
     println!("{}", t!("help.very_verbose_desc"));
