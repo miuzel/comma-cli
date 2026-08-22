@@ -433,7 +433,7 @@ fn add_entry(entries: &mut Vec<SetupEntry>) {
     });
 }
 
-fn edit_entry(entries: &mut Vec<SetupEntry>) {
+fn edit_entry(entries: &mut [SetupEntry]) {
     let Some(i) = pick_entry(entries) else { return };
     let mut rl = match Editor::<FileHelper, DefaultHistory>::new() {
         Ok(rl) => rl,
@@ -469,7 +469,7 @@ fn delete_entry(entries: &mut Vec<SetupEntry>) {
     }
 }
 
-fn reorder_entry(entries: &mut Vec<SetupEntry>, up: bool) {
+fn reorder_entry(entries: &mut [SetupEntry], up: bool) {
     let Some(i) = pick_entry(entries) else { return };
     move_item(entries, i, up);
 }
@@ -491,7 +491,7 @@ fn search_section(search: &mut SetupSearch) {
     match chosen {
         "brave" | "tavily" => {
             let label = t!("setup.prompt_api_key", "provider" => chosen).to_string();
-            if let Some(v) = text_prompt(&mut rl, &label, search.api_key.as_deref().map(|s| mask_secret(s)).as_deref()) {
+            if let Some(v) = text_prompt(&mut rl, &label, search.api_key.as_deref().map(mask_secret).as_deref()) {
                 if !v.contains('…') && !v.is_empty() {
                     search.api_key = Some(v);
                 }
@@ -571,11 +571,10 @@ pub fn run_setup() -> Result<bool, String> {
                     Err(e) => return Err(t!("setup.save_failed", "path" => path.display(), "e" => e).to_string()),
                 }
             }
-            Some(3) | None => {
-                if prompt_confirm(&t!("setup.discard_confirm")) {
+            Some(3) | None
+                if prompt_confirm(&t!("setup.discard_confirm")) => {
                     return Ok(false);
                 }
-            }
             _ => {}
         }
     }

@@ -90,7 +90,7 @@ fn main() {
         return;
     }
 
-    if flags.iter().any(|a| *a == "--update") {
+    if flags.contains(&"--update") {
         do_update();
         return;
     }
@@ -100,17 +100,17 @@ fn main() {
         return;
     }
 
-    if flags.iter().any(|a| *a == "--test") {
+    if flags.contains(&"--test") {
         run_tests();
         return;
     }
 
-    if flags.iter().any(|a| *a == "--default-prompt") {
+    if flags.contains(&"--default-prompt") {
         println!("{}", crate::prompt::DEFAULT_PROMPT);
         return;
     }
 
-    if flags.iter().any(|a| *a == "--setup") {
+    if flags.contains(&"--setup") {
         match setup::run_setup() {
             Ok(_) => {}
             Err(e) => {
@@ -186,19 +186,13 @@ fn main() {
     if rest.is_empty() {
         if !atty::is(atty::Stream::Stdin) {
             // Piped stdin: read intent from stdin and run one-shot
-            match read_stdin_intent() {
-                Some(intent) => run_oneshot(&config, &system, &intent, verbosity, false, force_refresh),
-                None => return,
-            }
+            if let Some(intent) = read_stdin_intent() { run_oneshot(&config, &system, &intent, verbosity, false, force_refresh) }
         } else {
             run_interactive(&config, &system, verbosity, false, force_refresh);
         }
     } else if rest.len() == 1 && rest[0] == "!" && !atty::is(atty::Stream::Stdin) {
         // Scriptable auto-confirm escape hatch: echo 'intent' | , !
-        match read_stdin_intent() {
-            Some(intent) => run_oneshot(&config, &system, &intent, verbosity, true, force_refresh),
-            None => return,
-        }
+        if let Some(intent) = read_stdin_intent() { run_oneshot(&config, &system, &intent, verbosity, true, force_refresh) }
     } else {
         let intent = rest.join(" ");
         // Check for auto-confirm flag: , install fenster !
@@ -576,8 +570,7 @@ fn run_interactive(config: &Config, system: &str, v: Verbosity, auto_confirm: bo
                                 }
                             }
                         } else {
-                            let c = candidates[0].clone();
-                            c
+                            candidates[0].clone()
                         };
 
                         // If command is comment-only, just display and don't store
