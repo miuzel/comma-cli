@@ -301,6 +301,7 @@ pub fn strip_markdown_fences(raw: &str) -> String {
 /// #CHECK can repeat (each iteration continues the loop), but #SEARCH and
 /// #EXPLORE run only once per intent (repeated requests get a nudge instead
 /// of another live search / probe prompt). The loop is bounded at 5 rounds.
+#[allow(clippy::too_many_arguments)] // distinct pipeline inputs, kept flat for readability
 pub fn process_response(
     config: &Config,
     system: &str,
@@ -365,6 +366,7 @@ pub fn process_response(
 /// If the model returned `#EXPLORE: <cmd>`, run it with user permission,
 /// feed output back to the LLM, and return the real command.
 /// Returns Ok(None) if user declines or no #EXPLORE: prefix.
+#[allow(clippy::too_many_arguments)] // mirrors process_response's pipeline inputs
 fn explore_then_generate(
     config: &Config,
     system: &str,

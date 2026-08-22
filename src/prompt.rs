@@ -44,6 +44,7 @@ fn read_full_prompt(value: &str, home: &str) -> String {
 /// 2. a legacy prompt.md whose content differs from the compiled default —
 ///    a real customization, honored as a full override;
 /// 3. the compiled default with additional_prompt.md appended (if any).
+///
 /// A legacy prompt.md identical to the default is just the installed copy and
 /// is ignored so upgrades to the default template take effect.
 pub(crate) fn pick_template(full: Option<&str>, legacy: Option<&str>, additional: Option<&str>) -> String {

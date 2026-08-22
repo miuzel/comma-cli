@@ -165,7 +165,7 @@ fn install_version(latest: &str) {
 
     // Download platform archive
     let (archive_name, is_zip) = if cfg!(target_os = "windows") {
-        (format!("comma-windows-x86_64.zip"), true)
+        ("comma-windows-x86_64.zip".to_string(), true)
     } else {
         (format!("comma-{}.tar.gz", platform), false)
     };

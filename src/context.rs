@@ -72,7 +72,7 @@ pub fn get_shell() -> String {
         // Heuristic: PowerShell sets PSModulePath; cmd does not. This lets
         // users running comma directly from a PowerShell window get PowerShell
         // dialect without needing the eval wrapper or an explicit env var.
-        if std::env::var("PSModulePath").map_or(false, |p| !p.is_empty()) {
+        if std::env::var("PSModulePath").is_ok_and(|p| !p.is_empty()) {
             return "powershell".into();
         }
         "cmd.exe".into()
@@ -119,7 +119,7 @@ fn get_packages() -> String {
     // Capped so large systems don't blow up the system prompt.
     const MAX_USER_PACKAGES: usize = 200;
     let user_pkgs = get_user_packages();
-    let pkg_list: String = user_pkgs.iter().cloned().collect::<Vec<_>>().join(" ");
+    let pkg_list: String = user_pkgs.to_vec().join(" ");
     if !user_pkgs.is_empty() {
         let mut list = user_pkgs
             .iter()

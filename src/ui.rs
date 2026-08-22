@@ -206,9 +206,7 @@ pub fn select_command(candidates: &[String]) -> Option<usize> {
             }
             match code {
                 KeyCode::Up | KeyCode::Char('k') => {
-                    if selected > 0 {
-                        selected -= 1;
-                    }
+                    selected = selected.saturating_sub(1);
                 }
                 KeyCode::Down | KeyCode::Char('j') => {
                     if selected < candidates.len() - 1 {
@@ -274,7 +272,7 @@ fn candidate_rows(cmd: &str, term_width: u16) -> u16 {
     }
     let tw = term_width.max(1) as usize;
     // Number of rows this single line wraps into.
-    ((vis_len + tw - 1) / tw).max(1) as u16
+    vis_len.div_ceil(tw).max(1) as u16
 }
 
 /// Draw all candidates and return the total number of terminal rows occupied.
