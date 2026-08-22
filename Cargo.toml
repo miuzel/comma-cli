@@ -8,7 +8,6 @@ reqwest = { version = "0.12", default-features = false, features = ["blocking", 
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sha2 = "0.10"
-atty = "0.2"
 crossterm = "0.28"
 rustyline = "15"
 rust-i18n = "3"

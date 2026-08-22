@@ -19,7 +19,7 @@ i18n!("locales", fallback = "en");
 use rustyline::config::Configurer;
 use rustyline::history::DefaultHistory;
 use rustyline::Editor;
-use std::io;
+use std::io::{self, IsTerminal};
 
 use crate::cache::{CacheEntry, ResponseCache};
 use crate::config::{load_config, ApiStyle, Config, Reasoning};
@@ -137,7 +137,7 @@ fn main() {
         Err(e) => {
             // No usable provider configured: launch the setup wizard
             // interactively and retry; non-TTY keeps the plain error.
-            if atty::is(atty::Stream::Stdin) {
+            if std::io::stdin().is_terminal() {
                 print_info(&t!("setup.auto_setup"));
                 match setup::run_setup() {
                     Ok(true) => match load_config() {
@@ -184,13 +184,13 @@ fn main() {
     let system = load_prompt(&config);
 
     if rest.is_empty() {
-        if !atty::is(atty::Stream::Stdin) {
+        if !std::io::stdin().is_terminal() {
             // Piped stdin: read intent from stdin and run one-shot
             if let Some(intent) = read_stdin_intent() { run_oneshot(&config, &system, &intent, verbosity, false, force_refresh) }
         } else {
             run_interactive(&config, &system, verbosity, false, force_refresh);
         }
-    } else if rest.len() == 1 && rest[0] == "!" && !atty::is(atty::Stream::Stdin) {
+    } else if rest.len() == 1 && rest[0] == "!" && !std::io::stdin().is_terminal() {
         // Scriptable auto-confirm escape hatch: echo 'intent' | , !
         if let Some(intent) = read_stdin_intent() { run_oneshot(&config, &system, &intent, verbosity, true, force_refresh) }
     } else {

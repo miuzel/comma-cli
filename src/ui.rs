@@ -7,7 +7,7 @@ use rustyline::history::DefaultHistory;
 use rustyline::validate::Validator;
 use rustyline::{Editor, Helper};
 use std::borrow::Cow;
-use std::io::{self, Write};
+use std::io::{self, IsTerminal, Write};
 
 use crate::danger::is_dangerous;
 use rust_i18n::t;
@@ -177,7 +177,7 @@ pub fn select_command(candidates: &[String]) -> Option<usize> {
     }
 
     // Non-interactive (piped): just pick the first candidate
-    if !atty::is(atty::Stream::Stdin) {
+    if !std::io::stdin().is_terminal() {
         print_cmd(&candidates[0]);
         return Some(0);
     }
@@ -454,7 +454,7 @@ fn prompt_confirm_enter(msg: &str, enter_means_yes: bool) -> bool {
     drop(out);
 
     // Fallback to line-based input when stdin is not a TTY (piped)
-    if !atty::is(atty::Stream::Stdin) {
+    if !std::io::stdin().is_terminal() {
         let mut input = String::new();
         return io::stdin().read_line(&mut input).is_ok() && input.trim().eq_ignore_ascii_case("y");
     }
@@ -492,7 +492,7 @@ fn prompt_confirm_enter(msg: &str, enter_means_yes: bool) -> bool {
 pub fn edit_or_execute(cmd: &str, rl: &mut Editor<FileHelper, DefaultHistory>) -> EditAction {
     print_cmd(cmd);
 
-    if !atty::is(atty::Stream::Stdin) {
+    if !std::io::stdin().is_terminal() {
         // Non-interactive stdin: never auto-execute — require an explicit "y"
         // via the line-based fallback in prompt_confirm.
         return if prompt_confirm(&t!("ui.execute_confirm")) {

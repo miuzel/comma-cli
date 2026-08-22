@@ -1,3 +1,4 @@
+use std::io::IsTerminal;
 use std::path::Path;
 
 use crate::config::{AutoUpdate, home_dir};
@@ -347,7 +348,7 @@ pub fn check_and_notify(auto_update: AutoUpdate) {
     }
 
     // Piped stdin/stdout: never prompt, just notify as before.
-    if !atty::is(atty::Stream::Stdin) || !atty::is(atty::Stream::Stdout) {
+    if !std::io::stdin().is_terminal() || !std::io::stdout().is_terminal() {
         print_info(&t!("info.update_available", "from" => current, "to" => latest));
         return;
     }

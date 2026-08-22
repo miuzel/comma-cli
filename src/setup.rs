@@ -3,7 +3,7 @@
 //! and the web-search backend, then writes `config.json` back with a
 //! timestamped backup of the previous file.
 
-use std::io::{self, Write};
+use std::io::{self, IsTerminal, Write};
 use std::path::{Path, PathBuf};
 
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
@@ -240,7 +240,7 @@ pub fn save_config(path: &Path, json: &Value) -> Result<Option<PathBuf>, String>
 /// specifics. Returns the chosen index, or None on Esc/q/Ctrl-C and on
 /// non-interactive stdin. Menu items must be single-line.
 fn menu_select(title: &str, items: &[String]) -> Option<usize> {
-    if items.is_empty() || !atty::is(atty::Stream::Stdin) {
+    if items.is_empty() || !std::io::stdin().is_terminal() {
         return None;
     }
     if !title.is_empty() {
@@ -526,7 +526,7 @@ fn search_section(search: &mut SetupSearch) {
 pub fn run_setup() -> Result<bool, String> {
     let home = home_dir()?;
     let path = config_path(&home);
-    if !atty::is(atty::Stream::Stdin) {
+    if !std::io::stdin().is_terminal() {
         return Err(t!("setup.requires_tty", "path" => path.display()).to_string());
     }
 
