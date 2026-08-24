@@ -405,14 +405,17 @@ pub fn call_llm_with_retry(
     }
 }
 
-pub fn make_client() -> Result<reqwest::blocking::Client, String> {
-    reqwest::blocking::Client::builder()
-        .timeout(std::time::Duration::from_secs(60))
+pub fn make_client() -> Result<ureq::Agent, String> {
+    let config = ureq::Agent::config_builder()
+        // Match reqwest blocking: return the response even on 4xx/5xx so the
+        // callers can inspect `status` and surface the API error themselves.
+        .http_status_as_error(false)
+        .timeout_global(Some(std::time::Duration::from_secs(60)))
         // Fail fast on dead/blackholed hosts instead of waiting out the
         // 60s total timeout before a fallback entry is even tried.
-        .connect_timeout(std::time::Duration::from_secs(10))
-        .build()
-        .map_err(|e| t!("llm.http_client", "e" => e).to_string())
+        .timeout_connect(Some(std::time::Duration::from_secs(10)))
+        .build();
+    Ok(ureq::Agent::new_with_config(config))
 }
 
 fn call_openai(
@@ -458,18 +461,20 @@ fn call_openai(
 
     let client = make_client()?;
     let t0 = std::time::Instant::now();
+    let body_json =
+        serde_json::to_string(&body).map_err(|e| t!("llm.request_failed", "e" => e).to_string())?;
     let resp = client
-        .post(&url)
+        .post(url.as_str())
         .header("Authorization", format!("Bearer {}", entry.auth_token))
         .header("content-type", "application/json")
-        .json(&body)
-        .send()
+        .send(body_json)
         .map_err(|e| t!("llm.request_failed", "e" => e).to_string())?;
 
     let elapsed = t0.elapsed();
     let status = resp.status();
-    let text = resp
-        .text()
+    let mut body = resp.into_body();
+    let text = body
+        .read_to_string()
         .map_err(|e| t!("llm.read_body", "e" => e).to_string())?;
 
     if v.show_debug() {
@@ -589,18 +594,20 @@ fn call_openai_responses(
 
     let client = make_client()?;
     let t0 = std::time::Instant::now();
+    let body_json =
+        serde_json::to_string(&body).map_err(|e| t!("llm.request_failed", "e" => e).to_string())?;
     let resp = client
-        .post(&url)
+        .post(url.as_str())
         .header("Authorization", format!("Bearer {}", entry.auth_token))
         .header("content-type", "application/json")
-        .json(&body)
-        .send()
+        .send(body_json)
         .map_err(|e| t!("llm.request_failed", "e" => e).to_string())?;
 
     let elapsed = t0.elapsed();
     let status = resp.status();
-    let text = resp
-        .text()
+    let mut body = resp.into_body();
+    let text = body
+        .read_to_string()
         .map_err(|e| t!("llm.read_body", "e" => e).to_string())?;
 
     if v.show_debug() {
@@ -713,19 +720,21 @@ fn call_anthropic(
 
     let client = make_client()?;
     let t0 = std::time::Instant::now();
+    let body_json =
+        serde_json::to_string(&body).map_err(|e| t!("llm.request_failed", "e" => e).to_string())?;
     let resp = client
-        .post(&url)
-        .header("x-api-key", &entry.auth_token)
+        .post(url.as_str())
+        .header("x-api-key", entry.auth_token.as_str())
         .header("anthropic-version", "2023-06-01")
         .header("content-type", "application/json")
-        .json(&body)
-        .send()
+        .send(body_json)
         .map_err(|e| t!("llm.request_failed", "e" => e).to_string())?;
 
     let elapsed = t0.elapsed();
     let status = resp.status();
-    let text = resp
-        .text()
+    let mut body = resp.into_body();
+    let text = body
+        .read_to_string()
         .map_err(|e| t!("llm.read_body", "e" => e).to_string())?;
 
     if v.show_debug() {
