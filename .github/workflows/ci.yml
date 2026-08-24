@@ -1,0 +1,52 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - '**'
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      # Gate 1: formatting (codebase is normalized by P2-6 g-008)
+      - name: fmt --check
+        run: cargo fmt --check
+
+      # Gate 2: lints as hard errors (codebase is clippy-clean per P0-1 g-003)
+      - name: clippy -D warnings
+        run: cargo clippy --all-targets -- -D warnings
+
+      # Gate 3: release build
+      - name: build --release
+        run: cargo build --release
+
+      # Gate 4: built-in self-test suite (run_tests, ~222 assertions).
+      # `shell: bash` so `comma` resolves to comma.exe on Windows.
+      - name: comma --test
+        shell: bash
+        run: ./target/release/comma --test
