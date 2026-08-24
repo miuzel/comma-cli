@@ -54,7 +54,13 @@ pub fn web_search(cfg: &SearchConfig, query: &str) -> Result<Vec<SearchHit>, Str
 pub fn format_hits(hits: &[SearchHit]) -> String {
     let mut out = String::new();
     for (i, h) in hits.iter().enumerate() {
-        out.push_str(&format!("{}. {}\n   {}\n   {}\n", i + 1, h.title, h.url, h.snippet));
+        out.push_str(&format!(
+            "{}. {}\n   {}\n   {}\n",
+            i + 1,
+            h.title,
+            h.url,
+            h.snippet
+        ));
         if let Some(text) = &h.page_text {
             out.push_str(&format!("   Page content:\n   {}\n", text));
         }
@@ -81,12 +87,23 @@ fn fetch_html(url: &str) -> Result<String, String> {
     const UA: &str = "Mozilla/5.0 (X11; Linux x86_64)";
     const ACCEPT: &str = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8";
     const LANG: &str = "en-US,en;q=0.9";
-    if let Some(body) = crate::context::run_cmd("curl", &[
-        "-sL", "-m", "20", "-A", UA, "-H", &format!("Accept: {}", ACCEPT), "-H", &format!("Accept-Language: {}", LANG), url,
-    ]) {
-        if !body.is_empty() {
-            return Ok(body);
-        }
+    if let Some(body) = crate::context::run_cmd(
+        "curl",
+        &[
+            "-sL",
+            "-m",
+            "20",
+            "-A",
+            UA,
+            "-H",
+            &format!("Accept: {}", ACCEPT),
+            "-H",
+            &format!("Accept-Language: {}", LANG),
+            url,
+        ],
+    ) && !body.is_empty()
+    {
+        return Ok(body);
     }
     make_client()?
         .get(url)
@@ -115,7 +132,9 @@ pub(crate) fn parse_ddg_lite(html: &str, max: usize) -> Vec<SearchHit> {
     let mut pos = 0;
     while hits.len() < max {
         // Next result anchor: `class='result-link'` (or double quotes)
-        let Some(cls) = find_class(html, pos, "result-link") else { break };
+        let Some(cls) = find_class(html, pos, "result-link") else {
+            break;
+        };
         // The href lives earlier in the same <a ...> tag
         let a_start = html[..cls].rfind("<a ").unwrap_or(0);
         let url = html[a_start..cls]
@@ -127,8 +146,12 @@ pub(crate) fn parse_ddg_lite(html: &str, max: usize) -> Vec<SearchHit> {
             .map(|u| unwrap_ddg_redirect(&u))
             .unwrap_or_default();
         // Title: text between `>` (after the class attr) and `</a>`
-        let Some(gt) = html[cls..].find('>').map(|i| cls + i) else { break };
-        let Some(a_end) = html[gt..].find("</a>").map(|i| gt + i) else { break };
+        let Some(gt) = html[cls..].find('>').map(|i| cls + i) else {
+            break;
+        };
+        let Some(a_end) = html[gt..].find("</a>").map(|i| gt + i) else {
+            break;
+        };
         let title = clean_html(&html[gt + 1..a_end]);
         // Snippet: the next result-snippet cell after this anchor
         let snippet = match find_class(html, a_end, "result-snippet") {
@@ -142,7 +165,12 @@ pub(crate) fn parse_ddg_lite(html: &str, max: usize) -> Vec<SearchHit> {
             None => String::new(),
         };
         if !title.is_empty() {
-            hits.push(SearchHit { title, url, snippet, page_text: None });
+            hits.push(SearchHit {
+                title,
+                url,
+                snippet,
+                page_text: None,
+            });
         }
         pos = a_end + 4;
     }
@@ -215,9 +243,13 @@ pub(crate) fn parse_mojeek(html: &str, max: usize) -> Vec<SearchHit> {
     let mut hits = Vec::new();
     let mut pos = 0;
     while hits.len() < max {
-        let Some(cls) = find_class(html, pos, "title") else { break };
+        let Some(cls) = find_class(html, pos, "title") else {
+            break;
+        };
         // Tag ends at the next `>`; href sits between the class attr and it
-        let Some(gt) = html[cls..].find('>').map(|i| cls + i) else { break };
+        let Some(gt) = html[cls..].find('>').map(|i| cls + i) else {
+            break;
+        };
         let url = html[cls..gt]
             .find("href=\"")
             .and_then(|h| {
@@ -225,7 +257,9 @@ pub(crate) fn parse_mojeek(html: &str, max: usize) -> Vec<SearchHit> {
                 rest.find('"').map(|end| rest[..end].to_string())
             })
             .unwrap_or_default();
-        let Some(a_end) = html[gt..].find("</a>").map(|i| gt + i) else { break };
+        let Some(a_end) = html[gt..].find("</a>").map(|i| gt + i) else {
+            break;
+        };
         let title = clean_html(&html[gt + 1..a_end]);
         // Snippet: the next <p class="s"> after this anchor
         let snippet = match html[a_end..].find("<p class=\"s\">").map(|i| a_end + i) {
@@ -236,7 +270,12 @@ pub(crate) fn parse_mojeek(html: &str, max: usize) -> Vec<SearchHit> {
             None => String::new(),
         };
         if !title.is_empty() {
-            hits.push(SearchHit { title, url, snippet, page_text: None });
+            hits.push(SearchHit {
+                title,
+                url,
+                snippet,
+                page_text: None,
+            });
         }
         pos = a_end + 4;
     }
@@ -246,7 +285,10 @@ pub(crate) fn parse_mojeek(html: &str, max: usize) -> Vec<SearchHit> {
 // ── Brave Search API (LLM Context endpoint) ─────────────────────────────────
 
 fn brave_search(cfg: &SearchConfig, query: &str) -> Result<Vec<SearchHit>, String> {
-    let key = cfg.api_key.as_deref().filter(|s| !s.is_empty())
+    let key = cfg
+        .api_key
+        .as_deref()
+        .filter(|s| !s.is_empty())
         .ok_or_else(|| t!("search.missing_key", "provider" => "brave").to_string())?;
     // The LLM Context endpoint returns pre-extracted page content made for
     // LLM grounding — same key, included in every Search plan.
@@ -262,8 +304,8 @@ fn brave_search(cfg: &SearchConfig, query: &str) -> Result<Vec<SearchHit>, Strin
         .send()
         .map_err(|e| t!("search.request_failed", "e" => e).to_string())?;
     let body = check_status(body)?;
-    let json: serde_json::Value = serde_json::from_str(&body)
-        .map_err(|e| t!("search.parse_failed", "e" => e).to_string())?;
+    let json: serde_json::Value =
+        serde_json::from_str(&body).map_err(|e| t!("search.parse_failed", "e" => e).to_string())?;
     Ok(parse_brave_llm_context(&json, cfg.max_results()))
 }
 
@@ -281,7 +323,8 @@ pub(crate) fn parse_brave_llm_context(json: &serde_json::Value, max: usize) -> V
             hits.push(SearchHit {
                 title: r["title"].as_str().unwrap_or_default().to_string(),
                 url: r["url"].as_str().unwrap_or_default().to_string(),
-                snippet: snippets.first()
+                snippet: snippets
+                    .first()
                     .map(|s| crate::ui::truncate(s, 200).to_string())
                     .unwrap_or_default(),
                 page_text: clipped_page_text(&snippets.join("\n")),
@@ -294,7 +337,10 @@ pub(crate) fn parse_brave_llm_context(json: &serde_json::Value, max: usize) -> V
 // ── Tavily Search API ───────────────────────────────────────────────────────
 
 fn tavily_search(cfg: &SearchConfig, query: &str) -> Result<Vec<SearchHit>, String> {
-    let key = cfg.api_key.as_deref().filter(|s| !s.is_empty())
+    let key = cfg
+        .api_key
+        .as_deref()
+        .filter(|s| !s.is_empty())
         .ok_or_else(|| t!("search.missing_key", "provider" => "tavily").to_string())?;
     let payload = serde_json::json!({
         "api_key": key,
@@ -307,8 +353,8 @@ fn tavily_search(cfg: &SearchConfig, query: &str) -> Result<Vec<SearchHit>, Stri
         "include_raw_content": true,
     });
     let body = post_json("https://api.tavily.com/search", &payload)?;
-    let json: serde_json::Value = serde_json::from_str(&body)
-        .map_err(|e| t!("search.parse_failed", "e" => e).to_string())?;
+    let json: serde_json::Value =
+        serde_json::from_str(&body).map_err(|e| t!("search.parse_failed", "e" => e).to_string())?;
     let mut hits = Vec::new();
     if let Some(results) = json["results"].as_array() {
         for r in results.iter().take(cfg.max_results()) {
@@ -327,17 +373,24 @@ fn tavily_search(cfg: &SearchConfig, query: &str) -> Result<Vec<SearchHit>, Stri
 // ── SearXNG (self-hosted) ───────────────────────────────────────────────────
 
 fn searxng_search(cfg: &SearchConfig, query: &str) -> Result<Vec<SearchHit>, String> {
-    let base = cfg.base_url.as_deref().filter(|s| !s.is_empty())
+    let base = cfg
+        .base_url
+        .as_deref()
+        .filter(|s| !s.is_empty())
         .ok_or_else(|| t!("search.missing_base_url").to_string())?;
-    let url = format!("{}/search?q={}&format=json", base.trim_end_matches('/'), url_encode(query));
+    let url = format!(
+        "{}/search?q={}&format=json",
+        base.trim_end_matches('/'),
+        url_encode(query)
+    );
     let body = make_client()?
         .get(&url)
         .header("Accept", "application/json")
         .send()
         .map_err(|e| t!("search.request_failed", "e" => e).to_string())?;
     let body = check_status(body)?;
-    let json: serde_json::Value = serde_json::from_str(&body)
-        .map_err(|e| t!("search.parse_failed", "e" => e).to_string())?;
+    let json: serde_json::Value =
+        serde_json::from_str(&body).map_err(|e| t!("search.parse_failed", "e" => e).to_string())?;
     let mut hits = Vec::new();
     if let Some(results) = json["results"].as_array() {
         for r in results.iter().take(cfg.max_results()) {
@@ -377,8 +430,20 @@ fn curl_post_json(url: &str, body: &str) -> Option<Result<String, String>> {
     use std::io::Write;
     use std::process::{Command, Stdio};
     let mut child = Command::new("curl")
-        .args(["-s", "-m", "20", "-X", "POST", "-H", "Content-Type: application/json",
-               "--data-binary", "@-", "-w", "\n%{http_code}", url])
+        .args([
+            "-s",
+            "-m",
+            "20",
+            "-X",
+            "POST",
+            "-H",
+            "Content-Type: application/json",
+            "--data-binary",
+            "@-",
+            "-w",
+            "\n%{http_code}",
+            url,
+        ])
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::null())
@@ -401,9 +466,14 @@ fn curl_post_json(url: &str, body: &str) -> Option<Result<String, String>> {
 /// Error out on non-2xx with the response body as context.
 fn check_status(resp: reqwest::blocking::Response) -> Result<String, String> {
     let status = resp.status();
-    let body = resp.text().map_err(|e| t!("search.request_failed", "e" => e).to_string())?;
+    let body = resp
+        .text()
+        .map_err(|e| t!("search.request_failed", "e" => e).to_string())?;
     if !status.is_success() {
-        return Err(t!("search.api_error", "status" => status, "body" => crate::ui::truncate(&body, 200)).to_string());
+        return Err(
+            t!("search.api_error", "status" => status, "body" => crate::ui::truncate(&body, 200))
+                .to_string(),
+        );
     }
     Ok(body)
 }
@@ -414,7 +484,9 @@ pub(crate) fn url_encode(s: &str) -> String {
     let mut out = String::with_capacity(s.len() * 3);
     for b in s.bytes() {
         match b {
-            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => out.push(b as char),
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(b as char)
+            }
             b' ' => out.push('+'),
             _ => out.push_str(&format!("%{:02X}", b)),
         }
@@ -432,12 +504,24 @@ pub(crate) fn percent_decode(s: &str) -> String {
             b'%' if i + 2 < bytes.len() => {
                 let hex = &s[i + 1..i + 3];
                 match u8::from_str_radix(hex, 16) {
-                    Ok(v) => { out.push(v); i += 3; }
-                    Err(_) => { out.push(b'%'); i += 1; }
+                    Ok(v) => {
+                        out.push(v);
+                        i += 3;
+                    }
+                    Err(_) => {
+                        out.push(b'%');
+                        i += 1;
+                    }
                 }
             }
-            b'+' => { out.push(b' '); i += 1; }
-            b => { out.push(b); i += 1; }
+            b'+' => {
+                out.push(b' ');
+                i += 1;
+            }
+            b => {
+                out.push(b);
+                i += 1;
+            }
         }
     }
     String::from_utf8_lossy(&out).to_string()

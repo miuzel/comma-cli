@@ -3,7 +3,7 @@ use std::path::Path;
 
 use crate::config::{AutoUpdate, home_dir};
 use crate::llm::make_client;
-use crate::ui::{print_error, print_info, prompt_confirm, prompt_confirm_default_no, Spinner};
+use crate::ui::{Spinner, print_error, print_info, prompt_confirm, prompt_confirm_default_no};
 use rust_i18n::t;
 
 // ── Version check & self-update ─────────────────────────────────────────────
@@ -36,7 +36,10 @@ fn print_changelog(changelog: &str, current: &str, latest: &str) {
     println!("{}", t!("update.changelog_header", "to" => latest));
     let trimmed = changelog.trim();
     if trimmed.is_empty() {
-        println!("  https://github.com/miuzel/comma-cli/compare/v{}...v{}", current, latest);
+        println!(
+            "  https://github.com/miuzel/comma-cli/compare/v{}...v{}",
+            current, latest
+        );
         return;
     }
     for line in trimmed.lines().take(20) {
@@ -45,16 +48,18 @@ fn print_changelog(changelog: &str, current: &str, latest: &str) {
 }
 
 fn version_newer(latest: &str, current: &str) -> bool {
-    let parse = |v: &str| -> Vec<u32> {
-        v.split('.').filter_map(|s| s.parse().ok()).collect()
-    };
+    let parse = |v: &str| -> Vec<u32> { v.split('.').filter_map(|s| s.parse().ok()).collect() };
     let l = parse(latest);
     let c = parse(current);
     for i in 0..l.len().max(c.len()) {
         let lv = l.get(i).copied().unwrap_or(0);
         let cv = c.get(i).copied().unwrap_or(0);
-        if lv > cv { return true; }
-        if lv < cv { return false; }
+        if lv > cv {
+            return true;
+        }
+        if lv < cv {
+            return false;
+        }
     }
     false
 }
@@ -84,7 +89,11 @@ fn sha256_hex(bytes: &[u8]) -> String {
     use sha2::Digest;
     let mut hasher = sha2::Sha256::new();
     hasher.update(bytes);
-    hasher.finalize().iter().map(|b| format!("{:02x}", b)).collect()
+    hasher
+        .finalize()
+        .iter()
+        .map(|b| format!("{:02x}", b))
+        .collect()
 }
 
 /// Verify the downloaded archive against sha256sums.txt from the same release.
@@ -104,7 +113,9 @@ fn verify_archive(
     if !resp.status().is_success() {
         return Err(t!("update.checksum_http_error", "status" => resp.status()).to_string());
     }
-    let sums = resp.text().map_err(|e| t!("update.checksum_download_error", "e" => e).to_string())?;
+    let sums = resp
+        .text()
+        .map_err(|e| t!("update.checksum_download_error", "e" => e).to_string())?;
 
     // Lines look like: `<sha256>  <archive-name>` (`*name` in binary mode)
     let expected = sums
@@ -113,7 +124,11 @@ fn verify_archive(
             let mut parts = line.split_whitespace();
             let hash = parts.next()?;
             let name = parts.next()?;
-            if name.trim_start_matches('*') == archive_name { Some(hash.to_string()) } else { None }
+            if name.trim_start_matches('*') == archive_name {
+                Some(hash.to_string())
+            } else {
+                None
+            }
         })
         .ok_or_else(|| t!("update.checksum_no_entry", "name" => archive_name).to_string())?;
 
@@ -131,7 +146,10 @@ pub fn do_update() {
 
     let (latest, _tag, changelog) = match get_latest_version() {
         Ok(v) => v,
-        Err(e) => { print_error(&e); return; }
+        Err(e) => {
+            print_error(&e);
+            return;
+        }
     };
 
     if !version_newer(&latest, current) {
@@ -139,7 +157,10 @@ pub fn do_update() {
         return;
     }
 
-    println!("{}", t!("update.available", "from" => current, "to" => latest));
+    println!(
+        "{}",
+        t!("update.available", "from" => current, "to" => latest)
+    );
     print_changelog(&changelog, current, &latest);
 
     // Changelog first, consent second — never replace the binary unasked.
@@ -155,13 +176,19 @@ fn install_version(latest: &str) {
     let current = env!("CARGO_PKG_VERSION");
     let platform = match detect_platform() {
         Some(p) => p,
-        None => { print_error(&t!("update.unsupported_platform")); return; }
+        None => {
+            print_error(&t!("update.unsupported_platform"));
+            return;
+        }
     };
 
     // Determine binary path
     let exe_path = match std::env::current_exe() {
         Ok(p) => p,
-        Err(e) => { print_error(&t!("update.cannot_find_binary", e = e)); return; }
+        Err(e) => {
+            print_error(&t!("update.cannot_find_binary", e = e));
+            return;
+        }
     };
 
     // Download platform archive
@@ -178,7 +205,11 @@ fn install_version(latest: &str) {
     let mut spinner = Spinner::start(&t!("update.downloading", "name" => archive_name));
     let client = match make_client() {
         Ok(c) => c,
-        Err(e) => { spinner.stop(); print_error(&e); return; }
+        Err(e) => {
+            spinner.stop();
+            print_error(&e);
+            return;
+        }
     };
     let resp = match client
         .get(&download_url)
@@ -186,7 +217,11 @@ fn install_version(latest: &str) {
         .send()
     {
         Ok(r) => r,
-        Err(e) => { spinner.stop(); print_error(&t!("update.download_error", e = e)); return; }
+        Err(e) => {
+            spinner.stop();
+            print_error(&t!("update.download_error", e = e));
+            return;
+        }
     };
     if !resp.status().is_success() {
         spinner.stop();
@@ -195,7 +230,11 @@ fn install_version(latest: &str) {
     }
     let bytes = match resp.bytes() {
         Ok(b) => b,
-        Err(e) => { spinner.stop(); print_error(&t!("update.download_error", e = e)); return; }
+        Err(e) => {
+            spinner.stop();
+            print_error(&t!("update.download_error", e = e));
+            return;
+        }
     };
     spinner.stop();
 
@@ -206,7 +245,10 @@ fn install_version(latest: &str) {
     }
 
     // Extract binary from archive to temp dir (same filesystem as binary for rename)
-    let tmp_dir = exe_path.parent().unwrap_or(Path::new(".")).join(".comma-update");
+    let tmp_dir = exe_path
+        .parent()
+        .unwrap_or(Path::new("."))
+        .join(".comma-update");
     let _ = std::fs::remove_dir_all(&tmp_dir);
     if let Err(e) = std::fs::create_dir_all(&tmp_dir) {
         print_error(&t!("update.create_temp_dir", "e" => e));
@@ -222,23 +264,38 @@ fn install_version(latest: &str) {
     let extracted_binary = if is_zip {
         // Use PowerShell to extract on Windows
         let status = std::process::Command::new("powershell")
-            .args(["-Command", &format!(
-                "Expand-Archive -Path '{}' -DestinationPath '{}' -Force",
-                archive_path.display(), tmp_dir.display()
-            )])
+            .args([
+                "-Command",
+                &format!(
+                    "Expand-Archive -Path '{}' -DestinationPath '{}' -Force",
+                    archive_path.display(),
+                    tmp_dir.display()
+                ),
+            ])
             .status();
         match status {
             Ok(s) if s.success() => tmp_dir.join("comma.exe"),
-            _ => { print_error(&t!("update.extract_zip_failed")); return; }
+            _ => {
+                print_error(&t!("update.extract_zip_failed"));
+                return;
+            }
         }
     } else {
         // Use tar on Unix
         let status = std::process::Command::new("tar")
-            .args(["xzf", archive_path.to_str().unwrap(), "-C", tmp_dir.to_str().unwrap()])
+            .args([
+                "xzf",
+                archive_path.to_str().unwrap(),
+                "-C",
+                tmp_dir.to_str().unwrap(),
+            ])
             .status();
         match status {
             Ok(s) if s.success() => tmp_dir.join("comma"),
-            _ => { print_error(&t!("update.extract_tar_failed")); return; }
+            _ => {
+                print_error(&t!("update.extract_tar_failed"));
+                return;
+            }
         }
     };
 
@@ -353,7 +410,10 @@ pub fn check_and_notify(auto_update: AutoUpdate) {
         return;
     }
 
-    println!("{}", t!("update.available", "from" => current, "to" => latest));
+    println!(
+        "{}",
+        t!("update.available", "from" => current, "to" => latest)
+    );
     print_changelog(&changelog, current, &latest);
     if prompt_confirm(&t!("update.prompt_upgrade")) {
         install_version(&latest);
@@ -363,7 +423,9 @@ pub fn check_and_notify(auto_update: AutoUpdate) {
     // Upgrade declined — offer to stop asking (Enter keeps checks enabled).
     if prompt_confirm_default_no(&t!("update.prompt_disable_auto")) {
         match disable_auto_update() {
-            Ok(path) => print_info(&t!("update.auto_disabled", "path" => path.display().to_string())),
+            Ok(path) => {
+                print_info(&t!("update.auto_disabled", "path" => path.display().to_string()))
+            }
             Err(e) => print_error(&e),
         }
     }
@@ -374,10 +436,13 @@ fn disable_auto_update() -> Result<std::path::PathBuf, String> {
     let home = home_dir()?;
     let path = crate::config::config_path(&home);
     if let Some(parent) = path.parent() {
-        std::fs::create_dir_all(parent)
-            .map_err(|e| t!("update.auto_disable_failed", "path" => path.display().to_string(), "e" => e).to_string())?;
+        std::fs::create_dir_all(parent).map_err(|e| {
+            t!("update.auto_disable_failed", "path" => path.display().to_string(), "e" => e)
+                .to_string()
+        })?;
     }
-    crate::config::write_auto_update_flag(&path, false)
-        .map_err(|e| t!("update.auto_disable_failed", "path" => path.display().to_string(), "e" => e).to_string())?;
+    crate::config::write_auto_update_flag(&path, false).map_err(|e| {
+        t!("update.auto_disable_failed", "path" => path.display().to_string(), "e" => e).to_string()
+    })?;
     Ok(path)
 }

@@ -16,22 +16,22 @@ mod update;
 extern crate rust_i18n;
 i18n!("locales", fallback = "en");
 
+use rustyline::Editor;
 use rustyline::config::Configurer;
 use rustyline::history::DefaultHistory;
-use rustyline::Editor;
 use std::io::{self, IsTerminal};
 
 use crate::cache::{CacheEntry, ResponseCache};
-use crate::config::{load_config, ApiStyle, Config, Reasoning};
+use crate::config::{ApiStyle, Config, Reasoning, load_config};
 use crate::context::{apply_placeholders, collect_placeholders};
-use crate::llm::{call_llm_with_retry, print_usage, Message};
+use crate::llm::{Message, call_llm_with_retry, print_usage};
 use crate::prompt::load_prompt;
 use crate::protocol::process_response;
 use crate::tests::run_tests;
 use crate::ui::{
-    copy_to_clipboard, edit_or_execute, is_bare_cd, is_comment_only, parse_candidates, print_cmd,
-    print_debug, print_error, print_info, prompt_confirm, prompt_input, prompt_input_fallback,
-    select_command, split_comment, EditAction, FileHelper, Spinner, Verbosity,
+    EditAction, FileHelper, Spinner, Verbosity, copy_to_clipboard, edit_or_execute, is_bare_cd,
+    is_comment_only, parse_candidates, print_cmd, print_debug, print_error, print_info,
+    prompt_confirm, prompt_input, prompt_input_fallback, select_command, split_comment,
 };
 use crate::update::{check_and_notify, do_update};
 
@@ -53,8 +53,21 @@ fn main() {
     let mut i = 0;
     while i < args.len() {
         let s = args[i].as_str();
-        let is_flag = matches!(s, "-h" | "--help" | "-V" | "--version" | "--update" | "--test" | "--setup" | "--default-prompt" | "-f" | "--nocache" | "--model" | "--reasoning" | "-r")
-            || (s.starts_with("-v") && s.chars().skip(1).all(|c| c == 'v'));
+        let is_flag = matches!(
+            s,
+            "-h" | "--help"
+                | "-V"
+                | "--version"
+                | "--update"
+                | "--test"
+                | "--setup"
+                | "--default-prompt"
+                | "-f"
+                | "--nocache"
+                | "--model"
+                | "--reasoning"
+                | "-r"
+        ) || (s.starts_with("-v") && s.chars().skip(1).all(|c| c == 'v'));
         if s == "--" {
             rest = &args[i + 1..];
             break;
@@ -86,7 +99,10 @@ fn main() {
     }
 
     if flags.iter().any(|a| *a == "-V" || *a == "--version") {
-        println!("{}", t!("general.version", "v" => env!("CARGO_PKG_VERSION")));
+        println!(
+            "{}",
+            t!("general.version", "v" => env!("CARGO_PKG_VERSION"))
+        );
         return;
     }
 
@@ -186,22 +202,33 @@ fn main() {
     if rest.is_empty() {
         if !std::io::stdin().is_terminal() {
             // Piped stdin: read intent from stdin and run one-shot
-            if let Some(intent) = read_stdin_intent() { run_oneshot(&config, &system, &intent, verbosity, false, force_refresh) }
+            if let Some(intent) = read_stdin_intent() {
+                run_oneshot(&config, &system, &intent, verbosity, false, force_refresh)
+            }
         } else {
             run_interactive(&config, &system, verbosity, false, force_refresh);
         }
     } else if rest.len() == 1 && rest[0] == "!" && !std::io::stdin().is_terminal() {
         // Scriptable auto-confirm escape hatch: echo 'intent' | , !
-        if let Some(intent) = read_stdin_intent() { run_oneshot(&config, &system, &intent, verbosity, true, force_refresh) }
+        if let Some(intent) = read_stdin_intent() {
+            run_oneshot(&config, &system, &intent, verbosity, true, force_refresh)
+        }
     } else {
         let intent = rest.join(" ");
         // Check for auto-confirm flag: , install fenster !
         let (intent, auto_confirm) = if intent.ends_with('!') {
-            (intent[..intent.len()-1].trim().to_string(), true)
+            (intent[..intent.len() - 1].trim().to_string(), true)
         } else {
             (intent, false)
         };
-        run_oneshot(&config, &system, &intent, verbosity, auto_confirm, force_refresh);
+        run_oneshot(
+            &config,
+            &system,
+            &intent,
+            verbosity,
+            auto_confirm,
+            force_refresh,
+        );
     }
 }
 
@@ -261,7 +288,14 @@ fn print_help() {
     println!("{}", t!("help.api_style_auto"));
 }
 
-fn run_oneshot(config: &Config, system: &str, intent: &str, v: Verbosity, auto_confirm: bool, force_refresh: bool) {
+fn run_oneshot(
+    config: &Config,
+    system: &str,
+    intent: &str,
+    v: Verbosity,
+    auto_confirm: bool,
+    force_refresh: bool,
+) {
     let mut messages = vec![Message {
         role: "user".into(),
         content: intent.to_string(),
@@ -273,13 +307,21 @@ fn run_oneshot(config: &Config, system: &str, intent: &str, v: Verbosity, auto_c
         print_info(&t!("info.cache_refreshed"));
     }
 
-    print_info(&format!("{} ({})", config.model(), style_label(config.api_style())));
+    print_info(&format!(
+        "{} ({})",
+        config.model(),
+        style_label(config.api_style())
+    ));
     if v.show_prompt() {
         print_debug(&format!("System prompt:\n{}", system));
         print_debug(&format!("User: {}", intent));
     }
     if v.show_debug() {
-        print_debug(&format!("Cache: {} entries (max {})", cache.len(), config.cache_size));
+        print_debug(&format!(
+            "Cache: {} entries (max {})",
+            cache.len(),
+            config.cache_size
+        ));
     }
 
     let mut rl = Editor::<FileHelper, DefaultHistory>::new().ok();
@@ -292,7 +334,16 @@ fn run_oneshot(config: &Config, system: &str, intent: &str, v: Verbosity, auto_c
     let (final_raw, resp) = match result {
         Ok(resp) => {
             print_usage(&resp.usage);
-            let final_raw = process_response(config, system, &messages, &resp.content, &ph, v, &cache, auto_confirm);
+            let final_raw = process_response(
+                config,
+                system,
+                &messages,
+                &resp.content,
+                &ph,
+                v,
+                &cache,
+                auto_confirm,
+            );
             (final_raw, resp)
         }
         Err(e) => {
@@ -372,14 +423,25 @@ fn run_oneshot(config: &Config, system: &str, intent: &str, v: Verbosity, auto_c
                     content: text,
                 });
 
-                let mut spinner = Spinner::start(&t!("interactive.thinking", "m" => config.model()));
-                let result = call_llm_with_retry(config, system, &messages, v, &cache, Some(&spinner));
+                let mut spinner =
+                    Spinner::start(&t!("interactive.thinking", "m" => config.model()));
+                let result =
+                    call_llm_with_retry(config, system, &messages, v, &cache, Some(&spinner));
                 spinner.stop();
 
                 match result {
                     Ok(resp) => {
                         print_usage(&resp.usage);
-                        current_raw = process_response(config, system, &messages, &resp.content, &ph, v, &cache, auto_confirm);
+                        current_raw = process_response(
+                            config,
+                            system,
+                            &messages,
+                            &resp.content,
+                            &ph,
+                            v,
+                            &cache,
+                            auto_confirm,
+                        );
                         last_cache_key = resp.cache_key.clone();
                         last_cache_entry = CacheEntry::from(&resp);
                         // Cache the final processed command, not a raw probe
@@ -403,7 +465,13 @@ fn run_oneshot(config: &Config, system: &str, intent: &str, v: Verbosity, auto_c
     check_and_notify(config.auto_update);
 }
 
-fn run_interactive(config: &Config, system: &str, v: Verbosity, auto_confirm: bool, force_refresh: bool) {
+fn run_interactive(
+    config: &Config,
+    system: &str,
+    v: Verbosity,
+    auto_confirm: bool,
+    force_refresh: bool,
+) {
     print_info(&t!(
         "interactive.welcome",
         m = config.model(),
@@ -418,7 +486,11 @@ fn run_interactive(config: &Config, system: &str, v: Verbosity, auto_confirm: bo
     }
 
     if v.show_debug() {
-        print_debug(&format!("Cache: {} entries (max {})", cache.len(), config.cache_size));
+        print_debug(&format!(
+            "Cache: {} entries (max {})",
+            cache.len(),
+            config.cache_size
+        ));
     }
 
     let mut rl = Editor::<FileHelper, DefaultHistory>::new().ok();
@@ -466,7 +538,9 @@ fn run_interactive(config: &Config, system: &str, v: Verbosity, auto_confirm: bo
                         EditAction::Execute(final_cmd) => {
                             execute(&final_cmd);
                             // Cache on execute
-                            if let (Some(key), Some(entry)) = (current_cache_key.take(), current_cache_entry.take()) {
+                            if let (Some(key), Some(entry)) =
+                                (current_cache_key.take(), current_cache_entry.take())
+                            {
                                 cache.put(key, entry);
                             }
                         }
@@ -481,15 +555,34 @@ fn run_interactive(config: &Config, system: &str, v: Verbosity, auto_confirm: bo
                                 content: text,
                             });
                             if v.show_prompt() {
-                                print_debug(&format!("Refine: {}", messages.last().unwrap().content));
+                                print_debug(&format!(
+                                    "Refine: {}",
+                                    messages.last().unwrap().content
+                                ));
                             }
                             let mut spinner = Spinner::start(&t!("interactive.thinking_short"));
-                            let result = call_llm_with_retry(config, system, &messages, v, &cache, Some(&spinner));
+                            let result = call_llm_with_retry(
+                                config,
+                                system,
+                                &messages,
+                                v,
+                                &cache,
+                                Some(&spinner),
+                            );
                             spinner.stop();
                             match result {
                                 Ok(resp) => {
                                     print_usage(&resp.usage);
-                                    let final_raw = process_response(config, system, &messages, &resp.content, &ph, v, &cache, auto_confirm);
+                                    let final_raw = process_response(
+                                        config,
+                                        system,
+                                        &messages,
+                                        &resp.content,
+                                        &ph,
+                                        v,
+                                        &cache,
+                                        auto_confirm,
+                                    );
                                     let candidates: Vec<String> = parse_candidates(&final_raw)
                                         .into_iter()
                                         .map(|c| apply_placeholders(&c, &ph))
@@ -550,12 +643,22 @@ fn run_interactive(config: &Config, system: &str, v: Verbosity, auto_confirm: bo
                     print_debug(&format!("User: {}", messages.last().unwrap().content));
                 }
                 let mut spinner = Spinner::start(&t!("interactive.thinking_short"));
-                let result = call_llm_with_retry(config, system, &messages, v, &cache, Some(&spinner));
+                let result =
+                    call_llm_with_retry(config, system, &messages, v, &cache, Some(&spinner));
                 spinner.stop();
                 match result {
                     Ok(resp) => {
                         print_usage(&resp.usage);
-                        let final_raw = process_response(config, system, &messages, &resp.content, &ph, v, &cache, auto_confirm);
+                        let final_raw = process_response(
+                            config,
+                            system,
+                            &messages,
+                            &resp.content,
+                            &ph,
+                            v,
+                            &cache,
+                            auto_confirm,
+                        );
                         let candidates: Vec<String> = parse_candidates(&final_raw)
                             .into_iter()
                             .map(|c| apply_placeholders(&c, &ph))
@@ -629,20 +732,20 @@ pub(crate) fn execute(cmd: &str) {
     let (command, _) = split_comment(cmd);
     print_info(&t!("info.running", "cmd" => command));
 
-    if let Ok(path) = std::env::var("COMMA_EVAL_FILE") {
-        if !path.is_empty() {
-            use std::io::Write;
-            let line = command.lines().next().unwrap_or("");
-            let result = std::fs::OpenOptions::new()
-                .create(true)
-                .append(true)
-                .open(&path)
-                .and_then(|mut f| writeln!(f, "{}", line));
-            if let Err(e) = result {
-                print_error(&t!("error.failed_write_eval", "path" => path, "e" => e));
-            }
-            return;
+    if let Ok(path) = std::env::var("COMMA_EVAL_FILE")
+        && !path.is_empty()
+    {
+        use std::io::Write;
+        let line = command.lines().next().unwrap_or("");
+        let result = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&path)
+            .and_then(|mut f| writeln!(f, "{}", line));
+        if let Err(e) = result {
+            print_error(&t!("error.failed_write_eval", "path" => path, "e" => e));
         }
+        return;
     }
 
     if is_bare_cd(command) {

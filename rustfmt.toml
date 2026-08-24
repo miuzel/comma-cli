@@ -1,0 +1,7 @@
+# Rustfmt configuration for comma-cli.
+#
+# Keep rustfmt defaults unless there is a deliberate style decision;
+# `cargo fmt --check` runs in CI (see .github/workflows/ci.yml), so this
+# file must stay in sync with what the whole repo is formatted against.
+
+edition = "2024"

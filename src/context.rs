@@ -9,7 +9,9 @@ pub fn run_cmd(cmd: &str, args: &[&str]) -> Option<String> {
         .ok()
         .and_then(|o| {
             if o.status.success() {
-                String::from_utf8(o.stdout).ok().map(|s| s.trim().to_string())
+                String::from_utf8(o.stdout)
+                    .ok()
+                    .map(|s| s.trim().to_string())
             } else {
                 None
             }
@@ -17,7 +19,9 @@ pub fn run_cmd(cmd: &str, args: &[&str]) -> Option<String> {
 }
 
 fn read_file(path: &str) -> Option<String> {
-    std::fs::read_to_string(path).ok().map(|s| s.trim().to_string())
+    std::fs::read_to_string(path)
+        .ok()
+        .map(|s| s.trim().to_string())
 }
 
 fn get_distro() -> String {
@@ -58,15 +62,15 @@ fn get_kernel_arch() -> (String, String) {
 /// commands are correct. Otherwise Windows commands run via `cmd /C`, so
 /// report cmd.exe rather than a Unix shell.
 pub fn get_shell() -> String {
-    if let Ok(s) = std::env::var("COMMA_EVAL_SHELL") {
-        if !s.is_empty() {
-            return s;
-        }
+    if let Ok(s) = std::env::var("COMMA_EVAL_SHELL")
+        && !s.is_empty()
+    {
+        return s;
     }
-    if let Ok(s) = std::env::var("SHELL") {
-        if !s.is_empty() {
-            return s;
-        }
+    if let Ok(s) = std::env::var("SHELL")
+        && !s.is_empty()
+    {
+        return s;
     }
     if cfg!(target_os = "windows") {
         // Heuristic: PowerShell sets PSModulePath; cmd does not. This lets
@@ -108,7 +112,16 @@ fn get_packages() -> String {
     let mut sections: Vec<String> = Vec::new();
 
     // Detect package manager
-    let managers: &[&str] = &["apt", "dnf", "yum", "pacman", "apk", "xbps-install", "zypper", "eopkg"];
+    let managers: &[&str] = &[
+        "apt",
+        "dnf",
+        "yum",
+        "pacman",
+        "apk",
+        "xbps-install",
+        "zypper",
+        "eopkg",
+    ];
     let pkg_mgr = managers.iter().find(|m| run_cmd("which", &[m]).is_some());
     if let Some(mgr) = pkg_mgr {
         sections.push(format!("[Package manager: {}]", mgr));
@@ -128,7 +141,10 @@ fn get_packages() -> String {
             .collect::<Vec<_>>()
             .join(", ");
         if user_pkgs.len() > MAX_USER_PACKAGES {
-            list.push_str(&format!(", ... ({} more)", user_pkgs.len() - MAX_USER_PACKAGES));
+            list.push_str(&format!(
+                ", ... ({} more)",
+                user_pkgs.len() - MAX_USER_PACKAGES
+            ));
         }
         sections.push(format!("[User-installed packages: {}]", list));
     }
@@ -219,7 +235,11 @@ fn get_user_packages() -> Vec<String> {
     }
     // Try dnf/yum (RHEL/Fedora)
     if let Some(output) = run_cmd("dnf", &["repoquery", "--userinstalled", "--qf", "%{name}"]) {
-        let pkgs: Vec<String> = output.lines().map(|l| l.trim().to_string()).filter(|l| !l.is_empty()).collect();
+        let pkgs: Vec<String> = output
+            .lines()
+            .map(|l| l.trim().to_string())
+            .filter(|l| !l.is_empty())
+            .collect();
         if !pkgs.is_empty() {
             return pkgs;
         }

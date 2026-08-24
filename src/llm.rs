@@ -2,10 +2,10 @@ use crossterm::style::{Color, ResetColor, SetForegroundColor};
 use serde::{Deserialize, Serialize};
 use std::io::{self, Write};
 
-use crate::cache::{cache_key, ResponseCache};
+use crate::cache::{ResponseCache, cache_key};
 use crate::config::{ApiStyle, Config, ModelEntry, Reasoning};
 use crate::style_label;
-use crate::ui::{print_debug, print_info, truncate, Spinner, Verbosity};
+use crate::ui::{Spinner, Verbosity, print_debug, print_info, truncate};
 use rust_i18n::t;
 
 // ── API ─────────────────────────────────────────────────────────────────────
@@ -213,8 +213,7 @@ fn normalize_base_url(url: &str) -> String {
 
 // ── Call LLM ────────────────────────────────────────────────────────────────
 
-pub const RETRY_HINT: &str =
-    "Your previous response was empty. You MUST output exactly ONE shell command. No explanations, no markdown fences. Just the raw command.";
+pub const RETRY_HINT: &str = "Your previous response was empty. You MUST output exactly ONE shell command. No explanations, no markdown fences. Just the raw command.";
 
 /// Look up one model entry's cache and build the `LlmResponse` on hit.
 /// Returns `None` on miss or when the cached content is empty.
@@ -264,8 +263,12 @@ fn call_llm(
     }
     let mut result = match entry.api_style {
         ApiStyle::OpenAI => call_openai(entry, system, messages, v, reasoning, max_output_tokens),
-        ApiStyle::OpenAIResponses => call_openai_responses(entry, system, messages, v, reasoning, max_output_tokens),
-        ApiStyle::Anthropic => call_anthropic(entry, system, messages, v, reasoning, max_output_tokens),
+        ApiStyle::OpenAIResponses => {
+            call_openai_responses(entry, system, messages, v, reasoning, max_output_tokens)
+        }
+        ApiStyle::Anthropic => {
+            call_anthropic(entry, system, messages, v, reasoning, max_output_tokens)
+        }
     };
 
     // Attach cache key (caller decides whether to store)
@@ -281,19 +284,31 @@ pub fn print_usage(u: &Usage) {
     let mut out = stdout.lock();
     let _ = write!(out, "{}", SetForegroundColor(Color::DarkGrey));
     if u.from_cache {
-        let _ = write!(out, "{}", t!("llm.usage_cached", "input" => u.input_tokens, "output" => u.output_tokens));
+        let _ = write!(
+            out,
+            "{}",
+            t!("llm.usage_cached", "input" => u.input_tokens, "output" => u.output_tokens)
+        );
     } else {
         let total = if u.total_tokens > 0 {
             u.total_tokens
         } else {
             u.input_tokens + u.output_tokens
         };
-        let _ = write!(out, "{}", t!("llm.usage_line", "input" => u.input_tokens, "output" => u.output_tokens, "total" => total));
+        let _ = write!(
+            out,
+            "{}",
+            t!("llm.usage_line", "input" => u.input_tokens, "output" => u.output_tokens, "total" => total)
+        );
         if u.cache_read > 0 {
             let _ = write!(out, "{}", t!("llm.usage_prompt_cache", "n" => u.cache_read));
         }
         if u.cache_creation > 0 {
-            let _ = write!(out, "{}", t!("llm.usage_prompt_cache_write", "n" => u.cache_creation));
+            let _ = write!(
+                out,
+                "{}",
+                t!("llm.usage_prompt_cache_write", "n" => u.cache_creation)
+            );
         }
         let _ = write!(out, "{}", t!("llm.usage_duration", "ms" => u.duration_ms));
     }
@@ -331,7 +346,11 @@ pub fn call_llm_with_retry(
     let mut last_err = String::new();
     for (idx, entry) in config.entries.iter().enumerate() {
         if idx > 0 {
-            print_info(&format!("Trying fallback: {} ({})...", entry.model, style_label(entry.api_style)));
+            print_info(&format!(
+                "Trying fallback: {} ({})...",
+                entry.model,
+                style_label(entry.api_style)
+            ));
         }
         if let Some(sp) = spinner {
             sp.set_message(&t!("interactive.thinking", "m" => entry.model));
@@ -342,7 +361,15 @@ pub fn call_llm_with_retry(
         let mut attempt = 0;
         while attempt < entry.retries {
             attempt += 1;
-            match call_llm(entry, system, &msgs, v, cache, &config.reasoning, config.max_output_tokens) {
+            match call_llm(
+                entry,
+                system,
+                &msgs,
+                v,
+                cache,
+                &config.reasoning,
+                config.max_output_tokens,
+            ) {
                 Ok(resp) if !resp.content.is_empty() => return Ok(resp),
                 Ok(_) => {
                     // Empty response — retry with hint, consuming the next attempt
@@ -388,7 +415,14 @@ pub fn make_client() -> Result<reqwest::blocking::Client, String> {
         .map_err(|e| t!("llm.http_client", "e" => e).to_string())
 }
 
-fn call_openai(entry: &ModelEntry, system: &str, messages: &[Message], v: Verbosity, reasoning: &Reasoning, max_output_tokens: Option<u32>) -> Result<LlmResponse, String> {
+fn call_openai(
+    entry: &ModelEntry,
+    system: &str,
+    messages: &[Message],
+    v: Verbosity,
+    reasoning: &Reasoning,
+    max_output_tokens: Option<u32>,
+) -> Result<LlmResponse, String> {
     let base = normalize_base_url(&entry.base_url);
     let url = format!("{}/v1/chat/completions", base);
 
@@ -434,10 +468,16 @@ fn call_openai(entry: &ModelEntry, system: &str, messages: &[Message], v: Verbos
 
     let elapsed = t0.elapsed();
     let status = resp.status();
-    let text = resp.text().map_err(|e| t!("llm.read_body", "e" => e).to_string())?;
+    let text = resp
+        .text()
+        .map_err(|e| t!("llm.read_body", "e" => e).to_string())?;
 
     if v.show_debug() {
-        print_debug(&format!("Status: {} ({:.1}s)", status, elapsed.as_secs_f64()));
+        print_debug(&format!(
+            "Status: {} ({:.1}s)",
+            status,
+            elapsed.as_secs_f64()
+        ));
         print_debug(&format!("Response:\n{}", truncate(&text, 2000)));
     }
 
@@ -448,18 +488,29 @@ fn call_openai(entry: &ModelEntry, system: &str, messages: &[Message], v: Verbos
     let api_resp: OpenAiResponse =
         serde_json::from_str(&text).map_err(|e| t!("llm.parse_response", "e" => e).to_string())?;
     if let Some(err) = api_resp.error {
-        return Err(err.message.unwrap_or_else(|| t!("llm.unknown_api_error").to_string()));
+        return Err(err
+            .message
+            .unwrap_or_else(|| t!("llm.unknown_api_error").to_string()));
     }
 
-    let usage = api_resp.usage.as_ref().map(|u| Usage {
-        input_tokens: u.prompt_tokens.unwrap_or(0),
-        output_tokens: u.completion_tokens.unwrap_or(0),
-        total_tokens: u.total_tokens.unwrap_or(0),
-        duration_ms: elapsed.as_millis() as u64,
-        ..Usage::default()
-    }).unwrap_or(Usage { duration_ms: elapsed.as_millis() as u64, ..Usage::default() });
+    let usage = api_resp
+        .usage
+        .as_ref()
+        .map(|u| Usage {
+            input_tokens: u.prompt_tokens.unwrap_or(0),
+            output_tokens: u.completion_tokens.unwrap_or(0),
+            total_tokens: u.total_tokens.unwrap_or(0),
+            duration_ms: elapsed.as_millis() as u64,
+            ..Usage::default()
+        })
+        .unwrap_or(Usage {
+            duration_ms: elapsed.as_millis() as u64,
+            ..Usage::default()
+        });
 
-    let choices = api_resp.choices.ok_or(t!("llm.empty_response_choices").to_string())?;
+    let choices = api_resp
+        .choices
+        .ok_or(t!("llm.empty_response_choices").to_string())?;
     let content = choices
         .first()
         .and_then(|c| c.message.as_ref())
@@ -471,7 +522,11 @@ fn call_openai(entry: &ModelEntry, system: &str, messages: &[Message], v: Verbos
         print_debug(&format!("LLM reply: {}", content));
     }
 
-    Ok(LlmResponse { content: content.to_string(), usage, cache_key: None })
+    Ok(LlmResponse {
+        content: content.to_string(),
+        usage,
+        cache_key: None,
+    })
 }
 
 /// OpenAI Responses API (`/v1/responses`). The system prompt is sent as a
@@ -479,7 +534,14 @@ fn call_openai(entry: &ModelEntry, system: &str, messages: &[Message], v: Verbos
 /// emulations of /v1/responses (chat-completions adapters) often drop
 /// `instructions` entirely, silently stripping the command-generator rules.
 /// History maps user→input_text, assistant→output_text.
-fn call_openai_responses(entry: &ModelEntry, system: &str, messages: &[Message], v: Verbosity, reasoning: &Reasoning, max_output_tokens: Option<u32>) -> Result<LlmResponse, String> {
+fn call_openai_responses(
+    entry: &ModelEntry,
+    system: &str,
+    messages: &[Message],
+    v: Verbosity,
+    reasoning: &Reasoning,
+    max_output_tokens: Option<u32>,
+) -> Result<LlmResponse, String> {
     let base = normalize_base_url(&entry.base_url);
     let url = format!("{}/v1/responses", base);
 
@@ -537,10 +599,16 @@ fn call_openai_responses(entry: &ModelEntry, system: &str, messages: &[Message],
 
     let elapsed = t0.elapsed();
     let status = resp.status();
-    let text = resp.text().map_err(|e| t!("llm.read_body", "e" => e).to_string())?;
+    let text = resp
+        .text()
+        .map_err(|e| t!("llm.read_body", "e" => e).to_string())?;
 
     if v.show_debug() {
-        print_debug(&format!("Status: {} ({:.1}s)", status, elapsed.as_secs_f64()));
+        print_debug(&format!(
+            "Status: {} ({:.1}s)",
+            status,
+            elapsed.as_secs_f64()
+        ));
         print_debug(&format!("Response:\n{}", truncate(&text, 2000)));
     }
 
@@ -551,17 +619,30 @@ fn call_openai_responses(entry: &ModelEntry, system: &str, messages: &[Message],
     let api_resp: ResponsesResponse =
         serde_json::from_str(&text).map_err(|e| t!("llm.parse_response", "e" => e).to_string())?;
     if let Some(err) = api_resp.error {
-        return Err(err.message.unwrap_or_else(|| t!("llm.unknown_api_error").to_string()));
+        return Err(err
+            .message
+            .unwrap_or_else(|| t!("llm.unknown_api_error").to_string()));
     }
 
-    let usage = api_resp.usage.as_ref().map(|u| Usage {
-        input_tokens: u.input_tokens.unwrap_or(0),
-        output_tokens: u.output_tokens.unwrap_or(0),
-        total_tokens: u.total_tokens.unwrap_or(0),
-        cache_read: u.input_tokens_details.as_ref().and_then(|d| d.cached_tokens).unwrap_or(0),
-        duration_ms: elapsed.as_millis() as u64,
-        ..Usage::default()
-    }).unwrap_or(Usage { duration_ms: elapsed.as_millis() as u64, ..Usage::default() });
+    let usage = api_resp
+        .usage
+        .as_ref()
+        .map(|u| Usage {
+            input_tokens: u.input_tokens.unwrap_or(0),
+            output_tokens: u.output_tokens.unwrap_or(0),
+            total_tokens: u.total_tokens.unwrap_or(0),
+            cache_read: u
+                .input_tokens_details
+                .as_ref()
+                .and_then(|d| d.cached_tokens)
+                .unwrap_or(0),
+            duration_ms: elapsed.as_millis() as u64,
+            ..Usage::default()
+        })
+        .unwrap_or(Usage {
+            duration_ms: elapsed.as_millis() as u64,
+            ..Usage::default()
+        });
 
     // Concatenate output_text parts of message items; reasoning and other
     // item types are ignored.
@@ -583,10 +664,21 @@ fn call_openai_responses(entry: &ModelEntry, system: &str, messages: &[Message],
         print_debug(&format!("LLM reply: {}", content));
     }
 
-    Ok(LlmResponse { content, usage, cache_key: None })
+    Ok(LlmResponse {
+        content,
+        usage,
+        cache_key: None,
+    })
 }
 
-fn call_anthropic(entry: &ModelEntry, system: &str, messages: &[Message], v: Verbosity, reasoning: &Reasoning, max_output_tokens: Option<u32>) -> Result<LlmResponse, String> {
+fn call_anthropic(
+    entry: &ModelEntry,
+    system: &str,
+    messages: &[Message],
+    v: Verbosity,
+    reasoning: &Reasoning,
+    max_output_tokens: Option<u32>,
+) -> Result<LlmResponse, String> {
     let base = normalize_base_url(&entry.base_url);
     let url = format!("{}/v1/messages", base);
 
@@ -632,10 +724,16 @@ fn call_anthropic(entry: &ModelEntry, system: &str, messages: &[Message], v: Ver
 
     let elapsed = t0.elapsed();
     let status = resp.status();
-    let text = resp.text().map_err(|e| t!("llm.read_body", "e" => e).to_string())?;
+    let text = resp
+        .text()
+        .map_err(|e| t!("llm.read_body", "e" => e).to_string())?;
 
     if v.show_debug() {
-        print_debug(&format!("Status: {} ({:.1}s)", status, elapsed.as_secs_f64()));
+        print_debug(&format!(
+            "Status: {} ({:.1}s)",
+            status,
+            elapsed.as_secs_f64()
+        ));
         print_debug(&format!("Response:\n{}", truncate(&text, 2000)));
     }
 
@@ -646,27 +744,38 @@ fn call_anthropic(entry: &ModelEntry, system: &str, messages: &[Message], v: Ver
     let api_resp: AnthropicResponse =
         serde_json::from_str(&text).map_err(|e| t!("llm.parse_response", "e" => e).to_string())?;
     if let Some(err) = api_resp.error {
-        return Err(err.message.unwrap_or_else(|| t!("llm.unknown_api_error").to_string()));
+        return Err(err
+            .message
+            .unwrap_or_else(|| t!("llm.unknown_api_error").to_string()));
     }
 
-    let usage = api_resp.usage.as_ref().map(|u| Usage {
-        input_tokens: u.input_tokens.unwrap_or(0),
-        output_tokens: u.output_tokens.unwrap_or(0),
-        cache_read: u.cache_read_input_tokens.unwrap_or(0),
-        cache_creation: u.cache_creation_input_tokens.unwrap_or(0),
-        duration_ms: elapsed.as_millis() as u64,
-        ..Usage::default()
-    }).unwrap_or(Usage { duration_ms: elapsed.as_millis() as u64, ..Usage::default() });
+    let usage = api_resp
+        .usage
+        .as_ref()
+        .map(|u| Usage {
+            input_tokens: u.input_tokens.unwrap_or(0),
+            output_tokens: u.output_tokens.unwrap_or(0),
+            cache_read: u.cache_read_input_tokens.unwrap_or(0),
+            cache_creation: u.cache_creation_input_tokens.unwrap_or(0),
+            duration_ms: elapsed.as_millis() as u64,
+            ..Usage::default()
+        })
+        .unwrap_or(Usage {
+            duration_ms: elapsed.as_millis() as u64,
+            ..Usage::default()
+        });
 
-    let content = api_resp.content.ok_or(t!("llm.empty_response").to_string())?;
+    let content = api_resp
+        .content
+        .ok_or(t!("llm.empty_response").to_string())?;
 
     // Show thinking blocks in verbose mode
     if v.show_prompt() {
         for block in &content {
-            if block.block_type.as_deref() == Some("thinking") {
-                if let Some(ref t) = block.thinking {
-                    print_debug(&format!("Thinking:\n{}", truncate(t, 500)));
-                }
+            if block.block_type.as_deref() == Some("thinking")
+                && let Some(ref t) = block.thinking
+            {
+                print_debug(&format!("Thinking:\n{}", truncate(t, 500)));
             }
         }
     }
@@ -684,5 +793,9 @@ fn call_anthropic(entry: &ModelEntry, system: &str, messages: &[Message], v: Ver
         print_debug(&format!("LLM reply: {}", trimmed));
     }
 
-    Ok(LlmResponse { content: trimmed.to_string(), usage, cache_key: None })
+    Ok(LlmResponse {
+        content: trimmed.to_string(),
+        usage,
+        cache_key: None,
+    })
 }

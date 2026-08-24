@@ -19,21 +19,21 @@ pub fn init(config: &Config) {
 /// Detect the language from environment variables only (before config is loaded).
 fn detect_lang_from_env() -> String {
     // 1. COMMA_LANG environment variable
-    if let Ok(lang) = std::env::var("COMMA_LANG") {
-        if !lang.is_empty() {
-            return normalize_lang(&lang);
-        }
+    if let Ok(lang) = std::env::var("COMMA_LANG")
+        && !lang.is_empty()
+    {
+        return normalize_lang(&lang);
     }
 
     // 2. System locale (LANG, LC_ALL, LC_MESSAGES)
     for var in &["LC_ALL", "LC_MESSAGES", "LANG"] {
-        if let Ok(locale) = std::env::var(var) {
-            if !locale.is_empty() {
-                // Extract language code from locale string (e.g., "zh_CN.UTF-8" -> "zh")
-                let lang = locale.split('.').next().unwrap_or(&locale);
-                let lang = lang.split('_').next().unwrap_or(lang);
-                return normalize_lang(lang);
-            }
+        if let Ok(locale) = std::env::var(var)
+            && !locale.is_empty()
+        {
+            // Extract language code from locale string (e.g., "zh_CN.UTF-8" -> "zh")
+            let lang = locale.split('.').next().unwrap_or(&locale);
+            let lang = lang.split('_').next().unwrap_or(lang);
+            return normalize_lang(lang);
         }
     }
 
@@ -44,10 +44,10 @@ fn detect_lang_from_env() -> String {
 /// Detect the language to use based on config and environment variables.
 fn detect_lang(config: &Config) -> String {
     // 1. Config file lang field (highest priority)
-    if let Some(ref lang) = config.lang {
-        if !lang.is_empty() {
-            return normalize_lang(lang);
-        }
+    if let Some(lang) = &config.lang
+        && !lang.is_empty()
+    {
+        return normalize_lang(lang);
     }
 
     // 2. Fall back to environment-based detection

@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-use crate::config::{config_path, home_dir, xdg_or_legacy, Config};
+use crate::config::{Config, config_path, home_dir, xdg_or_legacy};
 use crate::context::gather_context;
 
 // ── Prompt ──────────────────────────────────────────────────────────────────
@@ -9,13 +9,25 @@ use crate::context::gather_context;
 /// Path to the prompt template file (XDG-first with executable-adjacent and
 /// legacy fallbacks, same rule as `config_path`).
 pub fn prompt_path(home: &str) -> PathBuf {
-    xdg_or_legacy(home, "XDG_CONFIG_HOME", ".config", "prompt.md", ".prompt.md")
+    xdg_or_legacy(
+        home,
+        "XDG_CONFIG_HOME",
+        ".config",
+        "prompt.md",
+        ".prompt.md",
+    )
 }
 
 /// Path to the additional prompt file: appended to the compiled default
 /// template so upgrades to the default keep working for customized setups.
 pub fn additional_prompt_path(home: &str) -> PathBuf {
-    xdg_or_legacy(home, "XDG_CONFIG_HOME", ".config", "additional_prompt.md", ".additional_prompt.md")
+    xdg_or_legacy(
+        home,
+        "XDG_CONFIG_HOME",
+        ".config",
+        "additional_prompt.md",
+        ".additional_prompt.md",
+    )
 }
 
 /// Resolve a `full_prompt` config value to template text: `~/` expands to the
@@ -47,7 +59,11 @@ fn read_full_prompt(value: &str, home: &str) -> String {
 ///
 /// A legacy prompt.md identical to the default is just the installed copy and
 /// is ignored so upgrades to the default template take effect.
-pub(crate) fn pick_template(full: Option<&str>, legacy: Option<&str>, additional: Option<&str>) -> String {
+pub(crate) fn pick_template(
+    full: Option<&str>,
+    legacy: Option<&str>,
+    additional: Option<&str>,
+) -> String {
     if let Some(f) = full.filter(|s| !s.trim().is_empty()) {
         return f.to_string();
     }
@@ -63,7 +79,10 @@ pub(crate) fn pick_template(full: Option<&str>, legacy: Option<&str>, additional
 pub fn load_prompt(config: &Config) -> String {
     let home = home_dir().unwrap_or_default();
 
-    let full = config.full_prompt.as_deref().map(|v| read_full_prompt(v, &home));
+    let full = config
+        .full_prompt
+        .as_deref()
+        .map(|v| read_full_prompt(v, &home));
     let legacy = std::fs::read_to_string(prompt_path(&home)).ok();
     let additional = std::fs::read_to_string(additional_prompt_path(&home)).ok();
     let raw = pick_template(full.as_deref(), legacy.as_deref(), additional.as_deref());
@@ -71,7 +90,8 @@ pub fn load_prompt(config: &Config) -> String {
     let ctx = gather_context();
     let prefs = format_preferences(&config.prefer);
 
-    let mut prompt = raw.replace("{{SYSTEM_CONTEXT}}", &ctx)
+    let mut prompt = raw
+        .replace("{{SYSTEM_CONTEXT}}", &ctx)
         .replace("{{PREFERENCES}}", &prefs);
 
     // #SEARCH rules are appended at runtime (not baked into the template) so

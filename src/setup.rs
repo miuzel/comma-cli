@@ -8,12 +8,12 @@ use std::path::{Path, PathBuf};
 
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyEventKind, KeyModifiers};
 use rust_i18n::t;
-use rustyline::history::DefaultHistory;
 use rustyline::Editor;
-use serde_json::{json, Map, Value};
+use rustyline::history::DefaultHistory;
+use serde_json::{Map, Value, json};
 
-use crate::config::{config_path, home_dir, Reasoning};
-use crate::ui::{print_error, print_info, prompt_confirm, FileHelper};
+use crate::config::{Reasoning, config_path, home_dir};
+use crate::ui::{FileHelper, print_error, print_info, prompt_confirm};
 
 // ── Data model ──────────────────────────────────────────────────────────────
 
@@ -45,9 +45,19 @@ impl SetupSearch {
     pub fn from_json(json: &Value) -> Self {
         let s = &json["search"];
         SetupSearch {
-            provider: s["provider"].as_str().filter(|p| !p.is_empty()).unwrap_or("off").to_string(),
-            api_key: s["api_key"].as_str().filter(|v| !v.is_empty()).map(|v| v.to_string()),
-            base_url: s["base_url"].as_str().filter(|v| !v.is_empty()).map(|v| v.to_string()),
+            provider: s["provider"]
+                .as_str()
+                .filter(|p| !p.is_empty())
+                .unwrap_or("off")
+                .to_string(),
+            api_key: s["api_key"]
+                .as_str()
+                .filter(|v| !v.is_empty())
+                .map(|v| v.to_string()),
+            base_url: s["base_url"]
+                .as_str()
+                .filter(|v| !v.is_empty())
+                .map(|v| v.to_string()),
             max_results: s["max_results"].as_u64().map(|n| n as usize),
         }
     }
@@ -86,20 +96,29 @@ pub fn json_to_entries(json: &Value) -> Vec<SetupEntry> {
                 provider,
                 base_url: p["base_url"].as_str().unwrap_or_default().to_string(),
                 auth_token: p["auth_token"].as_str().unwrap_or_default().to_string(),
-                api_style: p["api_style"].as_str().filter(|s| !s.is_empty()).map(|s| s.to_string()),
+                api_style: p["api_style"]
+                    .as_str()
+                    .filter(|s| !s.is_empty())
+                    .map(|s| s.to_string()),
                 model: m["model"].as_str().unwrap_or_default().to_string(),
                 retries: m["retries"].as_u64().unwrap_or(1).max(1) as usize,
                 reasoning: serde_json::from_value(m["reasoning"].clone()).ok(),
                 max_output_tokens: m["max_output_tokens"].as_u64().map(|n| n as u32),
             });
         }
-    } else if json["base_url"].is_string() || json["auth_token"].is_string() || json["model"].is_string() {
+    } else if json["base_url"].is_string()
+        || json["auth_token"].is_string()
+        || json["model"].is_string()
+    {
         // Legacy single-model format — upgraded to providers+models on save.
         entries.push(SetupEntry {
             provider: "default".to_string(),
             base_url: json["base_url"].as_str().unwrap_or_default().to_string(),
             auth_token: json["auth_token"].as_str().unwrap_or_default().to_string(),
-            api_style: json["api_style"].as_str().filter(|s| !s.is_empty()).map(|s| s.to_string()),
+            api_style: json["api_style"]
+                .as_str()
+                .filter(|s| !s.is_empty())
+                .map(|s| s.to_string()),
             model: json["model"].as_str().unwrap_or_default().to_string(),
             retries: 1,
             reasoning: None,
@@ -138,27 +157,34 @@ pub fn entries_to_json(entries: &[SetupEntry], search: &SetupSearch, existing: &
         }
         providers.insert(e.provider.clone(), Value::Object(p));
     }
-    let models: Vec<Value> = entries.iter().map(|e| {
-        let mut m = Map::new();
-        m.insert("provider".into(), json!(e.provider));
-        m.insert("model".into(), json!(e.model));
-        if e.retries > 1 {
-            m.insert("retries".into(), json!(e.retries));
-        }
-        if let Some(r) = &e.reasoning {
-            m.insert("reasoning".into(), reasoning_to_json(r));
-        }
-        if let Some(n) = e.max_output_tokens {
-            m.insert("max_output_tokens".into(), json!(n));
-        }
-        Value::Object(m)
-    }).collect();
+    let models: Vec<Value> = entries
+        .iter()
+        .map(|e| {
+            let mut m = Map::new();
+            m.insert("provider".into(), json!(e.provider));
+            m.insert("model".into(), json!(e.model));
+            if e.retries > 1 {
+                m.insert("retries".into(), json!(e.retries));
+            }
+            if let Some(r) = &e.reasoning {
+                m.insert("reasoning".into(), reasoning_to_json(r));
+            }
+            if let Some(n) = e.max_output_tokens {
+                m.insert("max_output_tokens".into(), json!(n));
+            }
+            Value::Object(m)
+        })
+        .collect();
     obj.insert("providers".into(), Value::Object(providers));
     obj.insert("models".into(), json!(models));
 
     match search.to_json() {
-        Some(s) => { obj.insert("search".into(), s); }
-        None => { obj.remove("search"); }
+        Some(s) => {
+            obj.insert("search".into(), s);
+        }
+        None => {
+            obj.remove("search");
+        }
     }
     Value::Object(obj)
 }
@@ -166,10 +192,14 @@ pub fn entries_to_json(entries: &[SetupEntry], search: &SetupSearch, existing: &
 /// Swap an entry with its neighbor; returns false at the list edges.
 pub fn move_item<T>(v: &mut [T], i: usize, up: bool) -> bool {
     let j = if up {
-        if i == 0 { return false; }
+        if i == 0 {
+            return false;
+        }
         i - 1
     } else {
-        if i + 1 >= v.len() { return false; }
+        if i + 1 >= v.len() {
+            return false;
+        }
         i + 1
     };
     v.swap(i, j);
@@ -196,7 +226,15 @@ fn civil_from_days(z: i64) -> (i64, u32, u32) {
 pub fn utc_timestamp(now_secs: u64) -> String {
     let (y, mo, d) = civil_from_days((now_secs / 86400) as i64);
     let s = now_secs % 86400;
-    format!("{:04}{:02}{:02}-{:02}{:02}{:02}", y, mo, d, s / 3600, (s % 3600) / 60, s % 60)
+    format!(
+        "{:04}{:02}{:02}-{:02}{:02}{:02}",
+        y,
+        mo,
+        d,
+        s / 3600,
+        (s % 3600) / 60,
+        s % 60
+    )
 }
 
 /// Copy `path` to `<name>.<UTC timestamp>.bak` next to it. Returns the backup
@@ -209,7 +247,10 @@ pub fn backup_with_timestamp(path: &Path) -> Result<Option<PathBuf>, String> {
         .duration_since(std::time::UNIX_EPOCH)
         .map_err(|e| e.to_string())?
         .as_secs();
-    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("config.json");
+    let name = path
+        .file_name()
+        .and_then(|n| n.to_str())
+        .unwrap_or("config.json");
     let backup = path.with_file_name(format!("{}.{}.bak", name, utc_timestamp(now)));
     std::fs::copy(path, &backup).map_err(|e| e.to_string())?;
     Ok(Some(backup))
@@ -227,7 +268,9 @@ pub fn save_config(path: &Path, json: &Value) -> Result<Option<PathBuf>, String>
     let out = serde_json::to_string_pretty(json).map_err(|e| e.to_string())?;
     let tmp = path.with_file_name(format!(
         ".tmp-{}",
-        path.file_name().and_then(|n| n.to_str()).unwrap_or("config.json")
+        path.file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("config.json")
     ));
     std::fs::write(&tmp, out).map_err(|e| e.to_string())?;
     std::fs::rename(&tmp, path).map_err(|e| e.to_string())?;
@@ -265,7 +308,13 @@ fn menu_select(title: &str, items: &[String]) -> Option<usize> {
 
     let _ = crossterm::terminal::enable_raw_mode();
     let result = loop {
-        if let Ok(Event::Key(KeyEvent { code, modifiers, kind, .. })) = event::read() {
+        if let Ok(Event::Key(KeyEvent {
+            code,
+            modifiers,
+            kind,
+            ..
+        })) = event::read()
+        {
             // Act on Press only (Windows also reports Release/Repeat).
             if kind != KeyEventKind::Press {
                 continue;
@@ -279,7 +328,11 @@ fn menu_select(title: &str, items: &[String]) -> Option<usize> {
                 }
                 KeyCode::Tab => selected = (selected + 1) % items.len(),
                 KeyCode::BackTab => {
-                    selected = if selected == 0 { items.len() - 1 } else { selected - 1 };
+                    selected = if selected == 0 {
+                        items.len() - 1
+                    } else {
+                        selected - 1
+                    };
                 }
                 KeyCode::Enter => break Some(selected),
                 KeyCode::Char('c') if modifiers.contains(KeyModifiers::CONTROL) => break None,
@@ -307,9 +360,11 @@ fn menu_select(title: &str, items: &[String]) -> Option<usize> {
 
 /// One line of text via rustyline. Empty input keeps `current`; the returned
 /// Option is None only when the user aborts (Ctrl-C/Ctrl-D).
-fn text_prompt(rl: &mut Editor<FileHelper, DefaultHistory>, label: &str, current: Option<&str>)
-    -> Option<String>
-{
+fn text_prompt(
+    rl: &mut Editor<FileHelper, DefaultHistory>,
+    label: &str,
+    current: Option<&str>,
+) -> Option<String> {
     let prompt = match current {
         Some(c) if !c.is_empty() => format!("  {} [{}]: ", label, c),
         _ => format!("  {}: ", label),
@@ -416,8 +471,7 @@ fn add_entry(entries: &mut Vec<SetupEntry>) {
         _ => return,
     };
     let style_label = t!("setup.prompt_api_style", "auto" => auto_style).to_string();
-    let api_style = text_prompt(&mut rl, &style_label, None)
-        .filter(|s| !s.is_empty());
+    let api_style = text_prompt(&mut rl, &style_label, None).filter(|s| !s.is_empty());
     let retries = text_prompt(&mut rl, &t!("setup.prompt_retries"), None)
         .and_then(|s| s.parse().ok())
         .unwrap_or(1);
@@ -443,22 +497,30 @@ fn edit_entry(entries: &mut [SetupEntry]) {
     // Field names are the literal config keys — left untranslated on purpose.
     if let Some(v) = text_prompt(&mut rl, "base_url", Some(&e.base_url)) {
         e.base_url = v;
-    } else { return; }
+    } else {
+        return;
+    }
     if let Some(v) = text_prompt(&mut rl, "auth_token", Some(&mask_secret(&e.auth_token))) {
         if !v.contains('…') {
             e.auth_token = v;
         }
-    } else { return; }
+    } else {
+        return;
+    }
     if let Some(v) = text_prompt(&mut rl, "model", Some(&e.model)) {
         e.model = v;
-    } else { return; }
+    } else {
+        return;
+    }
     if let Some(v) = text_prompt(&mut rl, "api_style", e.api_style.as_deref()) {
         e.api_style = if v.is_empty() { None } else { Some(v) };
-    } else { return; }
-    if let Some(v) = text_prompt(&mut rl, "retries", Some(&e.retries.to_string())) {
-        if let Ok(n) = v.parse() {
-            e.retries = n;
-        }
+    } else {
+        return;
+    }
+    if let Some(v) = text_prompt(&mut rl, "retries", Some(&e.retries.to_string()))
+        && let Ok(n) = v.parse()
+    {
+        e.retries = n;
     }
 }
 
@@ -476,11 +538,20 @@ fn reorder_entry(entries: &mut [SetupEntry], up: bool) {
 
 fn search_section(search: &mut SetupSearch) {
     let backends = ["off", "duckduckgo", "mojeek", "brave", "tavily", "searxng"];
-    let items: Vec<String> = backends.iter()
-        .map(|b| if *b == search.provider { format!("{} ●", b) } else { b.to_string() })
+    let items: Vec<String> = backends
+        .iter()
+        .map(|b| {
+            if *b == search.provider {
+                format!("{} ●", b)
+            } else {
+                b.to_string()
+            }
+        })
         .collect();
     let title = t!("setup.search_title").to_string();
-    let Some(i) = menu_select(&title, &items) else { return };
+    let Some(i) = menu_select(&title, &items) else {
+        return;
+    };
     let chosen = backends[i];
     search.provider = chosen.to_string();
 
@@ -491,10 +562,14 @@ fn search_section(search: &mut SetupSearch) {
     match chosen {
         "brave" | "tavily" => {
             let label = t!("setup.prompt_api_key", "provider" => chosen).to_string();
-            if let Some(v) = text_prompt(&mut rl, &label, search.api_key.as_deref().map(mask_secret).as_deref()) {
-                if !v.contains('…') && !v.is_empty() {
-                    search.api_key = Some(v);
-                }
+            if let Some(v) = text_prompt(
+                &mut rl,
+                &label,
+                search.api_key.as_deref().map(mask_secret).as_deref(),
+            ) && !v.contains('…')
+                && !v.is_empty()
+            {
+                search.api_key = Some(v);
             }
         }
         "searxng" => {
@@ -532,10 +607,14 @@ pub fn run_setup() -> Result<bool, String> {
 
     let existing: Value = match std::fs::read_to_string(&path) {
         Ok(data) => {
-            let v: Value = serde_json::from_str(&data)
-                .map_err(|e| t!("config.invalid_file", "path" => path.display(), "e" => e).to_string())?;
+            let v: Value = serde_json::from_str(&data).map_err(|e| {
+                t!("config.invalid_file", "path" => path.display(), "e" => e).to_string()
+            })?;
             if !v.is_object() {
-                return Err(t!("config.invalid_file", "path" => path.display(), "e" => "not an object").to_string());
+                return Err(
+                    t!("config.invalid_file", "path" => path.display(), "e" => "not an object")
+                        .to_string(),
+                );
             }
             v
         }
@@ -568,13 +647,16 @@ pub fn run_setup() -> Result<bool, String> {
                         print_info(&t!("setup.saved", "path" => path.display()));
                         return Ok(true);
                     }
-                    Err(e) => return Err(t!("setup.save_failed", "path" => path.display(), "e" => e).to_string()),
+                    Err(e) => {
+                        return Err(
+                            t!("setup.save_failed", "path" => path.display(), "e" => e).to_string()
+                        );
+                    }
                 }
             }
-            Some(3) | None
-                if prompt_confirm(&t!("setup.discard_confirm")) => {
-                    return Ok(false);
-                }
+            Some(3) | None if prompt_confirm(&t!("setup.discard_confirm")) => {
+                return Ok(false);
+            }
             _ => {}
         }
     }

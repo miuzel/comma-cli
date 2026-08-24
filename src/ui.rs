@@ -197,7 +197,13 @@ pub fn select_command(candidates: &[String]) -> Option<usize> {
     let _ = crossterm::terminal::enable_raw_mode();
 
     let result = loop {
-        if let Ok(Event::Key(KeyEvent { code, modifiers, kind, .. })) = event::read() {
+        if let Ok(Event::Key(KeyEvent {
+            code,
+            modifiers,
+            kind,
+            ..
+        })) = event::read()
+        {
             // Windows reports Press/Repeat/Release events; act on Press only,
             // or a key release would also move the selection. On Unix only
             // Press is reported, so this is a no-op there.
@@ -291,9 +297,21 @@ fn draw_candidates(candidates: &[String], selected: usize) -> u16 {
             Color::DarkGrey
         };
         let _ = write!(out, "\r{}{} ", SetForegroundColor(Color::Cyan), marker);
-        let _ = write!(out, "{}{}{}", SetForegroundColor(color), command, ResetColor);
+        let _ = write!(
+            out,
+            "{}{}{}",
+            SetForegroundColor(color),
+            command,
+            ResetColor
+        );
         if let Some(cmt) = comment {
-            let _ = write!(out, "  {}# {}{}", SetForegroundColor(Color::DarkGrey), cmt, ResetColor);
+            let _ = write!(
+                out,
+                "  {}# {}{}",
+                SetForegroundColor(Color::DarkGrey),
+                cmt,
+                ResetColor
+            );
         }
         if is_dangerous(command) {
             let _ = write!(out, " {}⚠{}", SetForegroundColor(Color::Red), ResetColor);
@@ -441,7 +459,11 @@ pub fn prompt_confirm_default_no(msg: &str) -> bool {
 fn prompt_confirm_enter(msg: &str, enter_means_yes: bool) -> bool {
     let stdout = io::stdout();
     let mut out = stdout.lock();
-    let suffix = if enter_means_yes { "[Enter/y/N]" } else { "[y/N]" };
+    let suffix = if enter_means_yes {
+        "[Enter/y/N]"
+    } else {
+        "[y/N]"
+    };
     let _ = write!(
         out,
         "{}{}{} {} ",
@@ -461,7 +483,13 @@ fn prompt_confirm_enter(msg: &str, enter_means_yes: bool) -> bool {
 
     let _ = crossterm::terminal::enable_raw_mode();
     let result = loop {
-        if let Ok(Event::Key(KeyEvent { code, modifiers, kind, .. })) = event::read() {
+        if let Ok(Event::Key(KeyEvent {
+            code,
+            modifiers,
+            kind,
+            ..
+        })) = event::read()
+        {
             // Windows reports Press/Repeat/Release events; act on Press only,
             // or a buffered Enter release would confirm without a keypress.
             // On Unix only Press is reported, so this is a no-op there.
@@ -542,7 +570,12 @@ pub fn edit_or_execute(cmd: &str, rl: &mut Editor<FileHelper, DefaultHistory>) -
                 }
                 KeyCode::Char('e') => {
                     let _ = crossterm::terminal::disable_raw_mode();
-                    let edit_prompt = format!("{}{}{}", SetForegroundColor(Color::Yellow), t!("ui.edit_prompt"), ResetColor);
+                    let edit_prompt = format!(
+                        "{}{}{}",
+                        SetForegroundColor(Color::Yellow),
+                        t!("ui.edit_prompt"),
+                        ResetColor
+                    );
                     match rl.readline_with_initial(&edit_prompt, (cmd, "")) {
                         Ok(edited) => {
                             let trimmed = edited.trim().to_string();
@@ -557,7 +590,12 @@ pub fn edit_or_execute(cmd: &str, rl: &mut Editor<FileHelper, DefaultHistory>) -
                 }
                 KeyCode::Char('r') => {
                     let _ = crossterm::terminal::disable_raw_mode();
-                    let refine_prompt = format!("{}{}{}", SetForegroundColor(Color::Yellow), t!("ui.refine_prompt"), ResetColor);
+                    let refine_prompt = format!(
+                        "{}{}{}",
+                        SetForegroundColor(Color::Yellow),
+                        t!("ui.refine_prompt"),
+                        ResetColor
+                    );
                     match rl.readline(&refine_prompt) {
                         Ok(text) => {
                             let trimmed = text.trim().to_string();

@@ -1,7 +1,7 @@
+use rust_i18n::t;
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::path::PathBuf;
-use rust_i18n::t;
 
 // ── API style ───────────────────────────────────────────────────────────────
 
@@ -121,7 +121,10 @@ pub struct SearchConfig {
 impl SearchConfig {
     /// Backend name; "off" (disabled) when unset or empty.
     pub fn provider(&self) -> &str {
-        self.provider.as_deref().filter(|s| !s.is_empty()).unwrap_or("off")
+        self.provider
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .unwrap_or("off")
     }
     /// #SEARCH is compiled into the prompt only when a provider is chosen.
     pub fn enabled(&self) -> bool {
@@ -204,9 +207,13 @@ impl Reasoning {
         match self {
             Reasoning::Tokens(0) => "none",
             Reasoning::Tokens(n) => {
-                if *n <= 4096 { "low" }
-                else if *n <= 16384 { "medium" }
-                else { "high" }
+                if *n <= 4096 {
+                    "low"
+                } else if *n <= 16384 {
+                    "medium"
+                } else {
+                    "high"
+                }
             }
             Reasoning::Effort(s) => s,
         }
@@ -310,7 +317,13 @@ pub fn exe_dir(home: &str) -> PathBuf {
 /// `XDG_CONFIG_HOME`/`~/.config` for config and prompt,
 /// `XDG_CACHE_HOME`/`~/.cache` for the cache — and `%APPDATA%\comma\` on
 /// Windows.
-pub fn xdg_or_legacy(home: &str, xdg_env: &str, xdg_default: &str, name: &str, legacy_name: &str) -> PathBuf {
+pub fn xdg_or_legacy(
+    home: &str,
+    xdg_env: &str,
+    xdg_default: &str,
+    name: &str,
+    legacy_name: &str,
+) -> PathBuf {
     let exe_legacy = exe_dir(home).join(format!(",{}", legacy_name));
     let home_legacy = PathBuf::from(home).join(format!(".local/bin/,{}", legacy_name));
     let primary = if cfg!(windows) {
@@ -337,7 +350,13 @@ pub fn xdg_or_legacy(home: &str, xdg_env: &str, xdg_default: &str, name: &str, l
 
 /// Path to the config file (see `xdg_or_legacy`).
 pub fn config_path(home: &str) -> PathBuf {
-    xdg_or_legacy(home, "XDG_CONFIG_HOME", ".config", "config.json", ".config.json")
+    xdg_or_legacy(
+        home,
+        "XDG_CONFIG_HOME",
+        ".config",
+        "config.json",
+        ".config.json",
+    )
 }
 
 /// Set `auto_update` in the config file at `path`, preserving all other keys.
@@ -345,23 +364,29 @@ pub fn config_path(home: &str) -> PathBuf {
 /// (never clobber a config we can't parse).
 pub fn write_auto_update_flag(path: &std::path::Path, enabled: bool) -> Result<(), String> {
     let mut json: serde_json::Value = match std::fs::read_to_string(path) {
-        Ok(data) => serde_json::from_str(&data)
-            .map_err(|e| t!("config.invalid_file", "path" => path.display(), "e" => e).to_string())?,
+        Ok(data) => serde_json::from_str(&data).map_err(|e| {
+            t!("config.invalid_file", "path" => path.display(), "e" => e).to_string()
+        })?,
         Err(_) => serde_json::json!({}),
     };
     if !json.is_object() {
         json = serde_json::json!({});
     }
     json["auto_update"] = serde_json::Value::Bool(enabled);
-    let out = serde_json::to_string_pretty(&json)
-        .map_err(|e| e.to_string())?;
+    let out = serde_json::to_string_pretty(&json).map_err(|e| e.to_string())?;
     std::fs::write(path, out).map_err(|e| e.to_string())
 }
 
 /// Path to the response cache file: `$XDG_CACHE_HOME/comma/cache.json`
 /// (default `~/.cache/comma/cache.json`), same fallback chain as the config.
 pub fn cache_path(home: &str) -> PathBuf {
-    xdg_or_legacy(home, "XDG_CACHE_HOME", ".cache", "cache.json", ".cache.json")
+    xdg_or_legacy(
+        home,
+        "XDG_CACHE_HOME",
+        ".cache",
+        "cache.json",
+        ".cache.json",
+    )
 }
 
 pub fn load_config() -> Result<Config, String> {
@@ -370,16 +395,18 @@ pub fn load_config() -> Result<Config, String> {
     // Read config files
     let local_path = config_path(&home);
     let local: LocalConfig = match std::fs::read_to_string(&local_path) {
-        Ok(data) => serde_json::from_str(&data)
-            .map_err(|e| t!("config.invalid_file", "path" => local_path.display(), "e" => e).to_string())?,
+        Ok(data) => serde_json::from_str(&data).map_err(|e| {
+            t!("config.invalid_file", "path" => local_path.display(), "e" => e).to_string()
+        })?,
         Err(_) => LocalConfig::default(),
     };
 
     let claude_path = PathBuf::from(&home).join(".claude/settings.json");
     let claude_env: Option<ClaudeEnv> = match std::fs::read_to_string(&claude_path) {
         Ok(data) => {
-            let settings: ClaudeSettings = serde_json::from_str(&data)
-                .map_err(|e| t!("config.invalid_file", "path" => claude_path.display(), "e" => e).to_string())?;
+            let settings: ClaudeSettings = serde_json::from_str(&data).map_err(|e| {
+                t!("config.invalid_file", "path" => claude_path.display(), "e" => e).to_string()
+            })?;
             settings.env
         }
         Err(_) => None,
@@ -404,7 +431,8 @@ pub fn load_config() -> Result<Config, String> {
         let providers = local.providers.unwrap_or_default();
         let mut entries = Vec::new();
         for (i, m) in models.iter().enumerate() {
-            let p = providers.get(&m.provider)
+            let p = providers
+                .get(&m.provider)
                 .ok_or(t!("config.provider_not_found", "name" => m.provider).to_string())?;
             let base_url = env_or("COMMA_BASE_URL")
                 .or_else(|| non_empty(p.base_url.clone()))

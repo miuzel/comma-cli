@@ -6,11 +6,11 @@ use std::time::{Duration, Instant};
 
 use crate::cache::ResponseCache;
 use crate::config::Config;
-use crate::context::{apply_placeholders, run_cmd, Placeholders};
-use crate::llm::{call_llm_with_retry, Message};
+use crate::context::{Placeholders, apply_placeholders, run_cmd};
+use crate::llm::{Message, call_llm_with_retry};
 use crate::ui::{
-    print_cmd, print_debug, print_error, print_info, prompt_confirm, split_comment, truncate,
-    Verbosity,
+    Verbosity, print_cmd, print_debug, print_error, print_info, prompt_confirm, split_comment,
+    truncate,
 };
 use rust_i18n::t;
 
@@ -33,11 +33,7 @@ pub fn parse_check(raw: &str) -> Option<Vec<&str>> {
     // Strip # comment before parsing tool names
     let (tool_str, _) = split_comment(rest);
     let tools: Vec<&str> = tool_str.split_whitespace().collect();
-    if tools.is_empty() {
-        None
-    } else {
-        Some(tools)
-    }
+    if tools.is_empty() { None } else { Some(tools) }
 }
 
 /// Check which tools are available, return a report string.
@@ -45,7 +41,11 @@ fn check_tools(tools: &[&str]) -> String {
     let mut found = Vec::new();
     let mut missing = Vec::new();
     // `where` is the Windows equivalent of `which` (non-zero exit when missing)
-    let lookup = if cfg!(target_os = "windows") { "where" } else { "which" };
+    let lookup = if cfg!(target_os = "windows") {
+        "where"
+    } else {
+        "which"
+    };
     for tool in tools {
         if run_cmd(lookup, &[tool]).is_some() {
             found.push(*tool);
@@ -145,10 +145,12 @@ fn search_then_generate(
     let results = if already_searched {
         print_info(&t!("protocol.search_once"));
         "You have already searched once for this intent. Do NOT search again. \
-         Generate the command from your own knowledge.".to_string()
+         Generate the command from your own knowledge."
+            .to_string()
     } else if !config.search.enabled() {
         print_info(&t!("protocol.search_disabled"));
-        "Web search is disabled in the comma config. Generate the command from your own knowledge.".to_string()
+        "Web search is disabled in the comma config. Generate the command from your own knowledge."
+            .to_string()
     } else {
         print_info(&t!("protocol.searching", "query" => query));
         match crate::search::web_search(&config.search, &query) {
@@ -161,11 +163,15 @@ fn search_then_generate(
             }
             Ok(_) => {
                 print_info(&t!("protocol.search_no_results"));
-                "The search returned no results. Generate the command from your own knowledge.".to_string()
+                "The search returned no results. Generate the command from your own knowledge."
+                    .to_string()
             }
             Err(e) => {
                 print_error(&t!("protocol.search_failed", "e" => e));
-                format!("The web search failed ({}). Generate the command from your own knowledge.", e)
+                format!(
+                    "The web search failed ({}). Generate the command from your own knowledge.",
+                    e
+                )
             }
         }
     };
@@ -197,7 +203,10 @@ Output ONLY the command, nothing else.";
 /// If raw starts with `#EXPLORE:`, extract the command after the prefix.
 pub fn parse_explore(raw: &str) -> Option<&str> {
     let trimmed = raw.trim();
-    trimmed.strip_prefix(EXPLORE_PREFIX).map(|s| s.trim()).filter(|s| !s.is_empty())
+    trimmed
+        .strip_prefix(EXPLORE_PREFIX)
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
 }
 
 /// Max time an #EXPLORE: command may run before it is killed.
@@ -260,7 +269,8 @@ fn run_and_capture(cmd: &str) -> Result<String, String> {
     // pipe open, so don't wait indefinitely for the reader threads.
     let collect = |rx: mpsc::Receiver<Vec<u8>>| {
         let buf = if timed_out {
-            rx.recv_timeout(Duration::from_millis(500)).unwrap_or_default()
+            rx.recv_timeout(Duration::from_millis(500))
+                .unwrap_or_default()
         } else {
             rx.recv().unwrap_or_default()
         };
@@ -276,7 +286,10 @@ fn run_and_capture(cmd: &str) -> Result<String, String> {
     }
     let mut result = truncate(&result, 4096).to_string();
     if timed_out {
-        result.push_str(&format!("\n[timed out after {}s]", EXPLORE_TIMEOUT.as_secs()));
+        result.push_str(&format!(
+            "\n[timed out after {}s]",
+            EXPLORE_TIMEOUT.as_secs()
+        ));
     }
     Ok(result)
 }
@@ -343,7 +356,16 @@ pub fn process_response(
         }
 
         if !explored {
-            match explore_then_generate(config, system, messages, &current, ph, v, cache, auto_confirm) {
+            match explore_then_generate(
+                config,
+                system,
+                messages,
+                &current,
+                ph,
+                v,
+                cache,
+                auto_confirm,
+            ) {
                 Ok(Some(cmd)) => {
                     explored = true;
                     current = cmd;
@@ -378,7 +400,8 @@ fn explore_then_generate(
     auto_confirm: bool,
 ) -> Result<Option<String>, String> {
     // Handle multiple #EXPLORE candidates separated by |||
-    let candidates: Vec<&str> = raw.split("|||")
+    let candidates: Vec<&str> = raw
+        .split("|||")
         .map(|s| s.trim())
         .filter(|s| parse_explore(s).is_some())
         .collect();
@@ -392,14 +415,17 @@ fn explore_then_generate(
         if !auto_confirm && !prompt_confirm(&t!("protocol.run_all_explore")) {
             return Ok(None);
         }
-        candidates.iter()
+        candidates
+            .iter()
             .map(|c| parse_explore(c).unwrap_or(c))
             .collect()
     } else {
         match parse_explore(raw) {
             Some(cmd) => {
                 // Single explore candidate — same confirmation as the multi case
-                if !auto_confirm && !prompt_confirm(&t!("protocol.run_single_explore", "cmd" => cmd)) {
+                if !auto_confirm
+                    && !prompt_confirm(&t!("protocol.run_single_explore", "cmd" => cmd))
+                {
                     return Ok(None);
                 }
                 vec![cmd]
@@ -453,7 +479,10 @@ fn explore_then_generate(
     });
     ext.push(Message {
         role: "user".into(),
-        content: format!("{}\n\nCommand output:\n```\n{}\n```", EXPLORE_HINT, all_output),
+        content: format!(
+            "{}\n\nCommand output:\n```\n{}\n```",
+            EXPLORE_HINT, all_output
+        ),
     });
 
     let resp = call_llm_with_retry(config, system, &ext, v, cache, None)?;
