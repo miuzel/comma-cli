@@ -14,13 +14,17 @@ fn get_latest_version() -> Result<(String, String, String), String> {
     let resp = client
         .get("https://api.github.com/repos/miuzel/comma-cli/releases/latest")
         .header("User-Agent", format!("comma/{}", env!("CARGO_PKG_VERSION")))
-        .send()
+        .call()
         .map_err(|e| t!("update.github_api_error", "e" => e).to_string())?;
-    if !resp.status().is_success() {
-        return Err(t!("update.github_http_error", "status" => resp.status()).to_string());
+    let status = resp.status();
+    if !status.is_success() {
+        return Err(t!("update.github_http_error", "status" => status).to_string());
     }
-    let body: serde_json::Value = resp
-        .json()
+    let mut body = resp.into_body();
+    let text = body
+        .read_to_string()
+        .map_err(|e| t!("update.github_api_error", "e" => e).to_string())?;
+    let body: serde_json::Value = serde_json::from_str(&text)
         .map_err(|e| t!("update.github_api_error", "e" => e).to_string())?;
     let tag = body["tag_name"]
         .as_str()
@@ -99,7 +103,7 @@ fn sha256_hex(bytes: &[u8]) -> String {
 /// Verify the downloaded archive against sha256sums.txt from the same release.
 /// Fails on mismatch or missing entry — never install an unverified binary.
 fn verify_archive(
-    client: &reqwest::blocking::Client,
+    client: &ureq::Agent,
     archive_name: &str,
     bytes: &[u8],
     current: &str,
@@ -108,13 +112,15 @@ fn verify_archive(
     let resp = client
         .get(url)
         .header("User-Agent", format!("comma/{}", current))
-        .send()
+        .call()
         .map_err(|e| t!("update.checksum_download_error", "e" => e).to_string())?;
-    if !resp.status().is_success() {
-        return Err(t!("update.checksum_http_error", "status" => resp.status()).to_string());
+    let status = resp.status();
+    if !status.is_success() {
+        return Err(t!("update.checksum_http_error", "status" => status).to_string());
     }
-    let sums = resp
-        .text()
+    let mut body = resp.into_body();
+    let sums = body
+        .read_to_string()
         .map_err(|e| t!("update.checksum_download_error", "e" => e).to_string())?;
 
     // Lines look like: `<sha256>  <archive-name>` (`*name` in binary mode)
@@ -212,9 +218,9 @@ fn install_version(latest: &str) {
         }
     };
     let resp = match client
-        .get(&download_url)
+        .get(download_url.as_str())
         .header("User-Agent", format!("comma/{}", current))
-        .send()
+        .call()
     {
         Ok(r) => r,
         Err(e) => {
@@ -223,12 +229,14 @@ fn install_version(latest: &str) {
             return;
         }
     };
-    if !resp.status().is_success() {
+    let status = resp.status();
+    if !status.is_success() {
         spinner.stop();
-        print_error(&t!("update.download_http_error", "status" => resp.status()));
+        print_error(&t!("update.download_http_error", "status" => status));
         return;
     }
-    let bytes = match resp.bytes() {
+    let mut body = resp.into_body();
+    let bytes = match body.with_config().limit(64 * 1024 * 1024).read_to_vec() {
         Ok(b) => b,
         Err(e) => {
             spinner.stop();

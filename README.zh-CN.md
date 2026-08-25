@@ -26,7 +26,7 @@ $dir = "D:\tools\bin"; Invoke-WebRequest -Uri "https://github.com/miuzel/comma-c
 # → [Enter] 执行
 ```
 
-**就这样。** 无会话、无运行时、无依赖。只有一个 3MB 的二进制，把意图变成 shell 命令。
+**就这样。** 无会话、无运行时、无依赖。只有一个 2.5MB 的二进制，把意图变成 shell 命令。
 
 ---
 
@@ -82,7 +82,7 @@ $dir = "D:\tools\bin"; Invoke-WebRequest -Uri "https://github.com/miuzel/comma-c
 | **做什么** | 生成一条 shell 命令 | 对话、写代码、执行任务 |
 | **状态** | 无状态 — 每次调用独立 | 维护对话历史 |
 | **范围** | 单条命令 | 多文件编辑、重构、调试 |
-| **体积** | 3MB 二进制 | 100MB+ 运行时（Node.js、Python） |
+| **体积** | 2.5MB 二进制 | 100MB+ 运行时（Node.js、Python） |
 | **启动** | 即时 | 2-5 秒冷启动 |
 | **依赖** | 无 | Node.js、Python、npm 等 |
 | **隐私** | 占位符（不发送个人数据） | 发送完整上下文 |

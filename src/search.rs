@@ -82,7 +82,7 @@ pub(crate) fn clipped_page_text(s: &str) -> Option<String> {
 
 /// Fetch an HTML page for the scraping backends. Prefers an external `curl`:
 /// its TLS fingerprint passes bot checks (DDG anomaly page, Mojeek ALTCHA)
-/// that reject reqwest/rustls. Falls back to reqwest when curl is missing.
+/// that reject rustls clients. Falls back to ureq when curl is missing.
 fn fetch_html(url: &str) -> Result<String, String> {
     const UA: &str = "Mozilla/5.0 (X11; Linux x86_64)";
     const ACCEPT: &str = "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8";
@@ -110,10 +110,13 @@ fn fetch_html(url: &str) -> Result<String, String> {
         .header("User-Agent", UA)
         .header("Accept", ACCEPT)
         .header("Accept-Language", LANG)
-        .send()
-        .map_err(|e| t!("search.request_failed", "e" => e).to_string())?
-        .text()
+        .call()
         .map_err(|e| t!("search.request_failed", "e" => e).to_string())
+        .and_then(|resp| {
+            let mut body = resp.into_body();
+            body.read_to_string()
+                .map_err(|e| t!("search.request_failed", "e" => e).to_string())
+        })
 }
 
 // ── DuckDuckGo lite (HTML scraping, no key) ─────────────────────────────────
@@ -297,13 +300,13 @@ fn brave_search(cfg: &SearchConfig, query: &str) -> Result<Vec<SearchHit>, Strin
         url_encode(query),
         cfg.max_results()
     );
-    let body = make_client()?
-        .get(&url)
+    let resp = make_client()?
+        .get(url.as_str())
         .header("X-Subscription-Token", key)
         .header("Accept", "application/json")
-        .send()
+        .call()
         .map_err(|e| t!("search.request_failed", "e" => e).to_string())?;
-    let body = check_status(body)?;
+    let body = check_status(resp)?;
     let json: serde_json::Value =
         serde_json::from_str(&body).map_err(|e| t!("search.parse_failed", "e" => e).to_string())?;
     Ok(parse_brave_llm_context(&json, cfg.max_results()))
@@ -383,12 +386,12 @@ fn searxng_search(cfg: &SearchConfig, query: &str) -> Result<Vec<SearchHit>, Str
         base.trim_end_matches('/'),
         url_encode(query)
     );
-    let body = make_client()?
-        .get(&url)
+    let resp = make_client()?
+        .get(url.as_str())
         .header("Accept", "application/json")
-        .send()
+        .call()
         .map_err(|e| t!("search.request_failed", "e" => e).to_string())?;
-    let body = check_status(body)?;
+    let body = check_status(resp)?;
     let json: serde_json::Value =
         serde_json::from_str(&body).map_err(|e| t!("search.parse_failed", "e" => e).to_string())?;
     let mut hits = Vec::new();
@@ -408,24 +411,24 @@ fn searxng_search(cfg: &SearchConfig, query: &str) -> Result<Vec<SearchHit>, Str
 // ── Helpers ─────────────────────────────────────────────────────────────────
 
 /// POST a JSON body, preferring an external `curl`: its TLS fingerprint passes
-/// bot checks that degrade reqwest/rustls responses (Tavily serves a degraded
+/// bot checks that degrade rustls responses (Tavily serves a degraded
 /// Google-grounding pipeline to rustls clients — same reason `fetch_html`
-/// prefers curl). Falls back to reqwest when curl is missing.
+/// prefers curl). Falls back to ureq when curl is missing.
 fn post_json(url: &str, payload: &serde_json::Value) -> Result<String, String> {
     if let Some(res) = curl_post_json(url, &payload.to_string()) {
         return res;
     }
     let resp = make_client()?
         .post(url)
-        .json(payload)
-        .send()
+        .header("content-type", "application/json")
+        .send(payload.to_string())
         .map_err(|e| t!("search.request_failed", "e" => e).to_string())?;
     check_status(resp)
 }
 
 /// `curl -s -X POST --data-binary @-`: body piped via stdin so API keys never
 /// appear in the process list. `-w` appends the HTTP status on its own line.
-/// None = curl missing or failed to run (caller falls back to reqwest).
+/// None = curl missing or failed to run (caller falls back to ureq).
 fn curl_post_json(url: &str, body: &str) -> Option<Result<String, String>> {
     use std::io::Write;
     use std::process::{Command, Stdio};
@@ -464,10 +467,11 @@ fn curl_post_json(url: &str, body: &str) -> Option<Result<String, String>> {
 }
 
 /// Error out on non-2xx with the response body as context.
-fn check_status(resp: reqwest::blocking::Response) -> Result<String, String> {
+fn check_status(resp: ureq::http::Response<ureq::Body>) -> Result<String, String> {
     let status = resp.status();
-    let body = resp
-        .text()
+    let mut body = resp.into_body();
+    let body = body
+        .read_to_string()
         .map_err(|e| t!("search.request_failed", "e" => e).to_string())?;
     if !status.is_success() {
         return Err(

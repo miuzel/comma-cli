@@ -26,7 +26,7 @@ $dir = "D:\tools\bin"; Invoke-WebRequest -Uri "https://github.com/miuzel/comma-c
 # → [Enter] to execute
 ```
 
-**That's it.** No sessions, no runtime, no dependencies. Just a 3MB binary that turns intent into shell commands.
+**That's it.** No sessions, no runtime, no dependencies. Just a 2.5MB binary that turns intent into shell commands.
 
 ---
 
@@ -82,7 +82,7 @@ You know *what* you want, but can't remember the exact flags. So you:
 | **What it does** | Generates ONE shell command | Has conversations, writes code, executes tasks |
 | **State** | Stateless — no memory between calls | Maintains conversation history |
 | **Scope** | Single command | Multi-file editing, refactoring, debugging |
-| **Size** | 3MB binary | 100MB+ runtime (Node.js, Python) |
+| **Size** | 2.5MB binary | 100MB+ runtime (Node.js, Python) |
 | **Startup** | Instant | 2-5s cold start |
 | **Dependencies** | None | Node.js, Python, npm, etc. |
 | **Privacy** | Placeholders (no personal data sent) | Full context sent |
