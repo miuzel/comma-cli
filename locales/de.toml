@@ -212,3 +212,5 @@ auto_refine_body = "Der vorherige Befehl ist mit Exit-Code %{code} fehlgeschlage
 auto_refine_body_empty = "Der vorherige Befehl ist mit Exit-Code %{code} fehlgeschlagen.\n\nBefehl:\n%{cmd}\n\nDer Befehl hat keine Ausgabe erzeugt. Verfeinere ihn, damit er beim nächsten Versuch klappt."
 thinking = "%{m} denkt nach..."
 thinking_short = "denkt nach..."
+exit_confirm = "REPL beenden?"
+interrupt_pending = "Ctrl+C — Exit-Abfrage nach diesem Schritt"

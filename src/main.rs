@@ -31,9 +31,10 @@ use crate::prompt::load_prompt;
 use crate::protocol::process_response;
 use crate::tests::run_tests;
 use crate::ui::{
-    EditAction, FileHelper, Spinner, Verbosity, copy_to_clipboard, edit_or_execute, is_bare_cd,
-    is_comment_only, parse_candidates, print_cmd, print_debug, print_error, print_info,
-    prompt_confirm, prompt_input, prompt_input_fallback, select_command, split_comment,
+    EditAction, FileHelper, PromptResult, ReplInterruptGuard, Spinner, Verbosity,
+    copy_to_clipboard, edit_or_execute, is_bare_cd, is_comment_only, parse_candidates, print_cmd,
+    print_debug, print_error, print_info, prompt_confirm, prompt_confirm_default_no, prompt_input,
+    prompt_input_fallback, select_command, split_comment,
 };
 use crate::update::{check_and_notify, do_update};
 
@@ -471,6 +472,36 @@ fn run_oneshot(
 
 // ── REPL command action menu ────────────────────────────────────────────────
 
+/// What the REPL does after a step that a Ctrl-C may have interrupted.
+enum AfterInterrupt {
+    /// No Ctrl-C pending: keep the step's result.
+    Proceed,
+    /// The user declined to exit: drop the interrupted step's result and go
+    /// back to the `> ` prompt.
+    Resume,
+    /// The user confirmed: leave through the single exit point (which saves the
+    /// session history).
+    Exit,
+}
+
+/// Handle a Ctrl-C recorded while a blocking step ran: ask whether to leave.
+///
+/// Only the pending intent is consulted, and it is consumed — call this after
+/// every step that could have been interrupted, so one key press is handled
+/// exactly once and never leaks into a later step.
+fn after_interrupt() -> AfterInterrupt {
+    if !ui::take_exit_request() {
+        return AfterInterrupt::Proceed;
+    }
+    // `[y/N]`: Enter and another Ctrl-C both mean "keep going", so the
+    // confirmation itself can never trap the user.
+    if prompt_confirm_default_no(&t!("interactive.exit_confirm")) {
+        AfterInterrupt::Exit
+    } else {
+        AfterInterrupt::Resume
+    }
+}
+
 /// Put the command currently on screen through the action menu
 /// (`Execute? [Enter] exec / [e]dit / [r]efine / [c]opy / [Esc] cancel`) and
 /// carry out the chosen action, looping while a refine produces a new command.
@@ -479,10 +510,14 @@ fn run_oneshot(
 /// intent, `/refine TEXT`, an `x`→`r` refine, and the automatic refine after a
 /// failed run — so running a command is a single step instead of
 /// "print a hint, wait for `x`, then choose again". `x`/`exec` still works: it
-/// re-opens this same menu after an Esc. `EditAction::Cancel` (Esc, `c`, an
-/// unknown key) returns to the main prompt without re-opening anything, so the
+/// re-opens this same menu after an Esc. `EditAction::Cancel` (Esc, Ctrl-C, `c`,
+/// an unknown key) returns to the main prompt without re-opening anything, so the
 /// menu cannot loop on its own. REPL-only: the one-shot, piped-stdin and
 /// `COMMA_EVAL_FILE` paths never call this, so their behavior is unchanged.
+///
+/// Returns `true` when the user asked to leave the REPL (a Ctrl-C during the
+/// executed command or a refine, confirmed at the `[y/N]` prompt); the caller
+/// then exits through its single exit point.
 #[allow(clippy::too_many_arguments)]
 fn prompt_command_action(
     config: &Config,
@@ -497,7 +532,7 @@ fn prompt_command_action(
     current_raw: &mut String,
     current_cache_key: &mut Option<String>,
     current_cache_entry: &mut Option<CacheEntry>,
-) {
+) -> bool {
     loop {
         // `edit_or_execute` prints the command itself (danger warning
         // included), so the menu always appears right below its command.
@@ -519,6 +554,17 @@ fn prompt_command_action(
                 // them; with `auto_refine: false` the old streaming `.status()`
                 // path is kept.
                 let outcome = execute(&final_cmd, config.auto_refine);
+                // Ctrl-C while the command ran: the command was interrupted
+                // (0x03 forwarded to the pty child, or SIGINT for an inherited
+                // -stdio run) and the exit intent is pending. Ask before doing
+                // anything else — a failed/interrupted command must not start
+                // an automatic refine for a user who is on the way out, and the
+                // command is deliberately not cached.
+                match after_interrupt() {
+                    AfterInterrupt::Proceed => {}
+                    AfterInterrupt::Exit => return true,
+                    AfterInterrupt::Resume => return false,
+                }
                 // Cache on execute
                 if let (Some(key), Some(entry)) =
                     (current_cache_key.take(), current_cache_entry.take())
@@ -555,11 +601,16 @@ fn prompt_command_action(
                         *current_cache_entry = Some(res.entry);
                         continue;
                     }
+                    match after_interrupt() {
+                        AfterInterrupt::Proceed => {}
+                        AfterInterrupt::Exit => return true,
+                        AfterInterrupt::Resume => return false,
+                    }
                 }
                 break;
             }
             EditAction::Refine(text) => {
-                if let Some(res) = do_refine(
+                let refined = do_refine(
                     config,
                     system,
                     messages,
@@ -569,7 +620,13 @@ fn prompt_command_action(
                     cache,
                     current_raw,
                     &text,
-                ) {
+                );
+                match after_interrupt() {
+                    AfterInterrupt::Proceed => {}
+                    AfterInterrupt::Exit => return true,
+                    AfterInterrupt::Resume => return false,
+                }
+                if let Some(res) = refined {
                     *current_cmd = res.cmd;
                     *current_raw = res.raw;
                     *current_cache_key = res.cache_key;
@@ -582,6 +639,7 @@ fn prompt_command_action(
             EditAction::Cancel => break,
         }
     }
+    false
 }
 
 fn run_interactive(
@@ -639,30 +697,100 @@ fn run_interactive(
     let mut current_cache_key: Option<String> = None;
     let mut current_cache_entry: Option<CacheEntry> = None;
 
+    // Ctrl-C while a blocking step runs (an LLM request, a search, a command
+    // with inherited stdio) must not kill the process: the guard records the
+    // intent instead, and the loop below acts on it at the next safe point.
+    // Restored when the REPL returns, so no other code path is affected.
+    let _interrupt_guard = ReplInterruptGuard::install();
+
     loop {
+        // Nothing is running here: a pending intent means the user pressed
+        // Ctrl-C while idle (a signal window between prompts), so leave — the
+        // same one-press exit as Ctrl-C at the `> ` prompt itself.
+        if ui::take_exit_request() {
+            break;
+        }
         let input = match rl.as_mut() {
             Some(editor) => prompt_input(editor),
             None => prompt_input_fallback(),
         };
-        match input {
-            None => continue,
-            Some(input) => {
-                if input == "q" || input == "quit" || input == "exit" {
-                    break;
-                }
-                // Record REPL inputs (not the q/quit/exit command itself) for
-                // the opt-in on-disk history; saved once on exit below.
-                session_history.push(input.clone());
+        let input = match input {
+            // Ctrl-C at the idle prompt: one press exits the REPL (the whole
+            // point of the guard above is that this is a deliberate exit, not
+            // a re-prompt). Ctrl-D / an empty line still just re-prompt.
+            PromptResult::Interrupt => break,
+            PromptResult::Again => continue,
+            PromptResult::Line(input) => input,
+        };
+        if input == "q" || input == "quit" || input == "exit" {
+            break;
+        }
+        // Record REPL inputs (not the q/quit/exit command itself) for
+        // the opt-in on-disk history; saved once on exit below.
+        session_history.push(input.clone());
 
-                if input == "x" || input == "exec" {
-                    if current_cmd.is_empty() {
-                        print_error(&t!("error.no_command_execute"));
-                        continue;
-                    }
-                    // `x`/`exec` re-opens the action menu for the current
-                    // command (the menu itself is now the default path right
-                    // after a command is generated).
-                    prompt_command_action(
+        if input == "x" || input == "exec" {
+            if current_cmd.is_empty() {
+                print_error(&t!("error.no_command_execute"));
+                continue;
+            }
+            // `x`/`exec` re-opens the action menu for the current
+            // command (the menu itself is now the default path right
+            // after a command is generated).
+            if prompt_command_action(
+                config,
+                system,
+                &mut messages,
+                &ph,
+                v,
+                auto_confirm,
+                &mut cache,
+                &mut rl,
+                &mut current_cmd,
+                &mut current_raw,
+                &mut current_cache_key,
+                &mut current_cache_entry,
+            ) {
+                break;
+            }
+            continue;
+        }
+
+        // Direct refine entry point at the main prompt: `/refine TEXT`
+        // (alias `/r TEXT`), so refining no longer requires `x` first.
+        if let Some(text) = parse_refine_command(&input) {
+            let text = text.trim();
+            if current_raw.is_empty() {
+                print_error(&t!("error.no_command_refine"));
+            } else if text.is_empty() {
+                print_error(&t!("error.refine_requires_text"));
+            } else {
+                let refined = do_refine(
+                    config,
+                    system,
+                    &mut messages,
+                    &ph,
+                    v,
+                    auto_confirm,
+                    &cache,
+                    &current_raw,
+                    text,
+                );
+                match after_interrupt() {
+                    AfterInterrupt::Proceed => {}
+                    AfterInterrupt::Exit => break,
+                    // Refining was interrupted and the user chose to
+                    // stay: nothing to show, back to the prompt.
+                    AfterInterrupt::Resume => continue,
+                }
+                if let Some(res) = refined {
+                    current_cmd = res.cmd;
+                    current_raw = res.raw;
+                    current_cache_key = res.cache_key;
+                    current_cache_entry = Some(res.entry);
+                    // The refined command is presented immediately,
+                    // with the action menu.
+                    if prompt_command_action(
                         config,
                         system,
                         &mut messages,
@@ -675,151 +803,136 @@ fn run_interactive(
                         &mut current_raw,
                         &mut current_cache_key,
                         &mut current_cache_entry,
-                    );
-                    continue;
-                }
-
-                // Direct refine entry point at the main prompt: `/refine TEXT`
-                // (alias `/r TEXT`), so refining no longer requires `x` first.
-                if let Some(text) = parse_refine_command(&input) {
-                    let text = text.trim();
-                    if current_raw.is_empty() {
-                        print_error(&t!("error.no_command_refine"));
-                    } else if text.is_empty() {
-                        print_error(&t!("error.refine_requires_text"));
-                    } else if let Some(res) = do_refine(
-                        config,
-                        system,
-                        &mut messages,
-                        &ph,
-                        v,
-                        auto_confirm,
-                        &cache,
-                        &current_raw,
-                        text,
                     ) {
-                        current_cmd = res.cmd;
-                        current_raw = res.raw;
-                        current_cache_key = res.cache_key;
-                        current_cache_entry = Some(res.entry);
-                        // The refined command is presented immediately, with
-                        // the action menu.
-                        prompt_command_action(
-                            config,
-                            system,
-                            &mut messages,
-                            &ph,
-                            v,
-                            auto_confirm,
-                            &mut cache,
-                            &mut rl,
-                            &mut current_cmd,
-                            &mut current_raw,
-                            &mut current_cache_key,
-                            &mut current_cache_entry,
-                        );
+                        break;
                     }
-                    continue;
                 }
+            }
+            continue;
+        }
 
-                if input == "c" || input == "copy" {
-                    if current_cmd.is_empty() {
-                        print_error(&t!("error.no_command_copy"));
-                    } else {
-                        copy_to_clipboard(&current_cmd);
-                        print_info(&t!("info.copied"));
+        if input == "c" || input == "copy" {
+            if current_cmd.is_empty() {
+                print_error(&t!("error.no_command_copy"));
+            } else {
+                copy_to_clipboard(&current_cmd);
+                print_info(&t!("info.copied"));
+            }
+            continue;
+        }
+
+        messages.push(Message {
+            role: "user".into(),
+            content: input,
+        });
+
+        if v.show_prompt() {
+            print_debug(&format!("User: {}", messages.last().unwrap().content));
+        }
+        let mut spinner = Spinner::start(&t!("interactive.thinking_short"));
+        let result = call_llm_with_retry(config, system, &messages, v, &cache, Some(&spinner));
+        spinner.stop();
+        // Ctrl-C while the model was generating: report it at this,
+        // the first safe point. Proceed = no interrupt; Exit = leave
+        // (through the single exit point); Resume = the user wants to
+        // keep the session, so the reply in flight is dropped along
+        // with the intent it answered.
+        match after_interrupt() {
+            AfterInterrupt::Proceed => {}
+            AfterInterrupt::Exit => break,
+            AfterInterrupt::Resume => {
+                messages.pop();
+                continue;
+            }
+        }
+        match result {
+            Ok(resp) => {
+                print_usage(&resp.usage);
+                let final_raw = process_response(
+                    config,
+                    system,
+                    &messages,
+                    &resp.content,
+                    &ph,
+                    v,
+                    &cache,
+                    auto_confirm,
+                );
+                // `process_response` can itself block for a while
+                // (`#CHECK:`/`#SEARCH:`/`#EXPLORE:` sub-steps), so the
+                // same check applies after it — before anything is
+                // shown or selected.
+                match after_interrupt() {
+                    AfterInterrupt::Proceed => {}
+                    AfterInterrupt::Exit => break,
+                    AfterInterrupt::Resume => {
+                        messages.pop();
+                        continue;
                     }
-                    continue;
                 }
+                let candidates: Vec<String> = parse_candidates(&final_raw)
+                    .into_iter()
+                    .map(|c| apply_placeholders(&c, &ph))
+                    .collect();
 
-                messages.push(Message {
-                    role: "user".into(),
-                    content: input,
-                });
-
-                if v.show_prompt() {
-                    print_debug(&format!("User: {}", messages.last().unwrap().content));
-                }
-                let mut spinner = Spinner::start(&t!("interactive.thinking_short"));
-                let result =
-                    call_llm_with_retry(config, system, &messages, v, &cache, Some(&spinner));
-                spinner.stop();
-                match result {
-                    Ok(resp) => {
-                        print_usage(&resp.usage);
-                        let final_raw = process_response(
-                            config,
-                            system,
-                            &messages,
-                            &resp.content,
-                            &ph,
-                            v,
-                            &cache,
-                            auto_confirm,
-                        );
-                        let candidates: Vec<String> = parse_candidates(&final_raw)
-                            .into_iter()
-                            .map(|c| apply_placeholders(&c, &ph))
-                            .collect();
-
-                        let cmd = if candidates.len() > 1 {
-                            match select_command(&candidates) {
-                                Some(i) => candidates[i].clone(),
-                                None => {
-                                    messages.pop();
-                                    continue;
-                                }
-                            }
-                        } else {
-                            candidates[0].clone()
-                        };
-
-                        // If command is comment-only, just display and don't store
-                        // it: there is no command for `x` to act on, so the
-                        // next-step hint would be a lie here.
-                        if is_comment_only(&cmd) {
-                            print_cmd(&cmd);
-                            messages.push(Message {
-                                role: "assistant".into(),
-                                content: final_raw,
-                            });
+                let cmd = if candidates.len() > 1 {
+                    match select_command(&candidates) {
+                        Some(i) => candidates[i].clone(),
+                        None => {
+                            messages.pop();
                             continue;
                         }
+                    }
+                } else {
+                    candidates[0].clone()
+                };
 
-                        current_cmd = cmd;
-                        current_raw = final_raw.clone();
-                        current_cache_key = resp.cache_key.clone();
-                        let mut entry = CacheEntry::from(&resp);
-                        // Cache the final processed command, not a raw probe
-                        entry.content = final_raw.clone();
-                        current_cache_entry = Some(entry);
-                        messages.push(Message {
-                            role: "assistant".into(),
-                            content: final_raw,
-                        });
-                        // A fresh command goes straight into the action menu:
-                        // the command and its menu are printed together, with
-                        // no separate hint line and no `x` in between.
-                        prompt_command_action(
-                            config,
-                            system,
-                            &mut messages,
-                            &ph,
-                            v,
-                            auto_confirm,
-                            &mut cache,
-                            &mut rl,
-                            &mut current_cmd,
-                            &mut current_raw,
-                            &mut current_cache_key,
-                            &mut current_cache_entry,
-                        );
-                    }
-                    Err(e) => {
-                        print_error(&e);
-                        messages.pop();
-                    }
+                // If command is comment-only, just display and don't store
+                // it: there is no command for `x` to act on, so the
+                // next-step hint would be a lie here.
+                if is_comment_only(&cmd) {
+                    print_cmd(&cmd);
+                    messages.push(Message {
+                        role: "assistant".into(),
+                        content: final_raw,
+                    });
+                    continue;
                 }
+
+                current_cmd = cmd;
+                current_raw = final_raw.clone();
+                current_cache_key = resp.cache_key.clone();
+                let mut entry = CacheEntry::from(&resp);
+                // Cache the final processed command, not a raw probe
+                entry.content = final_raw.clone();
+                current_cache_entry = Some(entry);
+                messages.push(Message {
+                    role: "assistant".into(),
+                    content: final_raw,
+                });
+                // A fresh command goes straight into the action menu:
+                // the command and its menu are printed together, with
+                // no separate hint line and no `x` in between.
+                if prompt_command_action(
+                    config,
+                    system,
+                    &mut messages,
+                    &ph,
+                    v,
+                    auto_confirm,
+                    &mut cache,
+                    &mut rl,
+                    &mut current_cmd,
+                    &mut current_raw,
+                    &mut current_cache_key,
+                    &mut current_cache_entry,
+                ) {
+                    break;
+                }
+            }
+            Err(e) => {
+                print_error(&e);
+                messages.pop();
             }
         }
     }
@@ -873,6 +986,11 @@ fn refine_turns(raw_reply: &str, refine_text: &str) -> [Message; 2] {
 /// failed or the user cancelled candidate selection. On failure both pushed
 /// turns are rolled back (mirroring the existing refine branch), so a Ctrl-C
 /// or a network error cannot poison `messages`.
+///
+/// A Ctrl-C during the call is *not* an error to report here: the two pushed
+/// turns are rolled back (like the cancel path) and `None` is returned. The
+/// caller distinguishes it from a plain failure with `after_interrupt()`, which
+/// consumes the pending intent.
 #[allow(clippy::too_many_arguments)]
 fn do_refine(
     config: &Config,
@@ -886,12 +1004,20 @@ fn do_refine(
     refine_text: &str,
 ) -> Option<RefineOutcome> {
     messages.extend(refine_turns(raw_reply, refine_text));
+    let pushed = messages.len();
     if v.show_prompt() {
         print_debug(&format!("Refine: {}", refine_text));
     }
     let mut spinner = Spinner::start(&t!("interactive.thinking_short"));
     let result = call_llm_with_retry(config, system, messages, v, cache, Some(&spinner));
     spinner.stop();
+    if ui::exit_requested() {
+        // Interrupted while refining: drop the two turns this call pushed and
+        // let the caller run the exit confirmation. The reply that may still
+        // arrive is discarded on purpose — the user interrupted this turn.
+        messages.truncate(pushed - 2);
+        return None;
+    }
     match result {
         Ok(resp) => {
             print_usage(&resp.usage);

@@ -212,3 +212,5 @@ auto_refine_body = "The previous command failed with exit code %{code}.\n\nComma
 auto_refine_body_empty = "The previous command failed with exit code %{code}.\n\nCommand:\n%{cmd}\n\nThe command produced no output. Refine it so it succeeds on the next try."
 thinking = "%{m} thinking..."
 thinking_short = "thinking..."
+exit_confirm = "Exit REPL?"
+interrupt_pending = "Ctrl+C — will ask to exit when this step finishes"

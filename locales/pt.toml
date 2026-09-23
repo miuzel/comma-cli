@@ -212,3 +212,5 @@ auto_refine_body = "O comando anterior falhou com o código %{code}.\n\nComando:
 auto_refine_body_empty = "O comando anterior falhou com o código %{code}.\n\nComando:\n%{cmd}\n\nO comando não produziu saída. Refine-o para que funcione na próxima tentativa."
 thinking = "%{m} pensando..."
 thinking_short = "pensando..."
+exit_confirm = "Sair do REPL?"
+interrupt_pending = "Ctrl+C — confirmação de saída após esta etapa"

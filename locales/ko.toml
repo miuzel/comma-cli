@@ -212,3 +212,5 @@ auto_refine_body = "이전 명령이 종료 코드 %{code} 로 실패했습니�
 auto_refine_body_empty = "이전 명령이 종료 코드 %{code} 로 실패했습니다.\n\n명령:\n%{cmd}\n\n출력이 없습니다. 다음에 성공하도록 명령을 개선해 주세요."
 thinking = "%{m} 생각 중..."
 thinking_short = "생각 중..."
+exit_confirm = "REPL 을 종료할까요?"
+interrupt_pending = "Ctrl+C — 이 단계가 끝나면 종료 여부를 묻습니다"

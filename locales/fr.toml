@@ -212,3 +212,5 @@ auto_refine_body = "La commande précédente a échoué avec le code %{code}.\n\
 auto_refine_body_empty = "La commande précédente a échoué avec le code %{code}.\n\nCommande :\n%{cmd}\n\nLa commande n'a produit aucune sortie. Raffinez-la pour qu'elle réussisse au prochain essai."
 thinking = "%{m} réfléchit..."
 thinking_short = "réflexion..."
+exit_confirm = "Quitter le REPL ?"
+interrupt_pending = "Ctrl+C — confirmation de sortie après cette étape"

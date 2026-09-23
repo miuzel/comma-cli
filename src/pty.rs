@@ -418,7 +418,17 @@ mod unix_pty {
                 match read_fd(stdin_fd, &mut buf) {
                     Ok(0) => stdin_open = false,
                     Ok(n) => {
-                        if write_all_fd(master_fd, &buf[..n]).is_err() {
+                        let bytes = &buf[..n];
+                        // Ctrl-C is a raw 0x03 byte here (our terminal is in raw
+                        // mode with ISIG off) and is forwarded to the child, so
+                        // the command is interrupted first — the terminal
+                        // convention. The same byte registers the exit intent:
+                        // the REPL asks whether to leave once the command is
+                        // done, instead of the key doing nothing.
+                        if bytes.contains(&0x03) {
+                            crate::ui::request_exit();
+                        }
+                        if write_all_fd(master_fd, bytes).is_err() {
                             stdin_open = false; // slave gone: nothing left to feed
                         }
                     }

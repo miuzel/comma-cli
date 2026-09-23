@@ -8,6 +8,7 @@ use rustyline::validate::Validator;
 use rustyline::{Editor, Helper};
 use std::borrow::Cow;
 use std::io::{self, IsTerminal, Write};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use crate::danger::is_dangerous;
 use rust_i18n::t;
@@ -78,6 +79,147 @@ pub enum EditAction {
     Execute(String),
     Refine(String),
     Cancel,
+}
+
+// ── Interrupt intent (Ctrl-C) ───────────────────────────────────────────────
+
+/// Set when the user pressed Ctrl-C *while something was running*: by the
+/// signal/console handler installed for the REPL (a blocking LLM request, a
+/// `#CHECK:`/`#SEARCH:`/`#EXPLORE:` sub-step, a command run with inherited
+/// stdio), or by `pty::relay` when it forwards the 0x03 byte to the child.
+///
+/// The REPL consumes it at its next safe point and asks whether to exit; at the
+/// idle `> ` prompt a pending intent means "leave now". A plain atomic, so the
+/// handler that sets it stays async-signal-safe.
+static EXIT_REQUESTED: AtomicBool = AtomicBool::new(false);
+
+/// Record a Ctrl-C intent. Callable from a signal handler.
+pub fn request_exit() {
+    EXIT_REQUESTED.store(true, Ordering::SeqCst);
+}
+
+/// Is a Ctrl-C intent pending? Read-only, for display (the spinner) — the REPL
+/// itself uses [`take_exit_request`] so one intent is handled exactly once.
+pub fn exit_requested() -> bool {
+    EXIT_REQUESTED.load(Ordering::SeqCst)
+}
+
+/// Consume a pending Ctrl-C intent.
+pub fn take_exit_request() -> bool {
+    EXIT_REQUESTED.swap(false, Ordering::SeqCst)
+}
+
+/// Keeps Ctrl-C from terminating the process while the interactive REPL runs.
+///
+/// At the `> ` prompt and in every menu a Ctrl-C never reaches us as a signal
+/// (rustyline and crossterm read 0x03 in raw mode), but during a blocking step
+/// the terminal's default disposition would kill the process and lose the
+/// session history. The handler only records the intent; the REPL decides when
+/// to act on it. Dropping the guard restores the previous disposition, so
+/// nothing leaks outside the REPL — one-shot and piped runs never install it.
+pub struct ReplInterruptGuard {
+    #[cfg(unix)]
+    previous: libc::sigaction,
+    #[cfg(windows)]
+    installed: bool,
+}
+
+#[cfg(unix)]
+impl ReplInterruptGuard {
+    extern "C" fn on_sigint(_sig: libc::c_int) {
+        request_exit();
+    }
+
+    /// Install the handler; `None` when the OS refuses (the REPL still works,
+    /// Ctrl-C during a blocking step is then the terminal default).
+    pub fn install() -> Option<Self> {
+        let mut action: libc::sigaction = unsafe { std::mem::zeroed() };
+        action.sa_sigaction = Self::on_sigint as *const () as libc::sighandler_t;
+        // SA_RESTART: signals must not turn unrelated blocking calls into
+        // EINTR errors. ureq's own poll-based wait still returns EINTR on
+        // Linux (poll is never restarted), so an in-flight request is
+        // aborted immediately anyway - measured: the request fails with
+        // "Interrupted system call" and the confirmation follows at once.
+        action.sa_flags = libc::SA_RESTART;
+        unsafe { libc::sigemptyset(&mut action.sa_mask) };
+        let mut previous: libc::sigaction = unsafe { std::mem::zeroed() };
+        if unsafe { libc::sigaction(libc::SIGINT, &action, &mut previous) } != 0 {
+            return None;
+        }
+        Some(Self { previous })
+    }
+}
+
+#[cfg(unix)]
+impl Drop for ReplInterruptGuard {
+    fn drop(&mut self) {
+        unsafe { libc::sigaction(libc::SIGINT, &self.previous, std::ptr::null_mut()) };
+    }
+}
+
+#[cfg(windows)]
+mod win_interrupt {
+    //! Windows console equivalent of the Unix `SIGINT` handler above: the
+    //! console sends `CTRL_C_EVENT` to every process attached to it (the child
+    //! command included), and the default handler would terminate `,` before it
+    //! could offer the exit confirmation. Declared here rather than pulling in a
+    //! dependency: `kernel32` is already linked by `std`.
+
+    /// `CTRL_C_EVENT` / `CTRL_BREAK_EVENT`; every other code (console close,
+    /// logoff, shutdown) is left to the default handler.
+    const CTRL_C_EVENT: u32 = 0;
+    const CTRL_BREAK_EVENT: u32 = 1;
+
+    unsafe extern "system" fn on_console_ctrl(ctrl_type: u32) -> i32 {
+        if ctrl_type == CTRL_C_EVENT || ctrl_type == CTRL_BREAK_EVENT {
+            super::request_exit();
+            1 // handled: keep running, the REPL asks for confirmation
+        } else {
+            0
+        }
+    }
+
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn SetConsoleCtrlHandler(
+            handler: Option<unsafe extern "system" fn(u32) -> i32>,
+            add: i32,
+        ) -> i32;
+    }
+
+    pub(super) fn install() -> bool {
+        unsafe { SetConsoleCtrlHandler(Some(on_console_ctrl), 1) != 0 }
+    }
+
+    pub(super) fn remove() {
+        unsafe { SetConsoleCtrlHandler(Some(on_console_ctrl), 0) };
+    }
+}
+
+#[cfg(windows)]
+impl ReplInterruptGuard {
+    /// See the Unix `install`. `None` when the console refuses the handler.
+    pub fn install() -> Option<Self> {
+        win_interrupt::install().then_some(Self { installed: true })
+    }
+}
+
+#[cfg(windows)]
+impl Drop for ReplInterruptGuard {
+    fn drop(&mut self) {
+        if self.installed {
+            win_interrupt::remove();
+        }
+    }
+}
+
+/// No console signal handling to install on other targets; the REPL-level
+/// Ctrl-C paths (prompt, menus) still work, since those read key bytes.
+#[cfg(not(any(unix, windows)))]
+impl ReplInterruptGuard {
+    pub fn install() -> Option<Self> {
+        None
+    }
 }
 
 // ── Display helpers ─────────────────────────────────────────────────────────
@@ -347,7 +489,14 @@ impl Spinner {
                     crossterm::cursor::SavePosition,
                     crossterm::terminal::Clear(crossterm::terminal::ClearType::CurrentLine),
                 );
-                let m = msg_clone.lock().unwrap().clone();
+                let m = if exit_requested() {
+                    // Ctrl-C was recorded while this blocking step runs but the
+                    // step cannot be aborted: say so instead of looking frozen.
+                    // The exit confirmation follows as soon as it returns.
+                    t!("interactive.interrupt_pending").to_string()
+                } else {
+                    msg_clone.lock().unwrap().clone()
+                };
                 let _ = write!(
                     io::stdout(),
                     "\r{}{} {}{}",
@@ -549,7 +698,13 @@ pub fn edit_or_execute(cmd: &str, rl: &mut Editor<FileHelper, DefaultHistory>) -
 
     let _ = crossterm::terminal::enable_raw_mode();
     let action = loop {
-        if let Ok(Event::Key(KeyEvent { code, kind, .. })) = event::read() {
+        if let Ok(Event::Key(KeyEvent {
+            code,
+            modifiers,
+            kind,
+            ..
+        })) = event::read()
+        {
             // Windows reports Press/Repeat/Release events; act on Press only,
             // or a buffered Enter release would execute without a keypress.
             // On Unix only Press is reported, so this is a no-op there.
@@ -567,6 +722,13 @@ pub fn edit_or_execute(cmd: &str, rl: &mut Editor<FileHelper, DefaultHistory>) -
                 }
                 KeyCode::Char('y') | KeyCode::Char('Y') => {
                     break EditAction::Execute(cmd.to_string());
+                }
+                // Ctrl-C in the action menu means the same as Esc: cancel back
+                // to `> ` (it must NOT copy, and it must not quit the REPL —
+                // the idle rule takes over from the prompt). Must be matched
+                // before the plain `c` (copy) arm below.
+                KeyCode::Char('c') if modifiers.contains(KeyModifiers::CONTROL) => {
+                    break EditAction::Cancel;
                 }
                 KeyCode::Char('e') => {
                     let _ = crossterm::terminal::disable_raw_mode();
@@ -621,41 +783,60 @@ pub fn edit_or_execute(cmd: &str, rl: &mut Editor<FileHelper, DefaultHistory>) -
     action
 }
 
-pub fn prompt_input(rl: &mut Editor<FileHelper, DefaultHistory>) -> Option<String> {
+/// One read at the `> ` prompt.
+pub enum PromptResult {
+    /// A non-empty line the user submitted.
+    Line(String),
+    /// Ctrl-C at the idle prompt: nothing is running, so the REPL exits (no
+    /// confirmation needed).
+    Interrupt,
+    /// Empty line, Ctrl-D or a read error: prompt again (unchanged behavior —
+    /// Ctrl-D is deliberately *not* an exit).
+    Again,
+}
+
+pub fn prompt_input(rl: &mut Editor<FileHelper, DefaultHistory>) -> PromptResult {
     let prompt = format!("{}> {}", SetForegroundColor(Color::Cyan), ResetColor);
     match rl.readline(&prompt) {
         Ok(line) => {
             let trimmed = line.trim().to_string();
             if trimmed.is_empty() {
-                None
+                PromptResult::Again
             } else {
                 let _ = rl.add_history_entry(&trimmed);
-                Some(trimmed)
+                PromptResult::Line(trimmed)
             }
         }
-        Err(rustyline::error::ReadlineError::Interrupted)
-        | Err(rustyline::error::ReadlineError::Eof) => None,
-        Err(_) => None,
+        Err(rustyline::error::ReadlineError::Interrupted) => PromptResult::Interrupt,
+        Err(rustyline::error::ReadlineError::Eof) => PromptResult::Again,
+        Err(_) => PromptResult::Again,
     }
 }
 
-pub fn prompt_input_fallback() -> Option<String> {
+pub fn prompt_input_fallback() -> PromptResult {
     let stdout = io::stdout();
     let mut out = stdout.lock();
     let _ = write!(out, "{}> {}", SetForegroundColor(Color::Cyan), ResetColor);
     let _ = out.flush();
+    drop(out);
     let mut input = String::new();
-    match io::stdin().read_line(&mut input) {
-        Ok(0) => None,
+    let read = io::stdin().read_line(&mut input);
+    // A Ctrl-C here arrives as a signal (this path is not in raw mode); report
+    // it as the interrupt it is rather than looping on the read error.
+    if exit_requested() {
+        return PromptResult::Interrupt;
+    }
+    match read {
+        Ok(0) => PromptResult::Again,
         Ok(_) => {
             let trimmed = input.trim().to_string();
             if trimmed.is_empty() {
-                None
+                PromptResult::Again
             } else {
-                Some(trimmed)
+                PromptResult::Line(trimmed)
             }
         }
-        Err(_) => None,
+        Err(_) => PromptResult::Again,
     }
 }
 
