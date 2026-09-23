@@ -498,7 +498,12 @@ mod unix_pty {
                 if libc::setsid() == -1 {
                     return Err(io::Error::last_os_error());
                 }
-                if libc::ioctl(slave_fd, libc::TIOCSCTTY, 0) == -1 {
+                // `TIOCSCTTY` is `c_ulong` on Linux but `c_uint` on the BSDs /
+                // macOS, while `ioctl` always takes a `c_ulong`; the cast is an
+                // identity cast on Linux, hence the targeted allow.
+                #[allow(clippy::unnecessary_cast)]
+                let tty_req = libc::TIOCSCTTY as libc::c_ulong;
+                if libc::ioctl(slave_fd, tty_req, 0) == -1 {
                     return Err(io::Error::last_os_error());
                 }
                 for fd in 0..=2 {
