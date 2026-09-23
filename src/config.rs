@@ -92,6 +92,9 @@ struct LocalConfig {
     auto_update: Option<AutoUpdate>,
     // Language override (e.g., "en", "zh", "ja")
     lang: Option<String>,
+    // Opt-in REPL input-history persistence. Absent/false → nothing is read
+    // from or written to disk (no history file is ever created).
+    history: Option<bool>,
     // Web search backend for the #SEARCH: protocol
     search: Option<SearchConfig>,
     // Explicit full system-prompt override: a path to a prompt file, or the
@@ -243,6 +246,9 @@ pub struct Config {
     pub max_output_tokens: Option<u32>,
     pub auto_update: AutoUpdate,
     pub lang: Option<String>,
+    /// Persist interactive REPL inputs across sessions (`"history": true`);
+    /// off by default — when false nothing is read from or written to disk.
+    pub history: bool,
     pub search: SearchConfig,
     pub full_prompt: Option<String>,
 }
@@ -285,6 +291,7 @@ impl Config {
                     max_output_tokens: self.max_output_tokens,
                     auto_update: self.auto_update,
                     lang: self.lang.clone(),
+                    history: self.history,
                     search: self.search.clone(),
                     full_prompt: self.full_prompt.clone(),
                 })
@@ -309,6 +316,24 @@ pub fn exe_dir(home: &str) -> PathBuf {
         .unwrap_or_else(|| PathBuf::from(home).join(".local/bin"))
 }
 
+/// Platform default location for a runtime file: `$xdg_env/comma/<name>` when
+/// the env var is set and non-empty, else `<xdg_default>/comma/<name>` under
+/// `home`; on Windows `%APPDATA%\comma\<name>` (AppData under `home` when
+/// APPDATA is unset).
+fn platform_path(home: &str, xdg_env: &str, xdg_default: &str, name: &str) -> PathBuf {
+    if cfg!(windows) {
+        match std::env::var("APPDATA") {
+            Ok(dir) if !dir.is_empty() => PathBuf::from(dir).join(format!("comma/{}", name)),
+            _ => PathBuf::from(home).join(format!("AppData/Roaming/comma/{}", name)),
+        }
+    } else {
+        match std::env::var(xdg_env) {
+            Ok(dir) if !dir.is_empty() => PathBuf::from(dir).join(format!("comma/{}", name)),
+            _ => PathBuf::from(home).join(format!("{}/comma/{}", xdg_default, name)),
+        }
+    }
+}
+
 /// Resolve a user file: platform default location first, then next to the
 /// executable (portable installs), then the legacy `~/.local/bin` path,
 /// falling back to the platform default when none exists (where new
@@ -326,17 +351,7 @@ pub fn xdg_or_legacy(
 ) -> PathBuf {
     let exe_legacy = exe_dir(home).join(format!(",{}", legacy_name));
     let home_legacy = PathBuf::from(home).join(format!(".local/bin/,{}", legacy_name));
-    let primary = if cfg!(windows) {
-        match std::env::var("APPDATA") {
-            Ok(dir) if !dir.is_empty() => PathBuf::from(dir).join(format!("comma/{}", name)),
-            _ => PathBuf::from(home).join(format!("AppData/Roaming/comma/{}", name)),
-        }
-    } else {
-        match std::env::var(xdg_env) {
-            Ok(dir) if !dir.is_empty() => PathBuf::from(dir).join(format!("comma/{}", name)),
-            _ => PathBuf::from(home).join(format!("{}/comma/{}", xdg_default, name)),
-        }
-    };
+    let primary = platform_path(home, xdg_env, xdg_default, name);
     if primary.exists() {
         primary
     } else if exe_legacy.exists() {
@@ -389,6 +404,16 @@ pub fn cache_path(home: &str) -> PathBuf {
     )
 }
 
+/// Path to the REPL input-history file: `$XDG_STATE_HOME/comma/history`
+/// (default `~/.local/state/comma/history`; `%APPDATA%\comma\history` on
+/// Windows). Unlike the config/cache this deliberately has NO exe-adjacent or
+/// legacy `~/.local/bin` fallback: the file has no older installs to honor, so
+/// new writes must land on the state path. It is only read/written when the
+/// opt-in `history` config key is true (default false).
+pub fn history_path(home: &str) -> PathBuf {
+    platform_path(home, "XDG_STATE_HOME", ".local/state", "history")
+}
+
 pub fn load_config() -> Result<Config, String> {
     let home = home_dir()?;
 
@@ -421,6 +446,8 @@ pub fn load_config() -> Result<Config, String> {
     let max_output_tokens = local.max_output_tokens;
     let auto_update = local.auto_update.unwrap_or_default();
     let lang = local.lang;
+    // Opt-in REPL history: absent → off, so nothing touches the disk.
+    let history = local.history.unwrap_or(false);
     let search = local.search.unwrap_or_default();
     let full_prompt = non_empty(local.full_prompt);
 
@@ -510,6 +537,7 @@ pub fn load_config() -> Result<Config, String> {
         max_output_tokens,
         auto_update,
         lang,
+        history,
         search,
         full_prompt,
     })

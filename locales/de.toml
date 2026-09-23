@@ -124,6 +124,7 @@ auto_setup = "Kein LLM-Provider konfiguriert — der Setup-Assistent wird gestar
 menu_title = "comma Setup — was möchten Sie konfigurieren?"
 menu_llm = "LLM-Provider"
 menu_search = "Websuche"
+menu_history = "REPL-Verlauf"
 menu_save = "Speichern & beenden"
 menu_discard = "Verwerfen & beenden"
 discard_confirm = "Ungespeicherte Änderungen verwerfen?"
@@ -152,6 +153,9 @@ prompt_api_key = "API-Schlüssel für %{provider}"
 prompt_search_url = "SearXNG Base URL"
 prompt_max_results = "Max. Ergebnisse [%{current}]"
 invalid_number = "Keine Zahl, %{current} wird beibehalten."
+history_title = "REPL-Eingabeverlauf (Klartext, standardmäßig aus)"
+history_off = "Aus (es wird keine Verlaufsdatei erstellt)"
+history_on = "An (Eingaben über Sitzungen hinweg merken)"
 no_providers_warn = "Keine LLM-Provider konfiguriert — comma funktioniert nicht, bis Sie einen hinzufügen."
 
 [ui]

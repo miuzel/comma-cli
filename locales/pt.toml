@@ -124,6 +124,7 @@ auto_setup = "Nenhum provedor de LLM configurado — iniciando o assistente de c
 menu_title = "Configuração do comma — o que você quer configurar?"
 menu_llm = "Provedores de LLM"
 menu_search = "Pesquisa web"
+menu_history = "Histórico do REPL"
 menu_save = "Salvar e sair"
 menu_discard = "Descartar e sair"
 discard_confirm = "Descartar alterações não salvas?"
@@ -152,6 +153,9 @@ prompt_api_key = "Chave de API para %{provider}"
 prompt_search_url = "Base URL do SearXNG"
 prompt_max_results = "Máx. de resultados [%{current}]"
 invalid_number = "Não é um número, mantendo %{current}."
+history_title = "Histórico de entradas do REPL (texto simples, desativado por padrão)"
+history_off = "Desativado (nenhum arquivo de histórico é criado)"
+history_on = "Ativado (lembrar suas entradas entre sessões)"
 no_providers_warn = "Nenhum provedor de LLM configurado — o comma não funcionará até você adicionar um."
 
 [ui]

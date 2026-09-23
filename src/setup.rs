@@ -137,11 +137,18 @@ fn reasoning_to_json(r: &Reasoning) -> Value {
     }
 }
 
-/// Rebuild the config JSON from the edited entries and search settings,
-/// preserving every unrelated key (prefer, cache_size, full_prompt, custom
-/// keys, ...). Legacy single-model top-level keys are removed once the
-/// multi-provider format is written.
-pub fn entries_to_json(entries: &[SetupEntry], search: &SetupSearch, existing: &Value) -> Value {
+/// Rebuild the config JSON from the edited entries, search settings and the
+/// opt-in REPL-history toggle, preserving every unrelated key (prefer,
+/// cache_size, full_prompt, custom keys, ...). Legacy single-model top-level
+/// keys are removed once the multi-provider format is written. `history` is
+/// always written explicitly — the merge would otherwise drop the user's
+/// choice when the key was not in the existing file.
+pub fn entries_to_json(
+    entries: &[SetupEntry],
+    search: &SetupSearch,
+    history: bool,
+    existing: &Value,
+) -> Value {
     let mut obj = existing.as_object().cloned().unwrap_or_default();
     for key in ["base_url", "auth_token", "model", "api_style"] {
         obj.remove(key);
@@ -186,6 +193,7 @@ pub fn entries_to_json(entries: &[SetupEntry], search: &SetupSearch, existing: &
             obj.remove("search");
         }
     }
+    obj.insert("history".into(), json!(history));
     Value::Object(obj)
 }
 
@@ -595,6 +603,30 @@ fn search_section(search: &mut SetupSearch) {
     }
 }
 
+/// Toggle the opt-in REPL input-history feature (the `"history"` config key,
+/// off by default). The key name stays untranslated, like the search section.
+fn history_section(enabled: &mut bool) {
+    let current = *enabled;
+    let items: Vec<String> = [false, true]
+        .iter()
+        .map(|on| {
+            let label = if *on {
+                t!("setup.history_on")
+            } else {
+                t!("setup.history_off")
+            };
+            if *on == current {
+                format!("{} ●", label)
+            } else {
+                label.to_string()
+            }
+        })
+        .collect();
+    if let Some(i) = menu_select(&t!("setup.history_title"), &items) {
+        *enabled = i == 1;
+    }
+}
+
 // ── Entry point ─────────────────────────────────────────────────────────────
 
 /// Run the setup wizard. Returns Ok(true) when a config was saved.
@@ -623,22 +655,26 @@ pub fn run_setup() -> Result<bool, String> {
 
     let mut entries = json_to_entries(&existing);
     let mut search = SetupSearch::from_json(&existing);
+    // Opt-in REPL history: absent/false → off.
+    let mut history = existing["history"].as_bool().unwrap_or(false);
 
     loop {
         let items = vec![
             t!("setup.menu_llm").to_string(),
             t!("setup.menu_search").to_string(),
+            t!("setup.menu_history").to_string(),
             t!("setup.menu_save").to_string(),
             t!("setup.menu_discard").to_string(),
         ];
         match menu_select(&t!("setup.menu_title"), &items) {
             Some(0) => llm_section(&mut entries),
             Some(1) => search_section(&mut search),
-            Some(2) => {
+            Some(2) => history_section(&mut history),
+            Some(3) => {
                 if entries.is_empty() {
                     print_error(&t!("setup.no_providers_warn"));
                 }
-                let json = entries_to_json(&entries, &search, &existing);
+                let json = entries_to_json(&entries, &search, history, &existing);
                 match save_config(&path, &json) {
                     Ok(backup) => {
                         if let Some(b) = backup {
@@ -654,7 +690,7 @@ pub fn run_setup() -> Result<bool, String> {
                     }
                 }
             }
-            Some(3) | None if prompt_confirm(&t!("setup.discard_confirm")) => {
+            Some(4) | None if prompt_confirm(&t!("setup.discard_confirm")) => {
                 return Ok(false);
             }
             _ => {}

@@ -877,7 +877,7 @@ pub fn run_tests() {
         "setup search: default off",
         search.provider == "off" && search.to_json().is_none(),
     );
-    let rebuilt = crate::setup::entries_to_json(&entries, &search, &cfg_json);
+    let rebuilt = crate::setup::entries_to_json(&entries, &search, false, &cfg_json);
     check(
         "setup entries_to_json: preserves other keys",
         rebuilt["prefer"]["grep"][0] == "rg" && rebuilt["custom_key"] == "keepme",
@@ -926,7 +926,7 @@ pub fn run_tests() {
             && legacy_entries[0].auth_token == "sk"
             && legacy_entries[0].model == "claude-x",
     );
-    let upgraded = crate::setup::entries_to_json(&legacy_entries, &search, &legacy_json);
+    let upgraded = crate::setup::entries_to_json(&legacy_entries, &search, false, &legacy_json);
     check(
         "setup legacy: upgraded format",
         upgraded["models"][0]["provider"] == "default"
@@ -946,12 +946,28 @@ pub fn run_tests() {
         base_url: None,
         max_results: Some(7),
     };
-    let with_search = crate::setup::entries_to_json(&entries, &search_on, &cfg_json);
+    let with_search = crate::setup::entries_to_json(&entries, &search_on, false, &cfg_json);
     check(
         "setup search: written",
         with_search["search"]["provider"] == "tavily"
             && with_search["search"]["api_key"] == "tv"
             && with_search["search"]["max_results"] == 7,
+    );
+
+    // The opt-in REPL-history toggle must be written explicitly: the merge in
+    // entries_to_json would otherwise drop the user's choice, and unrelated
+    // keys must survive either way.
+    let history_on_json = crate::setup::entries_to_json(&entries, &search_on, true, &cfg_json);
+    check(
+        "setup entries_to_json: history on written, other keys kept",
+        history_on_json["history"] == true
+            && history_on_json["custom_key"] == "keepme"
+            && history_on_json["search"]["provider"] == "tavily",
+    );
+    let history_off_json = crate::setup::entries_to_json(&entries, &search_on, false, &cfg_json);
+    check(
+        "setup entries_to_json: history off written explicitly",
+        history_off_json["history"] == false,
     );
 
     let mut v = vec![1, 2, 3];
@@ -1023,6 +1039,106 @@ pub fn run_tests() {
             && tmp_missing.is_file(),
     );
     let _ = std::fs::remove_file(&tmp_missing);
+
+    // ── history.rs: opt-in REPL input history ───────────────────────────────
+    // Path resolution ($XDG_STATE_HOME wins, else the state dir under HOME) has
+    // no exe-adjacent/legacy fallback, so there is nothing to test there. The
+    // Windows branch is compile-time and cannot be exercised here.
+    if !cfg!(windows) {
+        let prev_state = std::env::var("XDG_STATE_HOME").ok();
+        set_env("XDG_STATE_HOME", "/tmp/comma-xdg-state-test");
+        check(
+            "history path: XDG_STATE_HOME override",
+            crate::config::history_path("/home/tester")
+                == std::path::Path::new("/tmp/comma-xdg-state-test/comma/history"),
+        );
+        set_env("XDG_STATE_HOME", "");
+        check(
+            "history path: empty XDG_STATE_HOME ignored",
+            crate::config::history_path("/home/tester")
+                == std::path::Path::new("/home/tester/.local/state/comma/history"),
+        );
+        unset_env("XDG_STATE_HOME");
+        check(
+            "history path: default under HOME",
+            crate::config::history_path("/home/tester")
+                == std::path::Path::new("/home/tester/.local/state/comma/history"),
+        );
+        match prev_state {
+            Some(v) => set_env("XDG_STATE_HOME", v),
+            None => unset_env("XDG_STATE_HOME"),
+        }
+    }
+
+    let hist = std::env::temp_dir().join(format!("comma-test-history-{}", std::process::id()));
+    let _ = std::fs::remove_file(&hist);
+
+    // Privacy invariant: disabled means no file is created and nothing is read.
+    crate::history::save_if_enabled(false, Some(&hist), &["secret intent".to_string()]);
+    check("history: disabled writes no file", !hist.exists());
+    check(
+        "history: disabled reads nothing",
+        crate::history::load_if_enabled(false, Some(&hist)).is_empty(),
+    );
+    check(
+        "history: missing file → empty",
+        crate::history::load(&hist).is_empty(),
+    );
+    check(
+        "history: HOME-less path is a no-op",
+        crate::history::load_if_enabled(true, None).is_empty(),
+    );
+
+    // Corrupt input (non-UTF-8, truncated) must never panic or abort startup.
+    std::fs::write(&hist, b"first\nsecond\n\xff").unwrap();
+    check(
+        "history: non-UTF-8 → empty, no panic",
+        crate::history::load(&hist).is_empty(),
+    );
+    std::fs::write(&hist, "first\nsecond").unwrap();
+    check(
+        "history: truncated last line still loads",
+        crate::history::load(&hist) == ["first", "second"],
+    );
+
+    // Round-trip, embedded-newline flattening, cap and 0600 permissions.
+    let wanted: Vec<String> = (0..3).map(|i| format!("intent {}", i)).collect();
+    crate::history::save(&hist, &wanted);
+    check("history: round-trip", crate::history::load(&hist) == wanted);
+    crate::history::save(&hist, &["one\ntwo".to_string()]);
+    check(
+        "history: embedded newline flattened",
+        crate::history::load(&hist) == ["one two"],
+    );
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let mode = std::fs::metadata(&hist).map(|m| m.permissions().mode() & 0o777);
+        check("history: file mode 0600", mode.ok() == Some(0o600));
+        // A pre-existing looser file is tightened on the next save.
+        std::fs::set_permissions(&hist, std::fs::Permissions::from_mode(0o644)).unwrap();
+        crate::history::save(&hist, &wanted);
+        let mode = std::fs::metadata(&hist).map(|m| m.permissions().mode() & 0o777);
+        check(
+            "history: loose mode tightened to 0600",
+            mode.ok() == Some(0o600),
+        );
+    }
+
+    let many: Vec<String> = (0..crate::history::MAX_HISTORY + 5)
+        .map(|i| format!("entry {}", i))
+        .collect();
+    crate::history::save(&hist, &many);
+    let loaded = crate::history::load(&hist);
+    check(
+        "history: capped to MAX_HISTORY, newest kept",
+        loaded.len() == crate::history::MAX_HISTORY
+            && loaded[0] == "entry 5"
+            && loaded[crate::history::MAX_HISTORY - 1]
+                == format!("entry {}", crate::history::MAX_HISTORY + 4),
+    );
+    let _ = std::fs::remove_file(&hist);
 
     // ── prompt.rs: template picking ─────────────────────────────────────────
     let default = crate::prompt::pick_template(None, None, None);

@@ -44,12 +44,14 @@ fi
 
 # User-defined files are kept: config.json, prompt.md, additional_prompt.md
 # (in ~/.config/comma/, %APPDATA%\comma\, or legacy ,.config.json/,.prompt.md
-# next to the binary). Remove them manually if you want a clean slate.
+# next to the binary), plus the opt-in REPL history. Remove them manually if
+# you want a clean slate.
 XDG_CONFIG="${XDG_CONFIG_HOME:-$HOME/.config}/comma"
+XDG_STATE="${XDG_STATE_HOME:-$HOME/.local/state}/comma"
 echo ""
 echo "Kept your configuration files (delete manually if unwanted):"
 for f in "$XDG_CONFIG/config.json" "$XDG_CONFIG/prompt.md" "$XDG_CONFIG/additional_prompt.md" \
-         "$PREFIX/,.config.json" "$PREFIX/,.prompt.md"; do
+         "$PREFIX/,.config.json" "$PREFIX/,.prompt.md" "$XDG_STATE/history"; do
     [ -f "$f" ] && echo "  $f"
 done
 

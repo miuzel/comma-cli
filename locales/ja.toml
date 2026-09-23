@@ -124,6 +124,7 @@ auto_setup = "LLMプロバイダーが設定されていません — セット�
 menu_title = "comma セットアップ — 何を設定しますか？"
 menu_llm = "LLMプロバイダー"
 menu_search = "ウェブ検索"
+menu_history = "REPL 履歴"
 menu_save = "保存して終了"
 menu_discard = "破棄して終了"
 discard_confirm = "未保存の変更を破棄しますか？"
@@ -152,6 +153,9 @@ prompt_api_key = "%{provider} の APIキー"
 prompt_search_url = "SearXNG base URL"
 prompt_max_results = "最大結果数 [%{current}]"
 invalid_number = "数値ではありません。%{current} を維持します。"
+history_title = "REPL 入力履歴（プレーンテキスト保存、既定はオフ）"
+history_off = "オフ（履歴ファイルを作成しません）"
+history_on = "オン（セッションをまたいで入力を記憶）"
 no_providers_warn = "LLMプロバイダーが設定されていません — 追加するまで comma は動作しません。"
 
 [ui]

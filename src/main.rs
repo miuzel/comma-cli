@@ -2,6 +2,7 @@ mod cache;
 mod config;
 mod context;
 mod danger;
+mod history;
 mod i18n;
 mod llm;
 mod prompt;
@@ -22,7 +23,7 @@ use rustyline::history::DefaultHistory;
 use std::io::{self, IsTerminal};
 
 use crate::cache::{CacheEntry, ResponseCache};
-use crate::config::{ApiStyle, Config, Reasoning, load_config};
+use crate::config::{ApiStyle, Config, Reasoning, history_path, home_dir, load_config};
 use crate::context::{apply_placeholders, collect_placeholders};
 use crate::llm::{Message, call_llm_with_retry, print_usage};
 use crate::prompt::load_prompt;
@@ -493,10 +494,23 @@ fn run_interactive(
         ));
     }
 
+    // REPL input history (opt-in, off by default). When `history` is false the
+    // helpers never touch the disk, so no history file is created and `↑`
+    // simply has no entries. Only prompt inputs are recorded here — the
+    // edit/refine text that `edit_or_execute` adds to the editor stays
+    // in memory and is never persisted.
+    let history_file = home_dir().ok().map(|h| history_path(&h));
+    let mut session_history = history::load_if_enabled(config.history, history_file.as_deref());
+
     let mut rl = Editor::<FileHelper, DefaultHistory>::new().ok();
     if let Some(ref mut editor) = rl {
         editor.set_helper(Some(FileHelper::new()));
         editor.set_completion_type(rustyline::CompletionType::List);
+        // Seed the prompt history so `↑` recalls inputs from previous
+        // sessions; empty when the opt-in `history` key is off.
+        for line in &session_history {
+            let _ = editor.add_history_entry(line.as_str());
+        }
     }
 
     let mut messages: Vec<Message> = Vec::new();
@@ -518,6 +532,9 @@ fn run_interactive(
                 if input == "q" || input == "quit" || input == "exit" {
                     break;
                 }
+                // Record REPL inputs (not the q/quit/exit command itself) for
+                // the opt-in on-disk history; saved once on exit below.
+                session_history.push(input.clone());
 
                 if input == "x" || input == "exec" {
                     if current_cmd.is_empty() {
@@ -708,6 +725,9 @@ fn run_interactive(
         }
     }
     cache.save();
+    // Single exit point (q/quit/exit all `break` here): persist the REPL
+    // history when the feature is on. No-op when it is off.
+    history::save_if_enabled(config.history, history_file.as_deref(), &session_history);
     check_and_notify(config.auto_update);
 }
 
