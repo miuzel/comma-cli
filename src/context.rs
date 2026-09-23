@@ -313,3 +313,35 @@ pub fn apply_placeholders(cmd: &str, ph: &Placeholders) -> String {
         .replace("{{HOSTNAME}}", &ph.hostname)
         .replace("{{HOME}}", &ph.home)
 }
+
+/// Reverse of `apply_placeholders`: replace the real private values (home
+/// path, username, hostname) with their `{{...}}` placeholders before the
+/// text is handed back to the API. This runs on every auto-refine payload —
+/// command and captured command output — because output almost always
+/// contains the real `$HOME`, so masking must happen before anything is
+/// serialized into a request.
+///
+/// Longest value first: a home path that contains the username
+/// (`/home/miuzel`) becomes `{{HOME}}` as a whole instead of
+/// `/home/{{USER}}`.
+///
+/// Two values are skipped on purpose:
+/// - empty strings — `str::replace` with an empty needle inserts the
+///   replacement between every character;
+/// - the `"~"` fallback from `collect_placeholders` (HOME unset) — it is a
+///   literal shell character, not a real path, and replacing it would
+///   corrupt the payload.
+pub fn mask_placeholders(text: &str, ph: &Placeholders) -> String {
+    let mut out = text.to_string();
+    for (value, token) in [
+        (ph.home.as_str(), "{{HOME}}"),
+        (ph.user.as_str(), "{{USER}}"),
+        (ph.hostname.as_str(), "{{HOSTNAME}}"),
+    ] {
+        if value.is_empty() || value == "~" {
+            continue;
+        }
+        out = out.replace(value, token);
+    }
+    out
+}

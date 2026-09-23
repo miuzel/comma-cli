@@ -29,5 +29,8 @@
   },
 
   "_comment4": "REPL input history, OFF by default. When true, interactive-mode inputs are saved to $XDG_STATE_HOME/comma/history (default ~/.local/state/comma/history, %APPDATA%\\comma\\history on Windows), owner-only (0600), so ↑ recalls them in the next session. Nothing is read or written while this is false:",
-  "history": false
+  "history": false,
+
+  "_comment5": "Auto-refine after a failed command in the REPL, ON by default. On a non-zero exit code comma sends the failed command, its exit code and a truncated summary of its output (real paths masked as {{HOME}}/{{USER}}/{{HOSTNAME}}) back to the model, then prints the corrected command — nothing is auto-executed. While true, command output is captured (no live streaming, stdout/stderr are not a TTY, so full-screen programs like vim/less will not work). Set false to run commands exactly as before: stdio inherited, output streams live:",
+  "auto_refine": true
 }

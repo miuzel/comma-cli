@@ -657,12 +657,22 @@ pub fn run_setup() -> Result<bool, String> {
     let mut search = SetupSearch::from_json(&existing);
     // Opt-in REPL history: absent/false → off.
     let mut history = existing["history"].as_bool().unwrap_or(false);
+    // Auto-refine after a failed command; ON unless the config disables it.
+    let mut auto_refine = existing
+        .get("auto_refine")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(true);
 
     loop {
         let items = vec![
             t!("setup.menu_llm").to_string(),
             t!("setup.menu_search").to_string(),
             t!("setup.menu_history").to_string(),
+            t!(
+                "setup.menu_auto_refine",
+                "value" => if auto_refine { "true" } else { "false" }
+            )
+            .to_string(),
             t!("setup.menu_save").to_string(),
             t!("setup.menu_discard").to_string(),
         ];
@@ -670,11 +680,15 @@ pub fn run_setup() -> Result<bool, String> {
             Some(0) => llm_section(&mut entries),
             Some(1) => search_section(&mut search),
             Some(2) => history_section(&mut history),
-            Some(3) => {
+            Some(3) => auto_refine = !auto_refine,
+            Some(4) => {
                 if entries.is_empty() {
                     print_error(&t!("setup.no_providers_warn"));
                 }
-                let json = entries_to_json(&entries, &search, history, &existing);
+                let mut json = entries_to_json(&entries, &search, history, &existing);
+                // Persist the toggle explicitly (the value shown in the menu
+                // must match what the next start reads back).
+                json["auto_refine"] = json!(auto_refine);
                 match save_config(&path, &json) {
                     Ok(backup) => {
                         if let Some(b) = backup {
@@ -690,7 +704,7 @@ pub fn run_setup() -> Result<bool, String> {
                     }
                 }
             }
-            Some(4) | None if prompt_confirm(&t!("setup.discard_confirm")) => {
+            Some(5) | None if prompt_confirm(&t!("setup.discard_confirm")) => {
                 return Ok(false);
             }
             _ => {}

@@ -352,6 +352,13 @@ fd --size +100M -x ls -lh {} + | sort -k5 -h -r
 ```
 
 Every generated command is followed by exactly one hint line telling you what you can do with it — `▸ Next: 'x' exec/edit/refine, 'c' copy, 'q' quit.` — so a fresh command never leaves you wondering how to run it. It is printed once per command (the REPL never repeats it) and only in interactive mode: one-shot and piped-stdin runs are unchanged.
+If the command you executed exits non-zero, `,` automatically refines it: the failed command, its exit code and a truncated summary of its output go back to the model, and the corrected command is printed for you to run with `x` (nothing is auto-executed). You can also refine at the main prompt, without executing anything first:
+
+```bash
+> /refine use ripgrep instead of grep   # alias: /r
+```
+
+See [Auto-refine after a failure](#auto-refine-after-a-failure) for what is sent and how to turn it off.
 
 ### Keyboard shortcuts
 
@@ -364,6 +371,7 @@ Every generated command is followed by exactly one hint line telling you what yo
 | `e` | Edit command |
 | `r` | Refine via LLM |
 | `x` | Execute (interactive mode) |
+| `/refine TEXT` | Refine the current command directly (alias `/r`) |
 | `c` | Copy to clipboard |
 | `q` | Quit |
 
@@ -372,6 +380,8 @@ Every generated command is followed by exactly one hint line telling you what yo
 ## Shell integration
 
 By default `,` runs the confirmed command in a **child process**, so a `cd` or `export` is lost when it exits. With a small wrapper function, commands run in your **current shell** instead (navi/fzf-style): the binary appends each confirmed command to the file named by `COMMA_EVAL_FILE` (one per line), and the wrapper evaluates that file in the current shell after `,` exits.
+
+In eval mode the command runs in the wrapper, not in `,`, so there is no exit code and no output to inspect: automatic refine never triggers there (and output is not captured either).
 
 ### bash / zsh
 
@@ -500,6 +510,27 @@ Set `"history": true` to remember what you type in interactive mode, so `↑` re
 ```
 
 The history is stored in `$XDG_STATE_HOME/comma/history` (default `~/.local/state/comma/history`; `%APPDATA%\comma\history` on Windows). It is written once when you leave the REPL with `q`/`quit`/`exit`, is readable by your user only (`0600`, because it contains your raw intents), keeps the newest 1000 entries, and is never sent to the API. While the key is absent or `false`, nothing is read or written and no history file is created — `, --setup` has a toggle for it. Only what you type at the REPL prompt is saved; text entered for the in-session `e` (edit) and `r` (refine) prompts is not persisted.
+### Auto-refine after a failure
+
+In the interactive REPL, a command that exits **non-zero** (including one killed by a signal) automatically starts a refine turn: the failed command, its exit code and a summary of its output are sent to the model, and the corrected command is printed — you still press `x` to run it. Nothing is executed automatically, and each executed command triggers this at most once. Non-TTY runs (one-shot, piped stdin) and `COMMA_EVAL_FILE` eval mode never auto-refine.
+
+Disable it in the config:
+
+```json
+{
+  "auto_refine": false
+}
+```
+
+or toggle it in `, --setup`. With `auto_refine: false` the command runs exactly as before: stdio is inherited and output streams live.
+
+While auto-refine is enabled, `,` needs the command's output for the summary, so the child's stdout/stderr are **captured** (stdin is still inherited):
+
+- output appears when the command finishes instead of streaming live;
+- stdout/stderr are pipes, not a TTY, so progress bars and colors may disappear and some programs switch to buffered output;
+- full-screen interactive programs (`vim`, `less`, ...) will not render correctly — run those with `auto_refine: false`, or execute them outside `,`.
+
+What is sent is bounded and sanitized: ANSI escapes and control characters are stripped, the summary is truncated to 2000 characters (head + tail, because errors usually land at the end), and an empty output sends only the command and the exit code. Real `$HOME`, username and hostname are replaced by `{{HOME}}`/`{{USER}}`/`{{HOSTNAME}}` before anything is sent (see [Privacy](#privacy)) — masking happens before truncation, so a half-cut path can never leak.
 
 ### Reasoning (Anthropic)
 
@@ -551,6 +582,8 @@ LLM outputs: "ls -la {{HOME}}"
         ↓
 Local replace: "ls -la /home/miuzel"  (local only)
 ```
+
+The same rule covers automatic refine: command output is captured on your machine and masked back to `{{HOME}}`/`{{USER}}`/`{{HOSTNAME}}` (before truncation) before it is sent, so a build log or `ls` listing full of real paths and hostnames never carries them to the API. The `--test` self-check asserts that an auto-refine request body contains none of the real values.
 
 ---
 
