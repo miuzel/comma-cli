@@ -1641,6 +1641,28 @@ pub fn run_tests() {
             let _ = crate::ui::take_exit_request();
         }
     }
+    // A Ctrl-C that aborts the request in flight must not surface as a
+    // per-entry "model failed: ... Interrupted system call" line (or a
+    // "Trying fallback:" banner) right before the exit question:
+    // `call_llm_with_retry` gates those notices on the exit intent. Real
+    // failures (no intent pending) still print.
+    check(
+        "ctrl-c: per-entry failure notice prints when not interrupted",
+        crate::llm::notice_unless_leaving("m failed: e".to_string()).as_deref()
+            == Some("m failed: e"),
+    );
+    crate::ui::request_exit();
+    check(
+        "ctrl-c: failure/fallback notices suppressed while leaving",
+        crate::llm::notice_unless_leaving("m failed: e".to_string()).is_none()
+            && crate::llm::notice_unless_leaving("Trying fallback: m (openai)...".to_string())
+                .is_none(),
+    );
+    let _ = crate::ui::take_exit_request();
+    check(
+        "ctrl-c: notices resume once the intent is consumed",
+        crate::llm::notice_unless_leaving("m failed: e".to_string()).is_some(),
+    );
 
     // Summary
     println!("\n{} passed, {} failed", pass, fail);

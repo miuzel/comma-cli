@@ -316,6 +316,23 @@ pub fn print_usage(u: &Usage) {
     let _ = writeln!(out);
 }
 
+/// Build a progress notice, or `None` while the user is leaving.
+///
+/// A Ctrl-C that aborts the request in flight surfaces inside this loop as a
+/// request error, so it would otherwise print `"<model> failed: ... Interrupted
+/// system call"` — and, with fallback entries configured, one such line plus a
+/// `Trying fallback:` banner per remaining entry — immediately before the REPL
+/// asks whether to leave. Those lines are interrupt noise, not diagnostics:
+/// with the exit intent pending the REPL is about to handle the Ctrl-C. A real
+/// failure (no intent pending) prints exactly as before.
+pub(crate) fn notice_unless_leaving(msg: String) -> Option<String> {
+    if crate::ui::exit_requested() {
+        None
+    } else {
+        Some(msg)
+    }
+}
+
 /// Call LLM with retry on empty response. Up to `retries` attempts per entry;
 /// an empty response retries once with RETRY_HINT, consuming the next attempt.
 ///
@@ -345,12 +362,14 @@ pub fn call_llm_with_retry(
 
     let mut last_err = String::new();
     for (idx, entry) in config.entries.iter().enumerate() {
-        if idx > 0 {
-            print_info(&format!(
+        if idx > 0
+            && let Some(notice) = notice_unless_leaving(format!(
                 "Trying fallback: {} ({})...",
                 entry.model,
                 style_label(entry.api_style)
-            ));
+            ))
+        {
+            print_info(&notice);
         }
         if let Some(sp) = spinner {
             sp.set_message(&t!("interactive.thinking", "m" => entry.model));
@@ -374,10 +393,12 @@ pub fn call_llm_with_retry(
                 Ok(_) => {
                     // Empty response — retry with hint, consuming the next attempt
                     if attempt < entry.retries {
-                        print_info(&format!(
+                        if let Some(notice) = notice_unless_leaving(format!(
                             "Empty response from {}, retrying ({}/{})...",
                             entry.model, attempt, entry.retries
-                        ));
+                        )) {
+                            print_info(&notice);
+                        }
                         if msgs.len() == messages.len() {
                             msgs.push(Message {
                                 role: "assistant".into(),
@@ -392,7 +413,11 @@ pub fn call_llm_with_retry(
                 }
                 Err(e) => {
                     last_err = e;
-                    print_info(&format!("{} failed: {}", entry.model, last_err));
+                    if let Some(notice) =
+                        notice_unless_leaving(format!("{} failed: {}", entry.model, last_err))
+                    {
+                        print_info(&notice);
+                    }
                     break; // Move to next model entry
                 }
             }
