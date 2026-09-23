@@ -465,6 +465,22 @@ fn run_oneshot(
     check_and_notify(config.auto_update);
 }
 
+// ── REPL next-step hint ─────────────────────────────────────────────────────
+
+/// The one-line "what can I do next" hint printed right after a freshly
+/// generated command in the REPL. The hotkey letters are passed in as
+/// placeholders (not baked into the locale text) so a translation can never
+/// lose or mangle them. REPL-only: the one-shot and piped-stdin paths never
+/// call this, so non-TTY output is unchanged.
+fn print_cmd_hint() {
+    print_info(&t!(
+        "interactive.cmd_hint",
+        "exec" => "x",
+        "copy" => "c",
+        "quit" => "q"
+    ));
+}
+
 fn run_interactive(
     config: &Config,
     system: &str,
@@ -607,6 +623,7 @@ fn run_interactive(
                                     entry.content = final_raw.clone();
                                     current_cache_entry = Some(entry);
                                     print_cmd(&current_cmd);
+                                    print_cmd_hint();
                                     messages.push(Message {
                                         role: "assistant".into(),
                                         content: final_raw,
@@ -677,6 +694,8 @@ fn run_interactive(
                         };
 
                         // If command is comment-only, just display and don't store
+                        // it: there is no command for `x` to act on, so the
+                        // next-step hint would be a lie here.
                         if is_comment_only(&cmd) {
                             print_cmd(&cmd);
                             messages.push(Message {
@@ -687,6 +706,7 @@ fn run_interactive(
                         }
 
                         print_cmd(&cmd);
+                        print_cmd_hint();
                         current_cmd = cmd;
                         current_raw = final_raw.clone();
                         current_cache_key = resp.cache_key.clone();

@@ -197,5 +197,6 @@ api_style_auto = "  (省略時はURLから自動検出; anthropic URL → anthro
 
 [interactive]
 welcome = "%{m} (%{s}). Tab でファイル名補完。'q' 終了、'x' 実行/編集/改良、'c' コピー。"
+cmd_hint = "次の操作: '%{exec}' 実行/編集/改良、'%{copy}' コピー、'%{quit}' 終了。"
 thinking = "%{m} 思考中..."
 thinking_short = "思考中..."

@@ -197,5 +197,6 @@ api_style_auto = "  (생략 시 URL 에서 자동 감지; anthropic URL → anth
 
 [interactive]
 welcome = "%{m} (%{s}). Tab 으로 파일명 자동 완성. 'q' 종료, 'x' 실행/편집/개선, 'c' 복사."
+cmd_hint = "다음 작업: '%{exec}' 실행/편집/개선, '%{copy}' 복사, '%{quit}' 종료."
 thinking = "%{m} 생각 중..."
 thinking_short = "생각 중..."
