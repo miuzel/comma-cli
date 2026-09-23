@@ -26,5 +26,8 @@
     "api_key": "",
     "base_url": "",
     "max_results": 5
-  }
+  },
+
+  "_comment4": "REPL input history, OFF by default. When true, interactive-mode inputs are saved to $XDG_STATE_HOME/comma/history (default ~/.local/state/comma/history, %APPDATA%\\comma\\history on Windows), owner-only (0600), so ↑ recalls them in the next session. Nothing is read or written while this is false:",
+  "history": false
 }

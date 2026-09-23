@@ -124,6 +124,7 @@ auto_setup = "LLM-провайдер не настроен — запуск ма
 menu_title = "Настройка comma — что вы хотите настроить?"
 menu_llm = "LLM-провайдеры"
 menu_search = "Веб-поиск"
+menu_history = "История REPL"
 menu_save = "Сохранить и выйти"
 menu_discard = "Отменить и выйти"
 discard_confirm = "Отменить несохранённые изменения?"
@@ -152,6 +153,9 @@ prompt_api_key = "API-ключ для %{provider}"
 prompt_search_url = "Base URL SearXNG"
 prompt_max_results = "Макс. результатов [%{current}]"
 invalid_number = "Не число, оставляем %{current}."
+history_title = "История ввода REPL (обычный текст, по умолчанию выключено)"
+history_off = "Выключено (файл истории не создаётся)"
+history_on = "Включено (запоминать ввод между сеансами)"
 no_providers_warn = "LLM-провайдеры не настроены — comma не будет работать, пока вы не добавите хотя бы один."
 
 [ui]

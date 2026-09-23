@@ -453,7 +453,7 @@ COMMA_* environment variables
 Built-in defaults
 ```
 
-The same chain applies to the cache (`~/.cache/comma/cache.json`, `$XDG_CACHE_HOME` honored) and `additional_prompt.md` — so a directory containing the binary plus `,.config.json`, `,.additional_prompt.md`, and `,.cache.json` is fully portable. On Windows they default to `%APPDATA%\comma\` (binary-adjacent and legacy files are still read).
+The same chain applies to the cache (`~/.cache/comma/cache.json`, `$XDG_CACHE_HOME` honored) and `additional_prompt.md` — so a directory containing the binary plus `,.config.json`, `,.additional_prompt.md`, and `,.cache.json` is fully portable. On Windows they default to `%APPDATA%\comma\` (binary-adjacent and legacy files are still read). The opt-in REPL history is the exception: it only ever lives in `$XDG_STATE_HOME/comma/history` (`%APPDATA%\comma\history` on Windows), with no portable or legacy fallback, and the file does not exist at all unless `"history": true` is set.
 
 ### Environment variables
 
@@ -490,6 +490,16 @@ export COMMA_API_STYLE="openai"
 ### Response cache
 
 Repeated intents are answered from `~/.cache/comma/cache.json` (default cap: 1000 entries). The cache is checked for all configured models in fallback order before any network request, so a cached fallback answer avoids a slow or unreachable primary call. Set `"cache_size": 0` in the config to disable the cache entirely.
+
+### REPL input history (opt-in, off by default)
+
+Set `"history": true` to remember what you type in interactive mode, so `↑` recalls earlier intents in the next session:
+
+```json
+{ "history": true }
+```
+
+The history is stored in `$XDG_STATE_HOME/comma/history` (default `~/.local/state/comma/history`; `%APPDATA%\comma\history` on Windows). It is written once when you leave the REPL with `q`/`quit`/`exit`, is readable by your user only (`0600`, because it contains your raw intents), keeps the newest 1000 entries, and is never sent to the API. While the key is absent or `false`, nothing is read or written and no history file is created — `, --setup` has a toggle for it. Only what you type at the REPL prompt is saved; text entered for the in-session `e` (edit) and `r` (refine) prompts is not persisted.
 
 ### Reasoning (Anthropic)
 

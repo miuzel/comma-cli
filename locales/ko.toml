@@ -124,6 +124,7 @@ auto_setup = "LLM 제공자가 설정되어 있지 않습니다 — 설정 마�
 menu_title = "comma 설정 — 무엇을 설정할까요?"
 menu_llm = "LLM 제공자"
 menu_search = "웹 검색"
+menu_history = "REPL 기록"
 menu_save = "저장 후 종료"
 menu_discard = "버리고 종료"
 discard_confirm = "저장하지 않은 변경 사항을 버릴까요?"
@@ -152,6 +153,9 @@ prompt_api_key = "%{provider} 의 API 키"
 prompt_search_url = "SearXNG base URL"
 prompt_max_results = "최대 결과 수 [%{current}]"
 invalid_number = "숫자가 아닙니다. %{current} 를 유지합니다."
+history_title = "REPL 입력 기록(일반 텍스트로 저장, 기본 꺼짐)"
+history_off = "끄기(기록 파일을 만들지 않음)"
+history_on = "켜기(세션 간 입력 기억)"
 no_providers_warn = "LLM 제공자가 설정되어 있지 않습니다 — 추가하기 전까지 comma 가 작동하지 않습니다."
 
 [ui]

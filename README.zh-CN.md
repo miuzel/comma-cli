@@ -453,7 +453,7 @@ COMMA_* 环境变量
 内置默认值
 ```
 
-`prompt.md` 和缓存（`~/.cache/comma/cache.json`，支持 $XDG_CACHE_HOME）的查找链同样适用于 `additional_prompt.md`——因此一个目录里放上二进制加 `,.config.json`、`,.additional_prompt.md`、`,.cache.json` 即可整体便携迁移。在 Windows 上它们默认放在 `%APPDATA%\comma\`（二进制旁和旧路径的文件仍会读取）。
+`prompt.md` 和缓存（`~/.cache/comma/cache.json`，支持 $XDG_CACHE_HOME）的查找链同样适用于 `additional_prompt.md`——因此一个目录里放上二进制加 `,.config.json`、`,.additional_prompt.md`、`,.cache.json` 即可整体便携迁移。在 Windows 上它们默认放在 `%APPDATA%\comma\`（二进制旁和旧路径的文件仍会读取）。可选的 REPL 历史是例外：它只会放在 `$XDG_STATE_HOME/comma/history`（Windows 为 `%APPDATA%\comma\history`），没有便携/旧路径回退，而且只有在设置 `"history": true` 时才会存在。
 
 ### 环境变量
 
@@ -490,6 +490,16 @@ export COMMA_API_STYLE="openai"
 ### 响应缓存
 
 重复的意图会从 `~/.cache/comma/cache.json` 直接回答（默认上限 1000 条）。在任何网络请求之前，缓存会按回退顺序对所有已配置的模型依次检查，因此命中回退模型的缓存可以避免等待缓慢或不可达的主模型调用。在配置中设 `"cache_size": 0` 可完全禁用缓存。
+
+### REPL 输入历史（可选，默认关闭）
+
+设置 `"history": true` 可记住你在交互模式下输入的内容，下次进入会话时用 `↑` 就能翻到：
+
+```json
+{ "history": true }
+```
+
+历史文件位于 `$XDG_STATE_HOME/comma/history`（默认 `~/.local/state/comma/history`；Windows 为 `%APPDATA%\comma\history`）。它在你用 `q`/`quit`/`exit` 退出 REPL 时一次性写入，仅你的用户可读（`0600`，因为内容是原始意图文本），最多保留最新 1000 条，并且永远不会发往 API。当该键缺失或为 `false` 时，既不读取也不写入，不会产生任何历史文件；`, --setup` 中提供了这个开关。只有 REPL 提示符下的输入会被保存——在会话中的 `e`（编辑）和 `r`（追问）提示符里输入的内容不会被持久化。
 
 ### Reasoning（Anthropic）
 
