@@ -2,13 +2,17 @@ use crate::cache::cache_key;
 use crate::config::{ApiStyle, MAX_RETRIES, Reasoning};
 use crate::context::{
     Placeholders, apply_placeholders, collect_placeholders, gather_context, get_shell,
-    shell_command,
+    mask_placeholders, shell_command,
 };
 use crate::danger::is_dangerous;
 use crate::llm::{Message, RETRY_HINT};
 use crate::protocol::{parse_check, parse_explore, parse_search, strip_markdown_fences};
 use crate::style_label;
 use crate::ui::{is_bare_cd, parse_candidates, truncate};
+use crate::{
+    AUTO_REFINE_MAX_OUTPUT_CHARS, ExecOutcome, auto_refine_body, auto_refine_output,
+    parse_refine_command, refine_turns, should_auto_refine,
+};
 
 // ── Built-in self-test suite (`--test`) ─────────────────────────────────────
 
@@ -577,7 +581,7 @@ pub fn run_tests() {
     let eval_path = std::env::temp_dir().join(format!("comma-eval-test-{}", std::process::id()));
     let _ = std::fs::remove_file(&eval_path);
     set_env("COMMA_EVAL_FILE", &eval_path);
-    crate::execute("cd /tmp # comment");
+    crate::execute("cd /tmp # comment", false);
     unset_env("COMMA_EVAL_FILE");
     let eval_content = std::fs::read_to_string(&eval_path).unwrap_or_default();
     let _ = std::fs::remove_file(&eval_path);
@@ -585,6 +589,259 @@ pub fn run_tests() {
         "eval file: comment-stripped command appended",
         eval_content == "cd /tmp\n",
     );
+
+    // Test 20b: execute() contract — the exit code is always reported; in
+    // COMMA_EVAL_FILE mode nothing runs here, so the outcome is None (and no
+    // automatic refine can fire). Capture mode adds the combined output.
+    let ok = crate::execute("exit 0", false);
+    check(
+        "execute: exit 0 reported",
+        matches!(&ok, Some(o) if o.code == Some(0) && o.output.is_empty()),
+    );
+    let bad = crate::execute("exit 7", false);
+    check(
+        "execute: non-zero exit code reported",
+        matches!(&bad, Some(o) if o.code == Some(7)),
+    );
+    set_env("COMMA_EVAL_FILE", &eval_path);
+    let eval_outcome = crate::execute("cd /tmp", false);
+    unset_env("COMMA_EVAL_FILE");
+    let _ = std::fs::remove_file(&eval_path);
+    check(
+        "execute: eval-file mode returns None (no exit code)",
+        eval_outcome.is_none(),
+    );
+    if cfg!(unix) {
+        let captured = crate::execute("echo comma-capture-marker; exit 3", true);
+        check(
+            "execute: capture mode reports output + exit code",
+            matches!(&captured, Some(o) if o.code == Some(3) && o.output.contains("comma-capture-marker")),
+        );
+    }
+
+    // Test 20c: automatic refine trigger — any non-zero exit code starts one,
+    // including a signal death / spawn failure where code() is None; exit 0
+    // never does, COMMA_EVAL_FILE mode never does, and `auto_refine: false`
+    // (also the non-TTY one-shot path) always wins.
+    let exit0 = ExecOutcome {
+        code: Some(0),
+        output: "ok".into(),
+    };
+    let exit1 = ExecOutcome {
+        code: Some(1),
+        output: "boom".into(),
+    };
+    let killed = ExecOutcome {
+        code: None,
+        output: String::new(),
+    };
+    check(
+        "auto-refine: exit 0 does not trigger",
+        !should_auto_refine(Some(&exit0), true),
+    );
+    check(
+        "auto-refine: exit 1 triggers",
+        should_auto_refine(Some(&exit1), true),
+    );
+    check(
+        "auto-refine: signal / spawn failure (no code) triggers",
+        should_auto_refine(Some(&killed), true),
+    );
+    check(
+        "auto-refine: eval-file mode never triggers",
+        !should_auto_refine(None, true),
+    );
+    check(
+        "auto-refine: disabled switch wins",
+        !should_auto_refine(Some(&exit1), false),
+    );
+    check(
+        "auto-refine: non-TTY (one-shot) path never triggers",
+        !should_auto_refine(Some(&killed), false),
+    );
+
+    // Test 20d: auto-refine payload — previous command + exit code + a
+    // truncated output summary, with real private values masked BEFORE
+    // truncation (a half-cut home path would still leak).
+    let ph_fake = Placeholders {
+        user: "tester".into(),
+        hostname: "test-box".into(),
+        home: "/home/tester".into(),
+    };
+    check(
+        "mask_placeholders: home before user",
+        mask_placeholders("/home/tester/x tester", &ph_fake) == "{{HOME}}/x {{USER}}",
+    );
+    check(
+        "mask_placeholders: hostname",
+        mask_placeholders("ssh test-box", &ph_fake) == "ssh {{HOSTNAME}}",
+    );
+    let ph_empty = Placeholders {
+        user: String::new(),
+        hostname: String::new(),
+        home: "~".into(),
+    };
+    check(
+        "mask_placeholders: skips empty values and the ~ fallback",
+        mask_placeholders("~/x", &ph_empty) == "~/x",
+    );
+
+    let long_output = format!(
+        "\u{1b}[31mcat: /home/tester/secret: No such file\u{1b}[0m\n{}",
+        "x".repeat(4000)
+    );
+    let body = auto_refine_body("cat /home/tester/secret", 2, &long_output, &ph_fake);
+    check(
+        "auto-refine body: contains the failed command (masked)",
+        body.contains("cat {{HOME}}/secret"),
+    );
+    check(
+        "auto-refine body: contains the exit code",
+        body.contains('2'),
+    );
+    check(
+        "auto-refine body: no real home path",
+        !body.contains("/home/tester"),
+    );
+    check(
+        "auto-refine body: no real username",
+        !body.contains("tester"),
+    );
+    check(
+        "auto-refine body: no ANSI escapes",
+        !body.contains('\u{1b}'),
+    );
+    check(
+        "auto-refine body: placeholders substituted back",
+        body.contains("{{HOME}}"),
+    );
+    let summary = auto_refine_output(&long_output, &ph_fake);
+    check(
+        "auto-refine summary: capped at the fixed limit",
+        summary.chars().count() <= AUTO_REFINE_MAX_OUTPUT_CHARS,
+    );
+    check(
+        "auto-refine summary: keeps the head",
+        summary.starts_with("cat: {{HOME}}/secret"),
+    );
+    check(
+        "auto-refine summary: keeps the tail",
+        summary.ends_with("xxxx"),
+    );
+    check(
+        "auto-refine summary: truncation is marked",
+        summary.contains("chars omitted"),
+    );
+    let empty_expected =
+        t!("interactive.auto_refine_body_empty", "cmd" => "false", "code" => 1).to_string();
+    check(
+        "auto-refine body: empty output sends command + exit code only",
+        auto_refine_body("false", 1, "", &ph_fake) == empty_expected,
+    );
+    check(
+        "auto-refine body: whitespace-only output counts as empty",
+        auto_refine_body("false", 1, "  \n\t \u{1b}[0m", &ph_fake) == empty_expected,
+    );
+
+    // Test 20e: the request body of an automatic refine (the two turns the
+    // next API call serializes) never contains the real HOME, username or
+    // hostname — the project's #1 privacy invariant.
+    let raw_reply = "ls -la {{HOME}}/docs".to_string();
+    let real_output = format!(
+        "total 4\n-rw-r--r-- {} {} {}: {}\n",
+        ph.user, ph.user, ph.hostname, ph.home
+    );
+    let real_cmd = format!("ls -la {}/docs", ph.home);
+    let real_body = auto_refine_body(&real_cmd, 1, &real_output, &ph);
+    let turns = refine_turns(&raw_reply, &real_body);
+    let request_body = serde_json::to_string(&turns).unwrap_or_default();
+    check(
+        "auto-refine request body: no real home path",
+        !request_body.contains(&ph.home),
+    );
+    check(
+        "auto-refine request body: no real username",
+        !request_body.contains(&ph.user),
+    );
+    check(
+        "auto-refine request body: no real hostname",
+        !request_body.contains(&ph.hostname),
+    );
+    check(
+        "auto-refine request body: placeholders present",
+        request_body.contains("{{HOME}}") && request_body.contains("{{USER}}"),
+    );
+
+    // Test 20f: direct refine entry point at the main REPL prompt.
+    check(
+        "refine cmd: /refine TEXT",
+        parse_refine_command("/refine make it safe") == Some("make it safe"),
+    );
+    check(
+        "refine cmd: /r alias",
+        parse_refine_command("/r use -y") == Some("use -y"),
+    );
+    check(
+        "refine cmd: bare /refine yields empty text",
+        parse_refine_command("/refine") == Some(""),
+    );
+    check(
+        "refine cmd: whitespace trimmed",
+        parse_refine_command("/refine   spaced  ") == Some("spaced"),
+    );
+    check(
+        "refine cmd: /refinex is not a refine command",
+        parse_refine_command("/refinex now").is_none(),
+    );
+    check(
+        "refine cmd: /rx is not a refine command",
+        parse_refine_command("/rx").is_none(),
+    );
+    check(
+        "refine cmd: plain intent is not a refine command",
+        parse_refine_command("list files").is_none(),
+    );
+
+    // Test 20g: the `auto_refine` config key — absent means enabled (default),
+    // `false` disables (and keeps the streaming execution path). Uses a fake
+    // HOME; skipped on Windows, where the config path is %APPDATA%\comma.
+    if !cfg!(windows) {
+        let fake = std::env::temp_dir().join(format!("comma-autorefine-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&fake);
+        let cfg_file = fake.join(".config/comma/config.json");
+        std::fs::create_dir_all(cfg_file.parent().unwrap()).unwrap();
+        let saved_home = std::env::var("HOME").ok();
+        let saved_xdg_cfg = std::env::var("XDG_CONFIG_HOME").ok();
+        set_env("HOME", fake.to_string_lossy().as_ref());
+        unset_env("XDG_CONFIG_HOME");
+        std::fs::write(
+            &cfg_file,
+            r#"{"base_url":"http://127.0.0.1","auth_token":"t","model":"m"}"#,
+        )
+        .unwrap();
+        let default_on = crate::config::load_config()
+            .map(|c| c.auto_refine)
+            .unwrap_or(false);
+        std::fs::write(
+            &cfg_file,
+            r#"{"base_url":"http://127.0.0.1","auth_token":"t","model":"m","auto_refine":false}"#,
+        )
+        .unwrap();
+        let disabled = crate::config::load_config()
+            .map(|c| c.auto_refine)
+            .unwrap_or(true);
+        check("config: auto_refine defaults to true", default_on);
+        check("config: auto_refine=false disables", !disabled);
+        match &saved_home {
+            Some(v) => set_env("HOME", v),
+            None => unset_env("HOME"),
+        }
+        match &saved_xdg_cfg {
+            Some(v) => set_env("XDG_CONFIG_HOME", v),
+            None => unset_env("XDG_CONFIG_HOME"),
+        }
+        let _ = std::fs::remove_dir_all(&fake);
+    }
 
     // Test 21: is_bare_cd — first token of the comment-stripped command
     check("is_bare_cd: bare cd", is_bare_cd("cd"));
@@ -688,6 +945,50 @@ pub fn run_tests() {
             &format!("locale {}: checksum_mismatch substitutes all", locale),
             mismatch.contains('N') && mismatch.contains('E') && mismatch.contains('A'),
         );
+        // Auto-refine strings must exist in every locale (a missing key falls
+        // back silently in production, so `--test` is the only guard).
+        let notice = t!("interactive.auto_refine_notice", locale => locale, "code" => 9);
+        check(
+            &format!(
+                "locale {}: auto_refine_notice substitutes %{{code}}",
+                locale
+            ),
+            notice.contains('9'),
+        );
+        let auto_body = t!(
+            "interactive.auto_refine_body",
+            locale => locale,
+            "cmd" => "CMD_MARK", "code" => 9, "output" => "OUT_MARK"
+        );
+        check(
+            &format!("locale {}: auto_refine_body substitutes all", locale),
+            auto_body.contains("CMD_MARK")
+                && auto_body.contains("OUT_MARK")
+                && auto_body.contains('9'),
+        );
+        let auto_body_empty = t!(
+            "interactive.auto_refine_body_empty",
+            locale => locale,
+            "cmd" => "CMD_MARK", "code" => 9
+        );
+        check(
+            &format!("locale {}: auto_refine_body_empty substitutes all", locale),
+            auto_body_empty.contains("CMD_MARK") && auto_body_empty.contains('9'),
+        );
+        let menu_auto = t!("setup.menu_auto_refine", locale => locale, "value" => "VALUE_MARK");
+        check(
+            &format!("locale {}: menu_auto_refine substitutes %{{value}}", locale),
+            menu_auto.contains("VALUE_MARK"),
+        );
+        for key in [
+            "error.no_command_refine",
+            "error.refine_requires_text",
+            "help.refine_desc",
+            "help.auto_refine_desc",
+        ] {
+            let value = t!(key, locale => locale);
+            check(&format!("locale {}: {} present", locale, key), value != key);
+        }
     }
 
     // Test 24: config_path — XDG location preferred on Unix, legacy

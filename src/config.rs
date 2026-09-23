@@ -90,6 +90,11 @@ struct LocalConfig {
     // Auto-update: true (default) enables weekly checks; false disables;
     // a number overrides the interval in days (0 = disabled).
     auto_update: Option<AutoUpdate>,
+    // Auto-refine: when true (default), a command that exits non-zero in the
+    // REPL automatically starts a refine turn carrying the command, the exit
+    // code and a sanitized output summary. `false` disables it (and keeps the
+    // old streaming `.status()` execution path).
+    auto_refine: Option<bool>,
     // Language override (e.g., "en", "zh", "ja")
     lang: Option<String>,
     // Web search backend for the #SEARCH: protocol
@@ -242,6 +247,8 @@ pub struct Config {
     pub reasoning: Reasoning,
     pub max_output_tokens: Option<u32>,
     pub auto_update: AutoUpdate,
+    /// Auto-refine after a failed command (see `LocalConfig::auto_refine`).
+    pub auto_refine: bool,
     pub lang: Option<String>,
     pub search: SearchConfig,
     pub full_prompt: Option<String>,
@@ -284,6 +291,7 @@ impl Config {
                     reasoning: self.reasoning.clone(),
                     max_output_tokens: self.max_output_tokens,
                     auto_update: self.auto_update,
+                    auto_refine: self.auto_refine,
                     lang: self.lang.clone(),
                     search: self.search.clone(),
                     full_prompt: self.full_prompt.clone(),
@@ -420,6 +428,9 @@ pub fn load_config() -> Result<Config, String> {
     let reasoning = local.reasoning.unwrap_or_default();
     let max_output_tokens = local.max_output_tokens;
     let auto_update = local.auto_update.unwrap_or_default();
+    // Auto-refine is ON by default: a failed command is the case where a
+    // one-line fix is most valuable. `"auto_refine": false` turns it off.
+    let auto_refine = local.auto_refine.unwrap_or(true);
     let lang = local.lang;
     let search = local.search.unwrap_or_default();
     let full_prompt = non_empty(local.full_prompt);
@@ -509,6 +520,7 @@ pub fn load_config() -> Result<Config, String> {
         reasoning,
         max_output_tokens,
         auto_update,
+        auto_refine,
         lang,
         search,
         full_prompt,
