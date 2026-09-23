@@ -364,7 +364,7 @@ fd --size +100M -x ls -lh {} + | sort -k5 -h -r
 
 `Ctrl+C` 随时都能退出，而且不会被终端的默认处理直接杀掉进程（那会绕过唯一的退出收口、丢掉会话历史）：
 
-- **停在 `> ` 提示符时**——按一次即退出，与 `q` / `quit` / `exit` 完全等价；可选的历史记录也会在该路径上落盘（见 [REPL 输入历史](#repl-输入历史可选默认关闭)）。`Ctrl+D` 行为不变，**不会**退出。
+- **停在 `> ` 提示符时**——按一次即退出，与 `q` / `quit` / `exit` 完全等价；历史记录也会在该路径上落盘（见 [REPL 输入历史](#repl-输入历史默认开启)）。`Ctrl+D` 行为不变，**不会**退出。
 - **有操作正在运行时**（模型请求、精炼、命令执行）——先中断当前这一步，随后弹出 `退出 REPL？[y/N]`：`y` 退出（保存历史），`N`（或 `Enter`，或再按一次 `Ctrl+C`）回到 `> `。被中断的那一步的结果会被丢弃，不会被执行。
 - **在菜单或子提示符里**——`Ctrl+C` 与 `Esc` 同义：动作菜单、候选选择器以及 `edit>` / `refine>` 提示符都是「取消并回到 `> `」，菜单不会把人困住；回到提示符后再按一次 `Ctrl+C` 即退出。
 - **命令执行中**——`Ctrl+C` 仍会转发给命令：捕获执行时经 pty 转发 `0x03` 字节（终端惯例，先中断命令），`auto_refine: false` 的继承 stdio 模式下由内核投递 `SIGINT`。两种情况都会登记「想退出」的意图，命令结束后再询问。
@@ -477,7 +477,7 @@ COMMA_* 环境变量
 内置默认值
 ```
 
-`prompt.md` 和缓存（`~/.cache/comma/cache.json`，支持 $XDG_CACHE_HOME）的查找链同样适用于 `additional_prompt.md`——因此一个目录里放上二进制加 `,.config.json`、`,.additional_prompt.md`、`,.cache.json` 即可整体便携迁移。在 Windows 上它们默认放在 `%APPDATA%\comma\`（二进制旁和旧路径的文件仍会读取）。可选的 REPL 历史是例外：它只会放在 `$XDG_STATE_HOME/comma/history`（Windows 为 `%APPDATA%\comma\history`），没有便携/旧路径回退，而且只有在设置 `"history": true` 时才会存在。
+`prompt.md` 和缓存（`~/.cache/comma/cache.json`，支持 $XDG_CACHE_HOME）的查找链同样适用于 `additional_prompt.md`——因此一个目录里放上二进制加 `,.config.json`、`,.additional_prompt.md`、`,.cache.json` 即可整体便携迁移。在 Windows 上它们默认放在 `%APPDATA%\comma\`（二进制旁和旧路径的文件仍会读取）。REPL 历史是例外：它只会放在 `$XDG_STATE_HOME/comma/history`（Windows 为 `%APPDATA%\comma\history`），没有便携/旧路径回退。它默认开启；设置 `"history": false` 后就不再读取也不再写入。
 
 ### 环境变量
 
@@ -515,15 +515,17 @@ export COMMA_API_STYLE="openai"
 
 重复的意图会从 `~/.cache/comma/cache.json` 直接回答（默认上限 1000 条）。在任何网络请求之前，缓存会按回退顺序对所有已配置的模型依次检查，因此命中回退模型的缓存可以避免等待缓慢或不可达的主模型调用。在配置中设 `"cache_size": 0` 可完全禁用缓存。
 
-### REPL 输入历史（可选，默认关闭）
+### REPL 输入历史（默认开启）
 
-设置 `"history": true` 可记住你在交互模式下输入的内容，下次进入会话时用 `↑` 就能翻到：
+默认情况下 `,` 会记住你在 REPL 提示符下输入的内容，下次进入会话时用 `↑` 就能翻到。每次进入 REPL 时，欢迎词都会说明这一点，并告诉你如何关闭：
 
 ```json
-{ "history": true }
+{ "history": false }
 ```
 
-历史文件位于 `$XDG_STATE_HOME/comma/history`（默认 `~/.local/state/comma/history`；Windows 为 `%APPDATA%\comma\history`）。它在你用 `q`/`quit`/`exit` 退出 REPL 时一次性写入——用 `Ctrl+C` 退出（见[退出 REPL](#退出-replctrlc)）同样如此——仅你的用户可读（`0600`，因为内容是原始意图文本），最多保留最新 1000 条，并且永远不会发往 API。当该键缺失或为 `false` 时，既不读取也不写入，不会产生任何历史文件；`, --setup` 中提供了这个开关。只有 REPL 提示符下的输入会被保存——在会话中的 `e`（编辑）和 `r`（追问）提示符里输入的内容不会被持久化。
+历史文件位于 `$XDG_STATE_HOME/comma/history`（默认 `~/.local/state/comma/history`；Windows 为 `%APPDATA%\comma\history`）。它在你用 `q`/`quit`/`exit` 退出 REPL 时一次性写入——用 `Ctrl+C` 退出（见[退出 REPL](#退出-replctrlc)）同样如此——仅你的用户可读（`0600`，因为内容是原始意图文本），最多保留最新 1000 条，并且永远不会发往 API。只有 REPL 提示符下的输入会被保存——在会话中的 `e`（编辑）和 `r`（追问）提示符里输入的内容不会被持久化。
+
+想关闭时，在配置里写 `"history": false`——此后既不读取也不写入，不会产生任何历史文件——或使用 `, --setup` 里的开关。关闭状态下，欢迎词不会再出现该提示。
 ### 命令失败后自动精炼
 
 在交互式 REPL 中，退出码**非 0** 的命令（含被信号终止）会自动发起一次精炼：把失败的命令、退出码和输出摘要发给模型，并打印修正后的命令、再次弹出动作菜单 —— 仍需你自己选择是否执行。不会自动执行任何命令，且每条被执行的命令最多触发一次。非 TTY 场景（一次性模式、管道 stdin）与 `COMMA_EVAL_FILE` eval 模式永不自动精炼。

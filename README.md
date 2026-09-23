@@ -364,7 +364,7 @@ See [Auto-refine after a failure](#auto-refine-after-a-failure) for what is sent
 
 `Ctrl+C` always gets you out, and never leaves the process to the terminal's default handler (which would skip the single exit path and lose the session history):
 
-- **At the `> ` prompt** — one press exits, exactly like `q` / `quit` / `exit`; the opt-in [REPL history](#repl-input-history-opt-in-off-by-default) is written on that path too. `Ctrl+D` is unchanged and does *not* exit.
+- **At the `> ` prompt** — one press exits, exactly like `q` / `quit` / `exit`; the [REPL history](#repl-input-history-on-by-default) is written on that path too. `Ctrl+D` is unchanged and does *not* exit.
 - **While something is running** (a model request, a refine, a command) — the running step is interrupted first, then `Exit REPL? [y/N]` asks: `y` leaves (history saved), `N` — or `Enter`, or another `Ctrl+C` — goes back to `> `. The interrupted step's result is dropped, never executed.
 - **In a menu or a sub-prompt** — `Ctrl+C` means the same as `Esc`: the action menu, the candidate selector, and the `edit>` / `refine>` prompts cancel back to `> `, so a menu can never trap you; press `Ctrl+C` once more at the prompt to leave.
 - **While a command runs** — `Ctrl+C` is still forwarded to it: as `0x03` through the pty for a captured run (so the command is interrupted first, as any terminal would), and as `SIGINT` from the kernel for a run with inherited stdio (`auto_refine: false`). In both cases `,` records the exit intent and asks once the command is done.
@@ -477,7 +477,7 @@ COMMA_* environment variables
 Built-in defaults
 ```
 
-The same chain applies to the cache (`~/.cache/comma/cache.json`, `$XDG_CACHE_HOME` honored) and `additional_prompt.md` — so a directory containing the binary plus `,.config.json`, `,.additional_prompt.md`, and `,.cache.json` is fully portable. On Windows they default to `%APPDATA%\comma\` (binary-adjacent and legacy files are still read). The opt-in REPL history is the exception: it only ever lives in `$XDG_STATE_HOME/comma/history` (`%APPDATA%\comma\history` on Windows), with no portable or legacy fallback, and the file does not exist at all unless `"history": true` is set.
+The same chain applies to the cache (`~/.cache/comma/cache.json`, `$XDG_CACHE_HOME` honored) and `additional_prompt.md` — so a directory containing the binary plus `,.config.json`, `,.additional_prompt.md`, and `,.cache.json` is fully portable. On Windows they default to `%APPDATA%\comma\` (binary-adjacent and legacy files are still read). The REPL history is the exception: it only ever lives in `$XDG_STATE_HOME/comma/history` (`%APPDATA%\comma\history` on Windows), with no portable or legacy fallback. It is on by default; setting `"history": false` stops it from being read or written at all.
 
 ### Environment variables
 
@@ -515,15 +515,17 @@ export COMMA_API_STYLE="openai"
 
 Repeated intents are answered from `~/.cache/comma/cache.json` (default cap: 1000 entries). The cache is checked for all configured models in fallback order before any network request, so a cached fallback answer avoids a slow or unreachable primary call. Set `"cache_size": 0` in the config to disable the cache entirely.
 
-### REPL input history (opt-in, off by default)
+### REPL input history (on by default)
 
-Set `"history": true` to remember what you type in interactive mode, so `↑` recalls earlier intents in the next session:
+By default `,` remembers what you type at the REPL prompt, so `↑` recalls earlier intents in the next session. Every time you enter the REPL the welcome line says so and tells you how to stop it:
 
 ```json
-{ "history": true }
+{ "history": false }
 ```
 
-The history is stored in `$XDG_STATE_HOME/comma/history` (default `~/.local/state/comma/history`; `%APPDATA%\comma\history` on Windows). It is written once when you leave the REPL with `q`/`quit`/`exit` — or with `Ctrl+C` (see [Leaving the REPL](#leaving-the-repl-ctrlc)) — is readable by your user only (`0600`, because it contains your raw intents), keeps the newest 1000 entries, and is never sent to the API. While the key is absent or `false`, nothing is read or written and no history file is created — `, --setup` has a toggle for it. Only what you type at the REPL prompt is saved; text entered for the in-session `e` (edit) and `r` (refine) prompts is not persisted.
+The history is stored in `$XDG_STATE_HOME/comma/history` (default `~/.local/state/comma/history`; `%APPDATA%\comma\history` on Windows). It is written once when you leave the REPL with `q`/`quit`/`exit` — or with `Ctrl+C` (see [Leaving the REPL](#leaving-the-repl-ctrlc)) — is readable by your user only (`0600`, because it contains your raw intents), keeps the newest 1000 entries, and is never sent to the API. Only what you type at the REPL prompt is saved; text entered for the in-session `e` (edit) and `r` (refine) prompts is not persisted.
+
+To turn it off, set `"history": false` in the config — then nothing is read or written and no history file is created — or use the toggle in `, --setup`. While the feature is off, the welcome line does not mention it.
 ### Auto-refine after a failure
 
 In the interactive REPL, a command that exits **non-zero** (including one killed by a signal) automatically starts a refine turn: the failed command, its exit code and a summary of its output are sent to the model, and the corrected command is printed with the action menu — you still choose to run it. Nothing is executed automatically, and each executed command triggers this at most once. Non-TTY runs (one-shot, piped stdin) and `COMMA_EVAL_FILE` eval mode never auto-refine.

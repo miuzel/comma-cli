@@ -157,7 +157,7 @@ prompt_api_key = "Clé API pour %{provider}"
 prompt_search_url = "Base URL SearXNG"
 prompt_max_results = "Résultats max [%{current}]"
 invalid_number = "Pas un nombre, conservation de %{current}."
-history_title = "Historique des saisies REPL (texte brut, désactivé par défaut)"
+history_title = "Historique des saisies REPL (texte brut, activé par défaut, lisible par vous seul 0600)"
 history_off = "Désactivé (aucun fichier d'historique n'est créé)"
 history_on = "Activé (mémoriser vos saisies entre les sessions)"
 no_providers_warn = "Aucun fournisseur LLM configuré — comma ne fonctionnera pas tant que vous n'en ajoutez pas un."
@@ -207,6 +207,7 @@ api_style_auto = "  (détecté automatiquement depuis l'URL si omis ; URL anthro
 
 [interactive]
 welcome = "%{m} (%{s}). Chaque commande générée ouvre le menu d'action ; Tab complète les noms de fichiers. 'q' quitter, 'x' rouvrir le menu, '/refine TEXTE' raffiner directement, 'c' copier."
+history_notice = "Historique activé : vos saisies sont enregistrées dans %{p} (lisible par vous seul, 0600 ; jamais envoyé à l'API). Pour le désactiver : \"history\": false dans la configuration, ou ', --setup'."
 auto_refine_notice = "La commande précédente a échoué (code %{code}) — raffinage automatique, tour %{round}/%{total} (désactivable avec \"auto_refine\": false)."
 auto_refine_exhausted = "Arrêt après %{rounds} raffinages automatiques sans succès — ajustez la commande vous-même, ou définissez \"auto_refine\": false."
 auto_refine_body = "La commande précédente a échoué avec le code %{code}.\n\nCommande :\n%{cmd}\n\nSortie :\n%{output}\n\nRaffinez la commande pour qu'elle réussisse au prochain essai."

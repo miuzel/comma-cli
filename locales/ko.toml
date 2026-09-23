@@ -157,7 +157,7 @@ prompt_api_key = "%{provider} 의 API 키"
 prompt_search_url = "SearXNG base URL"
 prompt_max_results = "최대 결과 수 [%{current}]"
 invalid_number = "숫자가 아닙니다. %{current} 를 유지합니다."
-history_title = "REPL 입력 기록(일반 텍스트로 저장, 기본 꺼짐)"
+history_title = "REPL 입력 기록(일반 텍스트, 기본 켜짐, 소유자만 0600)"
 history_off = "끄기(기록 파일을 만들지 않음)"
 history_on = "켜기(세션 간 입력 기억)"
 no_providers_warn = "LLM 제공자가 설정되어 있지 않습니다 — 추가하기 전까지 comma 가 작동하지 않습니다."
@@ -207,6 +207,7 @@ api_style_auto = "  (생략 시 URL 에서 자동 감지; anthropic URL → anth
 
 [interactive]
 welcome = "%{m} (%{s}). 명령을 생성하면 바로 동작 메뉴가 열립니다. Tab 으로 파일명 자동 완성. 'q' 종료, 'x' 메뉴 다시 열기, '/refine 텍스트' 로 바로 개선, 'c' 복사."
+history_notice = "입력 기록이 켜져 있습니다: 프롬프트 입력은 %{p} 에 저장됩니다(소유자만 0600, API 로 전송되지 않음). 끄려면 설정에 \"history\": false 를 쓰거나 ', --setup' 을 실행하세요."
 auto_refine_notice = "이전 명령이 실패했습니다 (종료 코드 %{code}) — 자동 개선 중, %{round}/%{total} 회차 (\"auto_refine\": false 로 끄기)."
 auto_refine_exhausted = "자동 개선을 %{rounds}회 시도했지만 성공하지 못했습니다 — 자동 개선을 중지합니다. 명령을 직접 조정하거나 \"auto_refine\": false 를 설정하세요."
 auto_refine_body = "이전 명령이 종료 코드 %{code} 로 실패했습니다.\n\n명령:\n%{cmd}\n\n출력:\n%{output}\n\n다음에 성공하도록 명령을 개선해 주세요."

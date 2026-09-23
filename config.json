@@ -28,8 +28,8 @@
     "max_results": 5
   },
 
-  "_comment4": "REPL input history, OFF by default. When true, interactive-mode inputs are saved to $XDG_STATE_HOME/comma/history (default ~/.local/state/comma/history, %APPDATA%\\comma\\history on Windows), owner-only (0600), so ↑ recalls them in the next session. Nothing is read or written while this is false:",
-  "history": false,
+  "_comment4": "REPL input history, ON by default. Interactive-mode inputs are saved to $XDG_STATE_HOME/comma/history (default ~/.local/state/comma/history, %APPDATA%\\comma\\history on Windows), so ↑ recalls them in the next session. The file contains your raw intents, so it is readable by your user only (0600) and is never sent to the API. To turn it off, set \"history\": false here (nothing is then read or written) or use ', --setup':",
+  "history": true,
 
   "_comment5": "Auto-refine after a failed command in the REPL, ON by default. On a non-zero exit code comma sends the failed command, its exit code and a truncated summary of its output (real paths masked as {{HOME}}/{{USER}}/{{HOSTNAME}}) back to the model, then prints the corrected command — nothing is auto-executed. While true, the command runs on a pseudo-terminal that comma relays live: output is real-time, colors and progress bars keep working and full-screen programs (vim/less) are usable. Windows has no pseudo-terminal yet, so there the child sees pipes (no TTY). Set false to run commands with inherited stdio and no capture:",
   "auto_refine": true,

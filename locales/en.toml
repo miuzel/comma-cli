@@ -157,7 +157,7 @@ prompt_api_key = "API key for %{provider}"
 prompt_search_url = "SearXNG base URL"
 prompt_max_results = "Max results [%{current}]"
 invalid_number = "Not a number, keeping %{current}."
-history_title = "REPL input history (plain text, off by default)"
+history_title = "REPL input history (plain text, ON by default, owner-only 0600)"
 history_off = "Off (no history file is created)"
 history_on = "On (remember your inputs across sessions)"
 no_providers_warn = "No LLM providers configured — comma will not work until you add one."
@@ -207,6 +207,7 @@ api_style_auto = "  (auto-detected from URL if omitted; anthropic URLs → anthr
 
 [interactive]
 welcome = "%{m} (%{s}). Each generated command opens the action menu; Tab completes filenames. 'q' quit, 'x' re-open the menu, '/refine TEXT' refine directly, 'c' copy."
+history_notice = "Input history is ON: prompts are saved to %{p} (owner-only 0600, never sent to the API). Turn it off with \"history\": false in your config, or run ', --setup'."
 auto_refine_notice = "Previous command failed (exit code %{code}) — auto-refining, round %{round}/%{total} (disable with \"auto_refine\": false)."
 auto_refine_exhausted = "Stopped after %{rounds} automatic refine rounds without success — adjust the command yourself, or set \"auto_refine\": false / raise \"auto_refine_rounds\"."
 auto_refine_body = "The previous command failed with exit code %{code}.\n\nCommand:\n%{cmd}\n\nOutput:\n%{output}\n\nRefine the command so it succeeds on the next try."

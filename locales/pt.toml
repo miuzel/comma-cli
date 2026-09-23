@@ -157,7 +157,7 @@ prompt_api_key = "Chave de API para %{provider}"
 prompt_search_url = "Base URL do SearXNG"
 prompt_max_results = "Máx. de resultados [%{current}]"
 invalid_number = "Não é um número, mantendo %{current}."
-history_title = "Histórico de entradas do REPL (texto simples, desativado por padrão)"
+history_title = "Histórico de entradas do REPL (texto simples, ativado por padrão, legível só por você 0600)"
 history_off = "Desativado (nenhum arquivo de histórico é criado)"
 history_on = "Ativado (lembrar suas entradas entre sessões)"
 no_providers_warn = "Nenhum provedor de LLM configurado — o comma não funcionará até você adicionar um."
@@ -207,6 +207,7 @@ api_style_auto = "  (detectado automaticamente pela URL se omitido; URLs anthrop
 
 [interactive]
 welcome = "%{m} (%{s}). Cada comando gerado abre o menu de ações; Tab completa nomes de arquivos. 'q' sair, 'x' reabrir o menu, '/refine TEXTO' refinar diretamente, 'c' copiar."
+history_notice = "Histórico ativado: suas entradas são salvas em %{p} (legível só por você, 0600; nunca é enviado à API). Para desativar: \"history\": false na configuração, ou ', --setup'."
 auto_refine_notice = "O comando anterior falhou (código %{code}) — refinando automaticamente, rodada %{round}/%{total} (desative com \"auto_refine\": false)."
 auto_refine_exhausted = "Parado após %{rounds} rodadas de refinamento automático sem sucesso — ajuste o comando você mesmo ou defina \"auto_refine\": false."
 auto_refine_body = "O comando anterior falhou com o código %{code}.\n\nComando:\n%{cmd}\n\nSaída:\n%{output}\n\nRefine o comando para que funcione na próxima tentativa."

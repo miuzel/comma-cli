@@ -157,7 +157,7 @@ prompt_api_key = "%{provider} 的 API 密钥"
 prompt_search_url = "SearXNG base URL"
 prompt_max_results = "最大结果数 [%{current}]"
 invalid_number = "不是数字，保留 %{current}。"
-history_title = "REPL 输入历史（纯文本保存，默认关闭）"
+history_title = "REPL 输入历史（纯文本，默认开启，仅本人可读 0600）"
 history_off = "关闭（不创建历史文件）"
 history_on = "开启（跨会话记住你的输入）"
 no_providers_warn = "未配置 LLM 提供商 — 添加提供商之前 comma 无法工作。"
@@ -207,6 +207,7 @@ api_style_auto = "  (如省略则从 URL 自动检测; anthropic URL → anthrop
 
 [interactive]
 welcome = "%{m}（%{s}）。生成命令后直接进入动作菜单；Tab 补全文件名。'q' 退出，'x' 重新打开菜单，'/refine 文本' 直接精炼，'c' 复制。"
+history_notice = "输入历史已开启：在提示符下输入的内容会保存到 %{p}（仅本人可读 0600，永不发往 API）。关闭方法：在配置里写 \"history\": false，或运行 ', --setup'。"
 auto_refine_notice = "上一条命令失败（退出码 %{code}）——已自动精炼，第 %{round}/%{total} 轮（可用 \"auto_refine\": false 关闭）。"
 auto_refine_exhausted = "已自动精炼 %{rounds} 轮仍未成功，停止自动精炼 —— 请自行调整命令，或设置 \"auto_refine\": false / 调大 \"auto_refine_rounds\"。"
 auto_refine_body = "上一条命令执行失败，退出码 %{code}。\n\n命令：\n%{cmd}\n\n输出：\n%{output}\n\n请改进该命令，使其下次能够成功。"
