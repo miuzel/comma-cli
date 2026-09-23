@@ -105,6 +105,7 @@ name = "comma"
 version = "0.28.0-alpha"
 dependencies = [
  "crossterm",
+ "libc",
  "rust-i18n",
  "rustyline",
  "serde",

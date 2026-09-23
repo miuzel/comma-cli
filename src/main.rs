@@ -7,6 +7,7 @@ mod i18n;
 mod llm;
 mod prompt;
 mod protocol;
+mod pty;
 mod search;
 mod setup;
 mod tests;
@@ -1131,15 +1132,17 @@ pub(crate) struct ExecOutcome {
 /// output and no automatic refine can fire.
 ///
 /// `capture` selects how the child is run:
-/// - `false` — `.status()`: stdio is inherited, so output streams live,
-///   progress bars and TTY-dependent programs behave as before, but nothing
-///   can be captured for an auto-refine summary.
-/// - `true` — `.output()`: stdout/stderr are captured (stdin stays inherited)
-///   so a failure can be summarized. Trade-offs: output only appears once the
-///   command exits (no live progress), stdout/stderr are pipes rather than a
-///   TTY (programs may drop colors/progress bars) and full-screen interactive
-///   programs will not render correctly. The captured bytes are echoed
-///   verbatim afterwards, so the user still sees the output.
+/// - `false` — `.status()`: stdio is inherited, so output streams live and
+///   progress bars and TTY-dependent programs behave as before; nothing is
+///   captured, so no auto-refine summary is available.
+/// - `true` — the output must be captured for a possible auto-refine summary.
+///   On Unix the child runs on a pty (see `crate::pty`): output is relayed to
+///   our terminal as it arrives *and* accumulated, so it stays live and the
+///   child keeps full TTY semantics (colors, progress bars, `vim`/`less`); our
+///   terminal is in raw mode for the duration and is restored unconditionally.
+///   Windows (and a Unix host where no pty can be allocated) falls back to
+///   streaming pipes: still live, but the child sees pipes, not a TTY — that
+///   documented degradation is reported, never silent.
 pub(crate) fn execute(cmd: &str, capture: bool) -> Option<ExecOutcome> {
     let (command, _) = split_comment(cmd);
     print_info(&t!("info.running", "cmd" => command));
@@ -1189,32 +1192,16 @@ pub(crate) fn execute(cmd: &str, capture: bool) -> Option<ExecOutcome> {
             }
         }
     } else {
-        // stdin stays inherited so commands that prompt still work; only
-        // stdout/stderr are captured.
-        let result = child.stdin(std::process::Stdio::inherit()).output();
-        match result {
-            Ok(out) => {
-                use std::io::Write;
-                let _ = std::io::stdout().write_all(&out.stdout);
-                let _ = std::io::stdout().flush();
-                let _ = std::io::stderr().write_all(&out.stderr);
-                if !out.status.success() {
-                    print_error(&t!(
-                        "error.exit_code",
-                        "code" => out.status.code().unwrap_or(-1)
-                    ));
-                }
-                let mut output = String::from_utf8_lossy(&out.stdout).into_owned();
-                let err = String::from_utf8_lossy(&out.stderr);
-                if !err.is_empty() {
-                    if !output.is_empty() && !output.ends_with('\n') {
-                        output.push('\n');
-                    }
-                    output.push_str(&err);
+        // The output has to be captured for a possible auto-refine summary.
+        // `pty::run_captured` streams it live (on a pty where possible).
+        match crate::pty::run_captured(child) {
+            Ok(run) => {
+                if run.code != Some(0) {
+                    print_error(&t!("error.exit_code", "code" => run.code.unwrap_or(-1)));
                 }
                 Some(ExecOutcome {
-                    code: out.status.code(),
-                    output,
+                    code: run.code,
+                    output: run.output,
                 })
             }
             Err(e) => {

@@ -29,6 +29,7 @@ running = "Running: %{cmd}"
 copied = "Copied to clipboard."
 cd_subprocess = "Note: `cd` runs in a subprocess and won't change your shell's directory — use the shell-integration wrapper (see README: Shell integration) for that."
 update_available = "Update available: %{from} → %{to} (run , --update to install)"
+pty_fallback = "PTY unavailable (%{e}) — falling back to piped output (no TTY)."
 
 [update]
 checking = "Checking for updates (current: %{v})..."

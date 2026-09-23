@@ -12,6 +12,12 @@ crossterm = "0.28"
 rustyline = "15"
 rust-i18n = "3"
 
+# Unix only; already in the dependency graph (crossterm/rustyline/rustls pull it
+# in), so this adds no new crate and no measurable binary size. Used by the
+# pty capture path in src/pty.rs: posix_openpt/ioctl/termios/setsid/poll.
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 [profile.release]
 strip = true
 opt-level = "z"
