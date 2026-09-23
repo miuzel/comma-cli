@@ -199,7 +199,7 @@ config_priority = "Приоритет конфигурации: COMMA_* env > co
 prompt_file = "Файл промпта:     %{path}"
 config_file = "Файл конфигурации (%{path}):"
 auto_update_desc = "  auto_update   true (по умолчанию, еженедельно) | false | <дни> (интервал проверки)"
-auto_refine_desc = "  auto_refine   true (по умолчанию) | false — автоуточнение после неудачи"
+auto_refine_desc = "  auto_refine   true (по умолчанию) | false — автоуточнение после неудачи\n  auto_refine_rounds   1-10 (по умолчанию 3) — максимум автоматических уточнений на один запрос; 0 = выключено"
 api_style = "Стиль API (api_style):"
 openai_desc = "  openai       Совместимый с OpenAI (Cerebras, Groq, Ollama, vLLM, ...)"
 anthropic_desc = "  anthropic    Anthropic Messages API"
@@ -207,7 +207,8 @@ api_style_auto = "  (автоопределение по URL, если не ук
 
 [interactive]
 welcome = "%{m} (%{s}). Каждая команда сразу открывает меню действий; Tab дополняет имена файлов. 'q' выход, 'x' открыть меню снова, '/refine ТЕКСТ' уточнить напрямую, 'c' копировать."
-auto_refine_notice = "Предыдущая команда завершилась с ошибкой (код %{code}) — автоматическое уточнение (отключить: \"auto_refine\": false)."
+auto_refine_notice = "Предыдущая команда завершилась с ошибкой (код %{code}) — автоматическое уточнение, раунд %{round}/%{total} (отключить: \"auto_refine\": false)."
+auto_refine_exhausted = "Остановлено после %{rounds} раундов автоматического уточнения без успеха — измените команду сами или задайте \"auto_refine\": false."
 auto_refine_body = "Предыдущая команда завершилась с ошибкой, код %{code}.\n\nКоманда:\n%{cmd}\n\nВывод:\n%{output}\n\nУточните команду, чтобы она сработала со следующей попытки."
 auto_refine_body_empty = "Предыдущая команда завершилась с ошибкой, код %{code}.\n\nКоманда:\n%{cmd}\n\nКоманда не дала вывода. Уточните её, чтобы она сработала со следующей попытки."
 thinking = "%{m} думает..."

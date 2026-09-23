@@ -518,6 +518,11 @@ fn after_interrupt() -> AfterInterrupt {
 /// Returns `true` when the user asked to leave the REPL (a Ctrl-C during the
 /// executed command or a refine, confirmed at the `[y/N]` prompt); the caller
 /// then exits through its single exit point.
+///
+/// `refine_rounds_used` is the g-014 per-intent automatic-refine budget
+/// counter: the caller resets it when a new user intent arrives and leaves it
+/// alone for `x`/manual refines, so an intent can never spend more than
+/// `auto_refine_rounds` automatic refine turns.
 #[allow(clippy::too_many_arguments)]
 fn prompt_command_action(
     config: &Config,
@@ -532,6 +537,7 @@ fn prompt_command_action(
     current_raw: &mut String,
     current_cache_key: &mut Option<String>,
     current_cache_entry: &mut Option<CacheEntry>,
+    refine_rounds_used: &mut u32,
 ) -> bool {
     loop {
         // `edit_or_execute` prints the command itself (danger warning
@@ -551,9 +557,13 @@ fn prompt_command_action(
         match action {
             EditAction::Execute(final_cmd) => {
                 // Capture stdout/stderr only when an automatic refine may need
-                // them; with `auto_refine: false` the old streaming `.status()`
-                // path is kept.
-                let outcome = execute(&final_cmd, config.auto_refine);
+                // them (g-014): `auto_refine: false` — or `auto_refine_rounds:
+                // 0`, which means the same thing — keeps the old streaming
+                // `.status()` path, so no pty is allocated and nothing is
+                // captured. `Config::auto_refine_limit` is the single source of
+                // truth for both the capture mode and the round gate.
+                let limit = config.auto_refine_limit();
+                let outcome = execute(&final_cmd, limit > 0);
                 // Ctrl-C while the command ran: the command was interrupted
                 // (0x03 forwarded to the pty child, or SIGINT for an inherited
                 // -stdio run) and the exit intent is pending. Ask before doing
@@ -571,40 +581,64 @@ fn prompt_command_action(
                 {
                     cache.put(key, entry);
                 }
-                // At most one automatic refine per executed command: this
-                // branch runs once per execution, and the refine turn itself
-                // never executes anything. The corrected command goes back
-                // through the same menu.
-                if should_auto_refine(outcome.as_ref(), config.auto_refine) {
+                // At most one automatic refine per executed command (g-013):
+                // this branch runs once per execution, and the refine turn
+                // itself never executes anything. The corrected command goes
+                // back through the same menu.
+                //
+                // g-014 adds the per-intent budget on top: the same user
+                // intent may spend at most `auto_refine_rounds` automatic
+                // refines (`Config::auto_refine_limit`), the notice shows the
+                // round, and an exhausted budget stops the chain and hands
+                // control back instead of refining forever.
+                if should_auto_refine(outcome.as_ref(), limit > 0) {
                     let code = outcome.as_ref().and_then(|o| o.code).unwrap_or(-1);
-                    print_info(&t!("interactive.auto_refine_notice", "code" => code));
-                    let body = auto_refine_body(
-                        &final_cmd,
-                        code,
-                        outcome.as_ref().map(|o| o.output.as_str()).unwrap_or(""),
-                        ph,
-                    );
-                    if let Some(res) = do_refine(
-                        config,
-                        system,
-                        messages,
-                        ph,
-                        v,
-                        auto_confirm,
-                        cache,
-                        current_raw,
-                        &body,
-                    ) {
-                        *current_cmd = res.cmd;
-                        *current_raw = res.raw;
-                        *current_cache_key = res.cache_key;
-                        *current_cache_entry = Some(res.entry);
-                        continue;
-                    }
-                    match after_interrupt() {
-                        AfterInterrupt::Proceed => {}
-                        AfterInterrupt::Exit => return true,
-                        AfterInterrupt::Resume => return false,
+                    match auto_refine_step(limit, *refine_rounds_used) {
+                        // Unreachable while `limit > 0`; kept so the gate has
+                        // one total mapping from budget to behavior.
+                        AutoRefineStep::Disabled => {}
+                        AutoRefineStep::Exhausted(total) => {
+                            print_error(
+                                &t!("interactive.auto_refine_exhausted", "rounds" => total),
+                            );
+                        }
+                        AutoRefineStep::Refine(round) => {
+                            *refine_rounds_used = round;
+                            print_info(&t!(
+                                "interactive.auto_refine_notice",
+                                "code" => code,
+                                "round" => round,
+                                "total" => limit
+                            ));
+                            let body = auto_refine_body(
+                                &final_cmd,
+                                code,
+                                outcome.as_ref().map(|o| o.output.as_str()).unwrap_or(""),
+                                ph,
+                            );
+                            if let Some(res) = do_refine(
+                                config,
+                                system,
+                                messages,
+                                ph,
+                                v,
+                                auto_confirm,
+                                cache,
+                                current_raw,
+                                &body,
+                            ) {
+                                *current_cmd = res.cmd;
+                                *current_raw = res.raw;
+                                *current_cache_key = res.cache_key;
+                                *current_cache_entry = Some(res.entry);
+                                continue;
+                            }
+                            match after_interrupt() {
+                                AfterInterrupt::Proceed => {}
+                                AfterInterrupt::Exit => return true,
+                                AfterInterrupt::Resume => return false,
+                            }
+                        }
                     }
                 }
                 break;
@@ -696,6 +730,10 @@ fn run_interactive(
     let mut current_raw = String::new();
     let mut current_cache_key: Option<String> = None;
     let mut current_cache_entry: Option<CacheEntry> = None;
+    // Automatic refines already spent on the current user intent (g-014):
+    // reset when a new intent produces a command, untouched by `x` and by a
+    // manual `/refine`/`r`. Caps the automatic chain at `auto_refine_rounds`.
+    let mut refine_rounds_used: u32 = 0;
 
     // Ctrl-C while a blocking step runs (an LLM request, a search, a command
     // with inherited stdio) must not kill the process: the guard records the
@@ -750,6 +788,7 @@ fn run_interactive(
                 &mut current_raw,
                 &mut current_cache_key,
                 &mut current_cache_entry,
+                &mut refine_rounds_used,
             ) {
                 break;
             }
@@ -803,6 +842,9 @@ fn run_interactive(
                         &mut current_raw,
                         &mut current_cache_key,
                         &mut current_cache_entry,
+                        // A manual `/refine TEXT` is a user action: it neither
+                        // spends nor resets the automatic-refine budget.
+                        &mut refine_rounds_used,
                     ) {
                         break;
                     }
@@ -913,6 +955,11 @@ fn run_interactive(
                 // A fresh command goes straight into the action menu:
                 // the command and its menu are printed together, with
                 // no separate hint line and no `x` in between.
+                //
+                // g-014: this command answers a NEW user intent, so the
+                // per-intent automatic-refine budget starts over here. `x`
+                // (re-open the menu) and a manual refine never reset it.
+                refine_rounds_used = 0;
                 if prompt_command_action(
                     config,
                     system,
@@ -926,6 +973,7 @@ fn run_interactive(
                     &mut current_raw,
                     &mut current_cache_key,
                     &mut current_cache_entry,
+                    &mut refine_rounds_used,
                 ) {
                     break;
                 }
@@ -1229,6 +1277,33 @@ pub(crate) fn should_auto_refine(outcome: Option<&ExecOutcome>, enabled: bool) -
     match outcome {
         Some(o) => enabled && o.code != Some(0),
         None => false,
+    }
+}
+
+/// What the automatic refine after a failed command may do right now, given
+/// the per-intent budget `limit` (`auto_refine_limit()`: 0 = off) and how many
+/// automatic refines the current user intent already spent.
+#[derive(Debug, PartialEq, Eq)]
+pub(crate) enum AutoRefineStep {
+    /// Automatic refine is off (`auto_refine: false`, or `auto_refine_rounds`
+    /// parsed to 0): behave exactly like the pre-g-014 disabled switch.
+    Disabled,
+    /// Allowed — carry the 1-based round number to show in the notice.
+    Refine(u32),
+    /// Budget used up: stop, report the total and give control back to the
+    /// user. No automatic refine may follow this one for the same intent.
+    Exhausted(u32),
+}
+
+/// The per-intent gate on automatic refine (g-014): one user intent may spend
+/// at most `limit` automatic refine turns, and never a round beyond it.
+pub(crate) fn auto_refine_step(limit: u32, used: u32) -> AutoRefineStep {
+    if limit == 0 {
+        AutoRefineStep::Disabled
+    } else if used >= limit {
+        AutoRefineStep::Exhausted(limit)
+    } else {
+        AutoRefineStep::Refine(used + 1)
     }
 }
 

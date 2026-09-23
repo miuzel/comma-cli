@@ -32,5 +32,8 @@
   "history": false,
 
   "_comment5": "Auto-refine after a failed command in the REPL, ON by default. On a non-zero exit code comma sends the failed command, its exit code and a truncated summary of its output (real paths masked as {{HOME}}/{{USER}}/{{HOSTNAME}}) back to the model, then prints the corrected command — nothing is auto-executed. While true, the command runs on a pseudo-terminal that comma relays live: output is real-time, colors and progress bars keep working and full-screen programs (vim/less) are usable. Windows has no pseudo-terminal yet, so there the child sees pipes (no TTY). Set false to run commands with inherited stdio and no capture:",
-  "auto_refine": true
+  "auto_refine": true,
+
+  "_comment6": "How many automatic refine rounds ONE user intent may spend, default 3, clamped to 1-10. The notice shows the current round (e.g. \"round 2/3\"); when the budget is used up and the command still fails, comma stops refining, prints an error and hands control back — it never starts round N+1 on its own. The counter resets on the next intent you type; a manual refine (r / /refine) is your own action and is not limited by it. 0 turns auto-refine off entirely — exactly like \"auto_refine\": false (which always wins), including the execution path: the command then runs with inherited stdio, no pseudo-terminal and no capture:",
+  "auto_refine_rounds": 3
 }

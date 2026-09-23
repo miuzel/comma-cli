@@ -199,7 +199,7 @@ config_priority = "설정 우선순위: COMMA_* 환경 변수 > config.json > cl
 prompt_file = "프롬프트 파일: %{path}"
 config_file = "설정 파일 (%{path}):"
 auto_update_desc = "  auto_update   true (기본값, 매주) | false | <일수> (확인 간격)"
-auto_refine_desc = "  auto_refine   true (기본) | false — 명령 실패 후 자동 개선"
+auto_refine_desc = "  auto_refine   true (기본) | false — 명령 실패 후 자동 개선\n  auto_refine_rounds   1-10 (기본 3) — 의도당 자동 개선 최대 횟수, 0 = 끄기"
 api_style = "API 스타일 (api_style):"
 openai_desc = "  openai       OpenAI 호환 (Cerebras, Groq, Ollama, vLLM, ...)"
 anthropic_desc = "  anthropic    Anthropic Messages API"
@@ -207,7 +207,8 @@ api_style_auto = "  (생략 시 URL 에서 자동 감지; anthropic URL → anth
 
 [interactive]
 welcome = "%{m} (%{s}). 명령을 생성하면 바로 동작 메뉴가 열립니다. Tab 으로 파일명 자동 완성. 'q' 종료, 'x' 메뉴 다시 열기, '/refine 텍스트' 로 바로 개선, 'c' 복사."
-auto_refine_notice = "이전 명령이 실패했습니다 (종료 코드 %{code}) — 자동으로 개선합니다 (\"auto_refine\": false 로 끄기)."
+auto_refine_notice = "이전 명령이 실패했습니다 (종료 코드 %{code}) — 자동 개선 중, %{round}/%{total} 회차 (\"auto_refine\": false 로 끄기)."
+auto_refine_exhausted = "자동 개선을 %{rounds}회 시도했지만 성공하지 못했습니다 — 자동 개선을 중지합니다. 명령을 직접 조정하거나 \"auto_refine\": false 를 설정하세요."
 auto_refine_body = "이전 명령이 종료 코드 %{code} 로 실패했습니다.\n\n명령:\n%{cmd}\n\n출력:\n%{output}\n\n다음에 성공하도록 명령을 개선해 주세요."
 auto_refine_body_empty = "이전 명령이 종료 코드 %{code} 로 실패했습니다.\n\n명령:\n%{cmd}\n\n출력이 없습니다. 다음에 성공하도록 명령을 개선해 주세요."
 thinking = "%{m} 생각 중..."

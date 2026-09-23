@@ -538,6 +538,19 @@ Disable it in the config:
 
 or toggle it in `, --setup`. With `auto_refine: false` the command runs with inherited stdio exactly as before — no pseudo-terminal is allocated and nothing is captured.
 
+The automatic refine is itself capped, so a command that keeps failing cannot chain forever: **one user intent may spend at most `auto_refine_rounds` automatic refine rounds** (default **3**), and the notice shows where you are (e.g. `round 2/3`). When the budget is used up and the command still fails, `,` stops refining, prints an error saying how many rounds were tried and hands control back to you — it never starts round N+1 on its own. Typing a new intent resets the counter; a manual refine (`r` / `/refine TEXT`) is your own action and is not limited by it.
+
+```json
+{
+  "auto_refine": true,
+  "auto_refine_rounds": 3
+}
+```
+
+- `auto_refine_rounds` takes an integer, is clamped to **1–10**, falls back to **3** when the key is absent or unusable, and `0` turns auto-refine off entirely (equivalent to `auto_refine: false` — the command then runs with inherited stdio too, so no pty is allocated and nothing is captured).
+- `auto_refine: false` always wins over the round count.
+- `, --setup` toggles auto-refine on/off but leaves `auto_refine_rounds` untouched (edit the key in `config.json` to change the number).
+
 While auto-refine is enabled, `,` needs the command's output for the summary, so the child runs **on a pseudo-terminal** that `,` relays live:
 
 - output streams to your terminal as it is produced — nothing waits for the command to exit;
@@ -613,6 +626,16 @@ On each call, comma-cli injects:
 - User-installed packages
 
 This ensures correct commands for your platform (`apt` vs `pacman`, `brew` vs `port`).
+
+The prompt also states the limits of that shell, because commands run in a **non-interactive child shell** (`$SHELL -c`) rather than in your interactive session: aliases, functions and unexported variables from `~/.zshrc`/`~/.bashrc` do not apply, and there is **no shell history** — `history`, `fc -l`, `!!`, `!n` and the other history builtins/expansions either fail (`zsh:fc:N: no such event`, exit 1) or return nothing (bash starts with an empty list). A history intent is therefore answered by reading the history file instead:
+
+```bash
+# intent: "history"
+tail -n 20 {{HOME}}/.zsh_history     # zsh
+tail -n 20 {{HOME}}/.bash_history    # bash
+```
+
+`$HISTFILE` and `$HISTCMD` are normally not exported, so they are empty in that child shell and are never relied on.
 
 ---
 

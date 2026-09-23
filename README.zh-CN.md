@@ -538,6 +538,19 @@ export COMMA_API_STYLE="openai"
 
 或在 `, --setup` 中切换。设为 `auto_refine: false` 后命令的执行方式与之前完全一致：stdio 继承，不分配伪终端，也不捕获任何输出。
 
+自动精炼本身也有轮数上限，避免一条始终失败的命令无限链式精炼：**同一次用户意图最多自动精炼 `auto_refine_rounds` 轮**（默认 **3**），提示会显示当前轮次（如 `第 2/3 轮`）。轮数用尽而命令仍失败时，`,` 会停止自动精炼、打印一条说明已试过几轮的明确错误，并把控制权交回给你 —— **绝不会自动发起第 N+1 轮**。输入新意图时计数重置；手动精炼（`r` / `/refine 文本`）是你自己的操作，不受该计数限制。
+
+```json
+{
+  "auto_refine": true,
+  "auto_refine_rounds": 3
+}
+```
+
+- `auto_refine_rounds` 取整数，越界钳制到 **1–10**，缺省或不可用时回退到 **3**；设为 `0` 则整体关闭自动精炼（与 `auto_refine: false` 等效 —— 命令同样改为继承 stdio 执行，不分配伪终端，也不捕获输出）。
+- `auto_refine: false` 优先级最高，一定会覆盖轮数设置。
+- `, --setup` 只切换自动精炼的开关，不会改动 `auto_refine_rounds`（要改数值请直接编辑 `config.json`）。
+
 开启自动精炼时，`,` 需要命令的输出以生成摘要，因此子进程会运行在**伪终端（PTY）**上，由 `,` 实时双向中继：
 
 - 输出在产生时立即显示，不会等命令结束才一次性回显；
@@ -613,6 +626,16 @@ LLM 输出: "ls -la {{HOME}}"
 - 用户安装的包
 
 确保生成适合你平台的命令（`apt` vs `pacman`，`brew` vs `port`）。
+
+提示词里同时写明了这个 shell 的限制：命令是在**非交互子 shell**（`$SHELL -c`）中执行的，而不是在你的交互式会话里 —— `~/.zshrc`/`~/.bashrc` 里的别名、函数和未导出的变量都不可用，并且**没有 shell 历史**：`history`、`fc -l`、`!!`、`!n` 等历史内置与历史展开要么直接失败（`zsh:fc:N: no such event`，退出码 1），要么什么也不返回（bash 的非交互列表本身为空）。因此「看历史」类意图会改为读取历史文件：
+
+```bash
+# 意图：“history”
+tail -n 20 {{HOME}}/.zsh_history     # zsh
+tail -n 20 {{HOME}}/.bash_history    # bash
+```
+
+`$HISTFILE`、`$HISTCMD` 通常不会被导出，在该子 shell 中为空，因此不会依赖它们。
 
 ---
 

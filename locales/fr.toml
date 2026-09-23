@@ -199,7 +199,7 @@ config_priority = "Priorité de configuration : variables d'env COMMA_* > config
 prompt_file = "Fichier de prompt : %{path}"
 config_file = "Fichier de configuration (%{path}) :"
 auto_update_desc = "  auto_update   true (par défaut, hebdomadaire) | false | <jours> (intervalle de vérification)"
-auto_refine_desc = "  auto_refine   true (défaut) | false — raffiner automatiquement après un échec"
+auto_refine_desc = "  auto_refine   true (défaut) | false — raffinage automatique après un échec\n  auto_refine_rounds   1-10 (défaut 3) — nombre maximal de raffinages automatiques par intention ; 0 = désactivé"
 api_style = "Style d'API (api_style) :"
 openai_desc = "  openai       Compatible OpenAI (Cerebras, Groq, Ollama, vLLM, ...)"
 anthropic_desc = "  anthropic    API Anthropic Messages"
@@ -207,7 +207,8 @@ api_style_auto = "  (détecté automatiquement depuis l'URL si omis ; URL anthro
 
 [interactive]
 welcome = "%{m} (%{s}). Chaque commande générée ouvre le menu d'action ; Tab complète les noms de fichiers. 'q' quitter, 'x' rouvrir le menu, '/refine TEXTE' raffiner directement, 'c' copier."
-auto_refine_notice = "La commande précédente a échoué (code %{code}) — raffinage automatique (désactivable avec \"auto_refine\": false)."
+auto_refine_notice = "La commande précédente a échoué (code %{code}) — raffinage automatique, tour %{round}/%{total} (désactivable avec \"auto_refine\": false)."
+auto_refine_exhausted = "Arrêt après %{rounds} raffinages automatiques sans succès — ajustez la commande vous-même, ou définissez \"auto_refine\": false."
 auto_refine_body = "La commande précédente a échoué avec le code %{code}.\n\nCommande :\n%{cmd}\n\nSortie :\n%{output}\n\nRaffinez la commande pour qu'elle réussisse au prochain essai."
 auto_refine_body_empty = "La commande précédente a échoué avec le code %{code}.\n\nCommande :\n%{cmd}\n\nLa commande n'a produit aucune sortie. Raffinez-la pour qu'elle réussisse au prochain essai."
 thinking = "%{m} réfléchit..."

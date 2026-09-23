@@ -199,7 +199,7 @@ config_priority = "配置优先级: COMMA_* 环境变量 > config.json > claude 
 prompt_file = "提示文件:     %{path}"
 config_file = "配置文件 (%{path}):"
 auto_update_desc = "  auto_update   true (默认，每周) | false | <天数> (检查间隔)"
-auto_refine_desc = "  auto_refine   true（默认）| false —— 命令失败后自动精炼"
+auto_refine_desc = "  auto_refine   true（默认）| false —— 命令失败后自动精炼\n  auto_refine_rounds   1-10（默认 3）—— 每次意图最多自动精炼轮数；0 = 关闭"
 api_style = "API 风格 (api_style):"
 openai_desc = "  openai       OpenAI 兼容 (Cerebras, Groq, Ollama, vLLM, ...)"
 anthropic_desc = "  anthropic    Anthropic Messages API"
@@ -207,7 +207,8 @@ api_style_auto = "  (如省略则从 URL 自动检测; anthropic URL → anthrop
 
 [interactive]
 welcome = "%{m}（%{s}）。生成命令后直接进入动作菜单；Tab 补全文件名。'q' 退出，'x' 重新打开菜单，'/refine 文本' 直接精炼，'c' 复制。"
-auto_refine_notice = "上一条命令失败（退出码 %{code}）——已自动精炼（可用 \"auto_refine\": false 关闭）。"
+auto_refine_notice = "上一条命令失败（退出码 %{code}）——已自动精炼，第 %{round}/%{total} 轮（可用 \"auto_refine\": false 关闭）。"
+auto_refine_exhausted = "已自动精炼 %{rounds} 轮仍未成功，停止自动精炼 —— 请自行调整命令，或设置 \"auto_refine\": false / 调大 \"auto_refine_rounds\"。"
 auto_refine_body = "上一条命令执行失败，退出码 %{code}。\n\n命令：\n%{cmd}\n\n输出：\n%{output}\n\n请改进该命令，使其下次能够成功。"
 auto_refine_body_empty = "上一条命令执行失败，退出码 %{code}。\n\n命令：\n%{cmd}\n\n该命令没有产生输出。请改进该命令，使其下次能够成功。"
 thinking = "%{m} 思考中..."
