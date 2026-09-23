@@ -197,5 +197,6 @@ api_style_auto = "  (détecté automatiquement depuis l'URL si omis ; URL anthro
 
 [interactive]
 welcome = "%{m} (%{s}). Tab complète les noms de fichiers. 'q' quitter, 'x' exécuter/éditer/raffiner, 'c' copier."
+cmd_hint = "Ensuite : '%{exec}' exécuter/éditer/raffiner, '%{copy}' copier, '%{quit}' quitter."
 thinking = "%{m} réfléchit..."
 thinking_short = "réflexion..."

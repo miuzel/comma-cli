@@ -344,10 +344,14 @@ With piped stdin, `,` never auto-executes: it reads one line from stdin and runs
 ,
 > find large files
 fd --size +100M  # Find files larger than 100MB
+▸ Next: 'x' exec/edit/refine, 'c' copy, 'q' quit.
 > sort by size descending
 fd --size +100M -x ls -lh {} + | sort -k5 -h -r
+▸ Next: 'x' exec/edit/refine, 'c' copy, 'q' quit.
 > x  # execute
 ```
+
+Every generated command is followed by exactly one hint line telling you what you can do with it — `▸ Next: 'x' exec/edit/refine, 'c' copy, 'q' quit.` — so a fresh command never leaves you wondering how to run it. It is printed once per command (the REPL never repeats it) and only in interactive mode: one-shot and piped-stdin runs are unchanged.
 
 ### Keyboard shortcuts
 

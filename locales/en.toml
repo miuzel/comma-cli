@@ -197,5 +197,6 @@ api_style_auto = "  (auto-detected from URL if omitted; anthropic URLs → anthr
 
 [interactive]
 welcome = "%{m} (%{s}). Tab completes filenames. 'q' quit, 'x' exec/edit/refine, 'c' copy."
+cmd_hint = "Next: '%{exec}' exec/edit/refine, '%{copy}' copy, '%{quit}' quit."
 thinking = "%{m} thinking..."
 thinking_short = "thinking..."

@@ -668,7 +668,24 @@ pub fn run_tests() {
     // rust-i18n v3 only replaces %{name} — a `{}` placeholder would show up
     // literally, so a successful substitution also proves the locale file
     // uses the right syntax for these keys.
-    for locale in rust_i18n::available_locales!() {
+    let locales: Vec<&str> = rust_i18n::available_locales!();
+    // g-012: the post-command hint must ship in every locale, so an embedded
+    // locale silently losing its file fails here.
+    for code in ["en", "zh", "ja", "ko", "fr", "de", "es", "pt", "ru"] {
+        check(
+            &format!("locale {} embedded", code),
+            locales.contains(&code),
+        );
+    }
+    // A key missing from one locale falls back to en, so a locale whose hint
+    // is still byte-identical to the English one counts as missing.
+    let en_hint = t!(
+        "interactive.cmd_hint",
+        locale => "en",
+        "exec" => "MARK_EXEC", "copy" => "MARK_COPY", "quit" => "MARK_QUIT"
+    );
+
+    for locale in locales.iter().copied() {
         let running = t!("info.running", locale => locale, "cmd" => "MARKER_CMD");
         check(
             &format!("locale {}: running substitutes %{{cmd}}", locale),
@@ -688,6 +705,40 @@ pub fn run_tests() {
             &format!("locale {}: checksum_mismatch substitutes all", locale),
             mismatch.contains('N') && mismatch.contains('E') && mismatch.contains('A'),
         );
+
+        // g-012: the REPL hint shown after a generated command — exactly one
+        // line naming the x/c/q hotkeys, and %{exec}/%{copy}/%{quit} must
+        // substitute (the letters stay untranslated because they are args).
+        let hint_keys = t!(
+            "interactive.cmd_hint",
+            locale => locale,
+            "exec" => "x", "copy" => "c", "quit" => "q"
+        );
+        check(
+            &format!("locale {}: cmd_hint is one line naming 'x'/'c'/'q'", locale),
+            !hint_keys.contains('\n')
+                && hint_keys.contains("'x'")
+                && hint_keys.contains("'c'")
+                && hint_keys.contains("'q'"),
+        );
+        let hint = t!(
+            "interactive.cmd_hint",
+            locale => locale,
+            "exec" => "MARK_EXEC", "copy" => "MARK_COPY", "quit" => "MARK_QUIT"
+        );
+        check(
+            &format!("locale {}: cmd_hint substitutes all placeholders", locale),
+            hint.contains("MARK_EXEC") && hint.contains("MARK_COPY") && hint.contains("MARK_QUIT"),
+        );
+        if locale != "en" {
+            check(
+                &format!(
+                    "locale {}: cmd_hint is translated, not the en fallback",
+                    locale
+                ),
+                hint != en_hint,
+            );
+        }
     }
 
     // Test 24: config_path — XDG location preferred on Unix, legacy

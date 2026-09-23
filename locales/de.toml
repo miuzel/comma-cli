@@ -197,5 +197,6 @@ api_style_auto = "  (wird bei Weglassen aus der URL erkannt; anthropic URLs → 
 
 [interactive]
 welcome = "%{m} (%{s}). Tab vervollständigt Dateinamen. 'q' beenden, 'x' ausführen/bearbeiten/verfeinern, 'c' kopieren."
+cmd_hint = "Weiter: '%{exec}' ausführen/bearbeiten/verfeinern, '%{copy}' kopieren, '%{quit}' beenden."
 thinking = "%{m} denkt nach..."
 thinking_short = "denkt nach..."

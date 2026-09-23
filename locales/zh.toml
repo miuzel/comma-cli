@@ -197,5 +197,6 @@ api_style_auto = "  (如省略则从 URL 自动检测; anthropic URL → anthrop
 
 [interactive]
 welcome = "%{m} (%{s}). Tab 补全文件名。'q' 退出，'x' 执行/编辑/精炼，'c' 复制。"
+cmd_hint = "下一步：'%{exec}' 执行/编辑/精炼，'%{copy}' 复制，'%{quit}' 退出。"
 thinking = "%{m} 思考中..."
 thinking_short = "思考中..."
