@@ -1078,6 +1078,28 @@ pub fn run_tests() {
             let value = t!(key, locale => locale);
             check(&format!("locale {}: {} present", locale, key), value != key);
         }
+        // g-005 att-002: Ctrl-C strings. `exit_confirm` labels the [y/N] prompt
+        // shown after an interrupted step; `interrupt_pending` replaces the
+        // spinner text while a step that cannot be aborted is still running.
+        let exit_confirm = t!("interactive.exit_confirm", locale => locale);
+        check(
+            &format!("locale {}: exit_confirm present", locale),
+            !exit_confirm.is_empty() && exit_confirm != "interactive.exit_confirm",
+        );
+        check(
+            &format!("locale {}: exit_confirm is translated", locale),
+            *locale == "en" || exit_confirm != t!("interactive.exit_confirm", locale => "en"),
+        );
+        let interrupt_pending = t!("interactive.interrupt_pending", locale => locale);
+        check(
+            &format!("locale {}: interrupt_pending present", locale),
+            !interrupt_pending.is_empty() && interrupt_pending != "interactive.interrupt_pending",
+        );
+        check(
+            &format!("locale {}: interrupt_pending is translated", locale),
+            *locale == "en"
+                || interrupt_pending != t!("interactive.interrupt_pending", locale => "en"),
+        );
     }
 
     // Test 24: config_path — XDG location preferred on Unix, legacy
@@ -1575,6 +1597,50 @@ pub fn run_tests() {
             && crate::prompt::DEFAULT_PROMPT.contains("NOT `&&`")
             && crate::prompt::DEFAULT_PROMPT.contains("$env:VAR"),
     );
+
+    // ── Ctrl-C exit intent (g-005 att-002) ──────────────────────────────────
+    //
+    // The REPL must never be left with a Ctrl-C that does nothing: the key is
+    // either read as a key press (prompt/menus) or recorded as an intent that
+    // the REPL consumes at its next safe point. These assertions cover the
+    // intent primitive itself; the interactive behavior (one press at the idle
+    // prompt, confirmation while busy) is exercised by the PTY-driven manual
+    // tests in the attempt report.
+    let _ = crate::ui::take_exit_request();
+    check(
+        "ctrl-c: no intent pending initially",
+        !crate::ui::exit_requested(),
+    );
+    crate::ui::request_exit();
+    check(
+        "ctrl-c: request_exit records the intent",
+        crate::ui::exit_requested(),
+    );
+    check(
+        "ctrl-c: first take consumes the intent",
+        crate::ui::take_exit_request(),
+    );
+    check(
+        "ctrl-c: intent does not repeat (handled exactly once)",
+        !crate::ui::take_exit_request() && !crate::ui::exit_requested(),
+    );
+    // With the REPL guard installed a real SIGINT must record the intent (and
+    // not terminate the process). `raise` delivers it to this thread, so the
+    // check is deterministic; when the OS refuses the handler the guard is
+    // None and the raise is skipped (otherwise it would kill the test runner).
+    #[cfg(unix)]
+    {
+        if let Some(guard) = crate::ui::ReplInterruptGuard::install() {
+            let _ = crate::ui::take_exit_request();
+            unsafe { libc::raise(libc::SIGINT) };
+            check(
+                "ctrl-c: SIGINT while busy records the intent instead of exiting",
+                crate::ui::exit_requested(),
+            );
+            drop(guard);
+            let _ = crate::ui::take_exit_request();
+        }
+    }
 
     // Summary
     println!("\n{} passed, {} failed", pass, fail);

@@ -212,3 +212,5 @@ auto_refine_body = "上一条命令执行失败，退出码 %{code}。\n\n命令
 auto_refine_body_empty = "上一条命令执行失败，退出码 %{code}。\n\n命令：\n%{cmd}\n\n该命令没有产生输出。请改进该命令，使其下次能够成功。"
 thinking = "%{m} 思考中..."
 thinking_short = "思考中..."
+exit_confirm = "退出 REPL？"
+interrupt_pending = "Ctrl+C —— 本步结束后会询问是否退出"

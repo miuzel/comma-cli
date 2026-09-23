@@ -360,6 +360,19 @@ If the command you executed exits non-zero, `,` automatically refines it: the fa
 
 See [Auto-refine after a failure](#auto-refine-after-a-failure) for what is sent and how to turn it off.
 
+### Leaving the REPL (Ctrl+C)
+
+`Ctrl+C` always gets you out, and never leaves the process to the terminal's default handler (which would skip the single exit path and lose the session history):
+
+- **At the `> ` prompt** — one press exits, exactly like `q` / `quit` / `exit`; the opt-in [REPL history](#repl-input-history-opt-in-off-by-default) is written on that path too. `Ctrl+D` is unchanged and does *not* exit.
+- **While something is running** (a model request, a refine, a command) — the running step is interrupted first, then `Exit REPL? [y/N]` asks: `y` leaves (history saved), `N` — or `Enter`, or another `Ctrl+C` — goes back to `> `. The interrupted step's result is dropped, never executed.
+- **In a menu or a sub-prompt** — `Ctrl+C` means the same as `Esc`: the action menu, the candidate selector, and the `edit>` / `refine>` prompts cancel back to `> `, so a menu can never trap you; press `Ctrl+C` once more at the prompt to leave.
+- **While a command runs** — `Ctrl+C` is still forwarded to it: as `0x03` through the pty for a captured run (so the command is interrupted first, as any terminal would), and as `SIGINT` from the kernel for a run with inherited stdio (`auto_refine: false`). In both cases `,` records the exit intent and asks once the command is done.
+
+A model request that is still waiting for a response is aborted immediately (`Interrupted system call`), so the question comes up right away. A request that has already started receiving its body and then stalls cannot be aborted: the spinner switches to `Ctrl+C — will ask to exit when this step finishes` and the question appears when the request's own timeout expires (60s per configured model).
+
+Non-TTY runs (one-shot, piped stdin, `COMMA_EVAL_FILE` eval mode) are unchanged: nothing is installed there, so `Ctrl+C` keeps the terminal's default behavior. On Windows `,` installs the console-control-handler equivalent, since the console would otherwise end the process in the middle of a step.
+
 ### Keyboard shortcuts
 
 | Key | Action |
@@ -373,7 +386,8 @@ See [Auto-refine after a failure](#auto-refine-after-a-failure) for what is sent
 | `x` | Re-open the action menu for the current command |
 | `/refine TEXT` | Refine the current command directly (alias `/r`) |
 | `c` | Copy to clipboard |
-| `q` | Quit |
+| `q` | Quit (history is saved) |
+| `Ctrl+C` | At the prompt: quit (history is saved). In a menu: cancel, like `Esc`. While busy: interrupt, then ask whether to quit |
 
 ---
 
@@ -509,7 +523,7 @@ Set `"history": true` to remember what you type in interactive mode, so `↑` re
 { "history": true }
 ```
 
-The history is stored in `$XDG_STATE_HOME/comma/history` (default `~/.local/state/comma/history`; `%APPDATA%\comma\history` on Windows). It is written once when you leave the REPL with `q`/`quit`/`exit`, is readable by your user only (`0600`, because it contains your raw intents), keeps the newest 1000 entries, and is never sent to the API. While the key is absent or `false`, nothing is read or written and no history file is created — `, --setup` has a toggle for it. Only what you type at the REPL prompt is saved; text entered for the in-session `e` (edit) and `r` (refine) prompts is not persisted.
+The history is stored in `$XDG_STATE_HOME/comma/history` (default `~/.local/state/comma/history`; `%APPDATA%\comma\history` on Windows). It is written once when you leave the REPL with `q`/`quit`/`exit` — or with `Ctrl+C` (see [Leaving the REPL](#leaving-the-repl-ctrlc)) — is readable by your user only (`0600`, because it contains your raw intents), keeps the newest 1000 entries, and is never sent to the API. While the key is absent or `false`, nothing is read or written and no history file is created — `, --setup` has a toggle for it. Only what you type at the REPL prompt is saved; text entered for the in-session `e` (edit) and `r` (refine) prompts is not persisted.
 ### Auto-refine after a failure
 
 In the interactive REPL, a command that exits **non-zero** (including one killed by a signal) automatically starts a refine turn: the failed command, its exit code and a summary of its output are sent to the model, and the corrected command is printed with the action menu — you still choose to run it. Nothing is executed automatically, and each executed command triggers this at most once. Non-TTY runs (one-shot, piped stdin) and `COMMA_EVAL_FILE` eval mode never auto-refine.
@@ -528,7 +542,7 @@ While auto-refine is enabled, `,` needs the command's output for the summary, so
 
 - output streams to your terminal as it is produced — nothing waits for the command to exit;
 - the child keeps full TTY semantics: colors and progress bars render as usual and full-screen programs (`vim`, `less`, ...) work — the terminal size is forwarded at startup and re-synced on a window resize;
-- your typing, and `Ctrl-C` (which interrupts the command), are forwarded to the command;
+- your typing, and `Ctrl-C` (which interrupts the command), are forwarded to the command; that same `Ctrl-C` also records the exit intent, so `,` asks whether to leave once the command is done (see [Leaving the REPL](#leaving-the-repl-ctrlc));
 - your terminal is put in raw mode for the duration and is always restored afterwards — normal exit, `Ctrl-C` or a fatal signal;
 - a bounded copy of the output (first + last 32 KB) is kept for the summary, so an endless command (`yes`, a chatty daemon) cannot grow it without bound.
 

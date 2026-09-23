@@ -212,3 +212,5 @@ auto_refine_body = "前のコマンドが終了コード %{code} で失敗しま
 auto_refine_body_empty = "前のコマンドが終了コード %{code} で失敗しました。\n\nコマンド:\n%{cmd}\n\n出力はありません。次に成功するようコマンドを改良してください。"
 thinking = "%{m} 思考中..."
 thinking_short = "思考中..."
+exit_confirm = "REPL を終了しますか？"
+interrupt_pending = "Ctrl+C — この処理の後に終了確認します"
