@@ -186,7 +186,7 @@ verbose_desc = "  , -v         Detallado: muestra el prompt y la respuesta del L
 very_verbose_desc = "  , -vv        Muy detallado: añade registros de solicitudes y tiempos"
 model_desc = "  , --model K  Selecciona el modelo por palabra clave (coincidencia difusa, desactiva los respaldos)"
 interactive_commands = "Comandos interactivos:"
-exec_desc = "  x / exec     Ejecuta el comando actual"
+exec_desc = "  x / exec     Reabrir el menú de acciones del comando actual"
 refine_desc = "  /refine TEXTO Refina directamente el comando actual (alias /r)"
 copy_desc = "  c / copy     Copia el comando actual al portapapeles"
 quit_desc = "  q / quit     Salir"
@@ -205,8 +205,7 @@ anthropic_desc = "  anthropic    Anthropic Messages API"
 api_style_auto = "  (autodetectado a partir de la URL si se omite; URLs anthropic → anthropic, el resto → openai)"
 
 [interactive]
-welcome = "%{m} (%{s}). Tab completa nombres de archivo. 'q' salir, 'x' ejecutar/editar/refinar, '/refine TEXTO' refinar directamente, 'c' copiar."
-cmd_hint = "Siguiente: '%{exec}' ejecutar/editar/refinar, '%{copy}' copiar, '%{quit}' salir."
+welcome = "%{m} (%{s}). Cada comando generado abre el menú de acciones; Tab completa nombres de archivo. 'q' salir, 'x' reabrir el menú, '/refine TEXTO' refinar directamente, 'c' copiar."
 auto_refine_notice = "El comando anterior falló (código %{code}) — refinando automáticamente (desactiva con \"auto_refine\": false)."
 auto_refine_body = "El comando anterior falló con el código %{code}.\n\nComando:\n%{cmd}\n\nSalida:\n%{output}\n\nRefina el comando para que funcione en el próximo intento."
 auto_refine_body_empty = "El comando anterior falló con el código %{code}.\n\nComando:\n%{cmd}\n\nEl comando no produjo salida. Refínalo para que funcione en el próximo intento."

@@ -468,20 +468,119 @@ fn run_oneshot(
     check_and_notify(config.auto_update);
 }
 
-// ── REPL next-step hint ─────────────────────────────────────────────────────
+// ── REPL command action menu ────────────────────────────────────────────────
 
-/// The one-line "what can I do next" hint printed right after a freshly
-/// generated command in the REPL. The hotkey letters are passed in as
-/// placeholders (not baked into the locale text) so a translation can never
-/// lose or mangle them. REPL-only: the one-shot and piped-stdin paths never
-/// call this, so non-TTY output is unchanged.
-fn print_cmd_hint() {
-    print_info(&t!(
-        "interactive.cmd_hint",
-        "exec" => "x",
-        "copy" => "c",
-        "quit" => "q"
-    ));
+/// Put the command currently on screen through the action menu
+/// (`Execute? [Enter] exec / [e]dit / [r]efine / [c]opy / [Esc] cancel`) and
+/// carry out the chosen action, looping while a refine produces a new command.
+///
+/// Every path that makes a new command appear calls this immediately — a new
+/// intent, `/refine TEXT`, an `x`→`r` refine, and the automatic refine after a
+/// failed run — so running a command is a single step instead of
+/// "print a hint, wait for `x`, then choose again". `x`/`exec` still works: it
+/// re-opens this same menu after an Esc. `EditAction::Cancel` (Esc, `c`, an
+/// unknown key) returns to the main prompt without re-opening anything, so the
+/// menu cannot loop on its own. REPL-only: the one-shot, piped-stdin and
+/// `COMMA_EVAL_FILE` paths never call this, so their behavior is unchanged.
+#[allow(clippy::too_many_arguments)]
+fn prompt_command_action(
+    config: &Config,
+    system: &str,
+    messages: &mut Vec<Message>,
+    ph: &Placeholders,
+    v: Verbosity,
+    auto_confirm: bool,
+    cache: &mut ResponseCache,
+    rl: &mut Option<Editor<FileHelper, DefaultHistory>>,
+    current_cmd: &mut String,
+    current_raw: &mut String,
+    current_cache_key: &mut Option<String>,
+    current_cache_entry: &mut Option<CacheEntry>,
+) {
+    loop {
+        // `edit_or_execute` prints the command itself (danger warning
+        // included), so the menu always appears right below its command.
+        let action = match rl.as_mut() {
+            Some(editor) => edit_or_execute(current_cmd, editor),
+            None => {
+                // No editor (rare): fall back to a line-based confirmation.
+                print_cmd(current_cmd);
+                if prompt_confirm(&t!("ui.execute_confirm")) {
+                    EditAction::Execute(current_cmd.clone())
+                } else {
+                    EditAction::Cancel
+                }
+            }
+        };
+        match action {
+            EditAction::Execute(final_cmd) => {
+                // Capture stdout/stderr only when an automatic refine may need
+                // them; with `auto_refine: false` the old streaming `.status()`
+                // path is kept.
+                let outcome = execute(&final_cmd, config.auto_refine);
+                // Cache on execute
+                if let (Some(key), Some(entry)) =
+                    (current_cache_key.take(), current_cache_entry.take())
+                {
+                    cache.put(key, entry);
+                }
+                // At most one automatic refine per executed command: this
+                // branch runs once per execution, and the refine turn itself
+                // never executes anything. The corrected command goes back
+                // through the same menu.
+                if should_auto_refine(outcome.as_ref(), config.auto_refine) {
+                    let code = outcome.as_ref().and_then(|o| o.code).unwrap_or(-1);
+                    print_info(&t!("interactive.auto_refine_notice", "code" => code));
+                    let body = auto_refine_body(
+                        &final_cmd,
+                        code,
+                        outcome.as_ref().map(|o| o.output.as_str()).unwrap_or(""),
+                        ph,
+                    );
+                    if let Some(res) = do_refine(
+                        config,
+                        system,
+                        messages,
+                        ph,
+                        v,
+                        auto_confirm,
+                        cache,
+                        current_raw,
+                        &body,
+                    ) {
+                        *current_cmd = res.cmd;
+                        *current_raw = res.raw;
+                        *current_cache_key = res.cache_key;
+                        *current_cache_entry = Some(res.entry);
+                        continue;
+                    }
+                }
+                break;
+            }
+            EditAction::Refine(text) => {
+                if let Some(res) = do_refine(
+                    config,
+                    system,
+                    messages,
+                    ph,
+                    v,
+                    auto_confirm,
+                    cache,
+                    current_raw,
+                    &text,
+                ) {
+                    *current_cmd = res.cmd;
+                    *current_raw = res.raw;
+                    *current_cache_key = res.cache_key;
+                    *current_cache_entry = Some(res.entry);
+                    // Show the refined command through the menu again.
+                    continue;
+                }
+                break;
+            }
+            EditAction::Cancel => break,
+        }
+    }
 }
 
 fn run_interactive(
@@ -559,82 +658,23 @@ fn run_interactive(
                         print_error(&t!("error.no_command_execute"));
                         continue;
                     }
-                    let action = match rl.as_mut() {
-                        Some(editor) => edit_or_execute(&current_cmd, editor),
-                        None => {
-                            if prompt_confirm(&t!("ui.execute_confirm")) {
-                                EditAction::Execute(current_cmd.clone())
-                            } else {
-                                EditAction::Cancel
-                            }
-                        }
-                    };
-                    match action {
-                        EditAction::Execute(final_cmd) => {
-                            // Capture stdout/stderr only when an automatic
-                            // refine may need them; with `auto_refine: false`
-                            // the old streaming `.status()` path is kept.
-                            let outcome = execute(&final_cmd, config.auto_refine);
-                            // Cache on execute
-                            if let (Some(key), Some(entry)) =
-                                (current_cache_key.take(), current_cache_entry.take())
-                            {
-                                cache.put(key, entry);
-                            }
-                            // At most one automatic refine per executed
-                            // command: this branch runs once per `x`, and the
-                            // refine turn itself never executes anything.
-                            if should_auto_refine(outcome.as_ref(), config.auto_refine) {
-                                let code = outcome.as_ref().and_then(|o| o.code).unwrap_or(-1);
-                                print_info(&t!("interactive.auto_refine_notice", "code" => code));
-                                let body = auto_refine_body(
-                                    &final_cmd,
-                                    code,
-                                    outcome.as_ref().map(|o| o.output.as_str()).unwrap_or(""),
-                                    &ph,
-                                );
-                                if let Some(res) = do_refine(
-                                    config,
-                                    system,
-                                    &mut messages,
-                                    &ph,
-                                    v,
-                                    auto_confirm,
-                                    &cache,
-                                    &current_raw,
-                                    &body,
-                                ) {
-                                    current_cmd = res.cmd;
-                                    current_raw = res.raw;
-                                    current_cache_key = res.cache_key;
-                                    current_cache_entry = Some(res.entry);
-                                    print_cmd(&current_cmd);
-                                    print_cmd_hint();
-                                }
-                            }
-                        }
-                        EditAction::Refine(text) => {
-                            if let Some(res) = do_refine(
-                                config,
-                                system,
-                                &mut messages,
-                                &ph,
-                                v,
-                                auto_confirm,
-                                &cache,
-                                &current_raw,
-                                &text,
-                            ) {
-                                current_cmd = res.cmd;
-                                current_raw = res.raw;
-                                current_cache_key = res.cache_key;
-                                current_cache_entry = Some(res.entry);
-                                print_cmd(&current_cmd);
-                                print_cmd_hint();
-                            }
-                        }
-                        EditAction::Cancel => {}
-                    }
+                    // `x`/`exec` re-opens the action menu for the current
+                    // command (the menu itself is now the default path right
+                    // after a command is generated).
+                    prompt_command_action(
+                        config,
+                        system,
+                        &mut messages,
+                        &ph,
+                        v,
+                        auto_confirm,
+                        &mut cache,
+                        &mut rl,
+                        &mut current_cmd,
+                        &mut current_raw,
+                        &mut current_cache_key,
+                        &mut current_cache_entry,
+                    );
                     continue;
                 }
 
@@ -661,8 +701,22 @@ fn run_interactive(
                         current_raw = res.raw;
                         current_cache_key = res.cache_key;
                         current_cache_entry = Some(res.entry);
-                        print_cmd(&current_cmd);
-                        print_cmd_hint();
+                        // The refined command is presented immediately, with
+                        // the action menu.
+                        prompt_command_action(
+                            config,
+                            system,
+                            &mut messages,
+                            &ph,
+                            v,
+                            auto_confirm,
+                            &mut cache,
+                            &mut rl,
+                            &mut current_cmd,
+                            &mut current_raw,
+                            &mut current_cache_key,
+                            &mut current_cache_entry,
+                        );
                     }
                     continue;
                 }
@@ -731,8 +785,6 @@ fn run_interactive(
                             continue;
                         }
 
-                        print_cmd(&cmd);
-                        print_cmd_hint();
                         current_cmd = cmd;
                         current_raw = final_raw.clone();
                         current_cache_key = resp.cache_key.clone();
@@ -744,6 +796,23 @@ fn run_interactive(
                             role: "assistant".into(),
                             content: final_raw,
                         });
+                        // A fresh command goes straight into the action menu:
+                        // the command and its menu are printed together, with
+                        // no separate hint line and no `x` in between.
+                        prompt_command_action(
+                            config,
+                            system,
+                            &mut messages,
+                            &ph,
+                            v,
+                            auto_confirm,
+                            &mut cache,
+                            &mut rl,
+                            &mut current_cmd,
+                            &mut current_raw,
+                            &mut current_cache_key,
+                            &mut current_cache_entry,
+                        );
                     }
                     Err(e) => {
                         print_error(&e);

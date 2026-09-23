@@ -344,15 +344,15 @@ With piped stdin, `,` never auto-executes: it reads one line from stdin and runs
 ,
 > find large files
 fd --size +100M  # Find files larger than 100MB
-▸ Next: 'x' exec/edit/refine, 'c' copy, 'q' quit.
+Execute? [Enter] exec / [e]dit / [r]efine / [c]opy / [Esc] cancel
+▸ Running: fd --size +100M
 > sort by size descending
 fd --size +100M -x ls -lh {} + | sort -k5 -h -r
-▸ Next: 'x' exec/edit/refine, 'c' copy, 'q' quit.
-> x  # execute
+Execute? [Enter] exec / [e]dit / [r]efine / [c]opy / [Esc] cancel
 ```
 
-Every generated command is followed by exactly one hint line telling you what you can do with it — `▸ Next: 'x' exec/edit/refine, 'c' copy, 'q' quit.` — so a fresh command never leaves you wondering how to run it. It is printed once per command (the REPL never repeats it) and only in interactive mode: one-shot and piped-stdin runs are unchanged.
-If the command you executed exits non-zero, `,` automatically refines it: the failed command, its exit code and a truncated summary of its output go back to the model, and the corrected command is printed for you to run with `x` (nothing is auto-executed). You can also refine at the main prompt, without executing anything first:
+Every generated command immediately opens the action menu — `Execute? [Enter] exec / [e]dit / [r]efine / [c]opy / [Esc] cancel` — so a fresh command never leaves you wondering how to run it: press `Enter` to run it, `e` to edit it first, `r` to have the model refine it, `c` to copy it, or `Esc` to cancel and go back to the `> ` prompt. There is no separate hint line to read and no need to type `x` first: `x` / `exec` just re-opens the menu for the current command (handy after an `Esc`). This is interactive-mode only, so one-shot and piped-stdin runs are unchanged.
+If the command you executed exits non-zero, `,` automatically refines it: the failed command, its exit code and a truncated summary of its output go back to the model, and the corrected command is printed with the action menu again (nothing is auto-executed). You can also refine at the main prompt, without executing anything first:
 
 ```bash
 > /refine use ripgrep instead of grep   # alias: /r
@@ -370,7 +370,7 @@ See [Auto-refine after a failure](#auto-refine-after-a-failure) for what is sent
 | `Esc` | Cancel |
 | `e` | Edit command |
 | `r` | Refine via LLM |
-| `x` | Execute (interactive mode) |
+| `x` | Re-open the action menu for the current command |
 | `/refine TEXT` | Refine the current command directly (alias `/r`) |
 | `c` | Copy to clipboard |
 | `q` | Quit |
@@ -512,7 +512,7 @@ Set `"history": true` to remember what you type in interactive mode, so `↑` re
 The history is stored in `$XDG_STATE_HOME/comma/history` (default `~/.local/state/comma/history`; `%APPDATA%\comma\history` on Windows). It is written once when you leave the REPL with `q`/`quit`/`exit`, is readable by your user only (`0600`, because it contains your raw intents), keeps the newest 1000 entries, and is never sent to the API. While the key is absent or `false`, nothing is read or written and no history file is created — `, --setup` has a toggle for it. Only what you type at the REPL prompt is saved; text entered for the in-session `e` (edit) and `r` (refine) prompts is not persisted.
 ### Auto-refine after a failure
 
-In the interactive REPL, a command that exits **non-zero** (including one killed by a signal) automatically starts a refine turn: the failed command, its exit code and a summary of its output are sent to the model, and the corrected command is printed — you still press `x` to run it. Nothing is executed automatically, and each executed command triggers this at most once. Non-TTY runs (one-shot, piped stdin) and `COMMA_EVAL_FILE` eval mode never auto-refine.
+In the interactive REPL, a command that exits **non-zero** (including one killed by a signal) automatically starts a refine turn: the failed command, its exit code and a summary of its output are sent to the model, and the corrected command is printed with the action menu — you still choose to run it. Nothing is executed automatically, and each executed command triggers this at most once. Non-TTY runs (one-shot, piped stdin) and `COMMA_EVAL_FILE` eval mode never auto-refine.
 
 Disable it in the config:
 

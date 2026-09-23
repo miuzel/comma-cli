@@ -186,7 +186,7 @@ verbose_desc = "  , -v            Verbeux : afficher le prompt et la réponse du
 very_verbose_desc = "  , -vv           Très verbeux : ajouter les journaux de requêtes et le chronométrage"
 model_desc = "  , --model K     Sélectionner un modèle par mot-clé (correspondance approximative, désactive les replis)"
 interactive_commands = "Commandes interactives :"
-exec_desc = "  x / exec        Exécuter la commande courante"
+exec_desc = "  x / exec        Rouvrir le menu d'action de la commande courante"
 refine_desc = "  /refine TEXTE Raffiner directement la commande courante (alias /r)"
 copy_desc = "  c / copy        Copier la commande courante dans le presse-papiers"
 quit_desc = "  q / quit        Quitter"
@@ -205,8 +205,7 @@ anthropic_desc = "  anthropic    API Anthropic Messages"
 api_style_auto = "  (détecté automatiquement depuis l'URL si omis ; URL anthropic → anthropic, le reste → openai)"
 
 [interactive]
-welcome = "%{m} (%{s}). Tab complète les noms de fichiers. 'q' quitter, 'x' exécuter/éditer/raffiner, '/refine TEXTE' raffiner directement, 'c' copier."
-cmd_hint = "Ensuite : '%{exec}' exécuter/éditer/raffiner, '%{copy}' copier, '%{quit}' quitter."
+welcome = "%{m} (%{s}). Chaque commande générée ouvre le menu d'action ; Tab complète les noms de fichiers. 'q' quitter, 'x' rouvrir le menu, '/refine TEXTE' raffiner directement, 'c' copier."
 auto_refine_notice = "La commande précédente a échoué (code %{code}) — raffinage automatique (désactivable avec \"auto_refine\": false)."
 auto_refine_body = "La commande précédente a échoué avec le code %{code}.\n\nCommande :\n%{cmd}\n\nSortie :\n%{output}\n\nRaffinez la commande pour qu'elle réussisse au prochain essai."
 auto_refine_body_empty = "La commande précédente a échoué avec le code %{code}.\n\nCommande :\n%{cmd}\n\nLa commande n'a produit aucune sortie. Raffinez-la pour qu'elle réussisse au prochain essai."
