@@ -595,6 +595,10 @@ pub(crate) fn run_piped(mut command: Command) -> io::Result<CapturedRun> {
 /// On Unix the command runs on a pty (streaming + full TTY semantics). When no
 /// pty can be allocated the command still runs, through the portable pipe
 /// capture, and the reason is reported so the downgrade is visible.
+// `mut` is only needed by the unix pty path (`unix_pty::run(&mut command)`);
+// without this the Windows build warns `unused_mut`, which `clippy -D warnings`
+// in CI turns into an error.
+#[cfg_attr(not(unix), allow(unused_mut))]
 pub(crate) fn run_captured(mut command: Command) -> io::Result<CapturedRun> {
     #[cfg(unix)]
     {
