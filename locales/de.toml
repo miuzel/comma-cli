@@ -157,7 +157,7 @@ prompt_api_key = "API-Schlüssel für %{provider}"
 prompt_search_url = "SearXNG Base URL"
 prompt_max_results = "Max. Ergebnisse [%{current}]"
 invalid_number = "Keine Zahl, %{current} wird beibehalten."
-history_title = "REPL-Eingabeverlauf (Klartext, standardmäßig aus)"
+history_title = "REPL-Eingabeverlauf (Klartext, standardmäßig an, nur für Sie lesbar 0600)"
 history_off = "Aus (es wird keine Verlaufsdatei erstellt)"
 history_on = "An (Eingaben über Sitzungen hinweg merken)"
 no_providers_warn = "Keine LLM-Provider konfiguriert — comma funktioniert nicht, bis Sie einen hinzufügen."
@@ -207,6 +207,7 @@ api_style_auto = "  (wird bei Weglassen aus der URL erkannt; anthropic URLs → 
 
 [interactive]
 welcome = "%{m} (%{s}). Jeder erzeugte Befehl öffnet das Aktionsmenü; Tab vervollständigt Dateinamen. 'q' beenden, 'x' Menü erneut öffnen, '/refine TEXT' direkt verfeinern, 'c' kopieren."
+history_notice = "Verlauf ist AN: Eingaben werden in %{p} gespeichert (nur für Sie lesbar, 0600; wird nie an die API gesendet). Zum Deaktivieren \"history\": false in der Konfiguration setzen oder ', --setup' ausführen."
 auto_refine_notice = "Vorheriger Befehl fehlgeschlagen (Exit-Code %{code}) — automatisches Verfeinern, Runde %{round}/%{total} (deaktivierbar mit \"auto_refine\": false)."
 auto_refine_exhausted = "Nach %{rounds} automatischen Verfeinerungsrunden ohne Erfolg gestoppt — passen Sie den Befehl selbst an oder setzen Sie \"auto_refine\": false."
 auto_refine_body = "Der vorherige Befehl ist mit Exit-Code %{code} fehlgeschlagen.\n\nBefehl:\n%{cmd}\n\nAusgabe:\n%{output}\n\nVerfeinere den Befehl, damit er beim nächsten Versuch klappt."

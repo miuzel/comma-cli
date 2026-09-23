@@ -138,7 +138,7 @@ fn reasoning_to_json(r: &Reasoning) -> Value {
 }
 
 /// Rebuild the config JSON from the edited entries, search settings and the
-/// opt-in REPL-history toggle, preserving every unrelated key (prefer,
+/// REPL-history toggle, preserving every unrelated key (prefer,
 /// cache_size, full_prompt, custom keys, ...). Legacy single-model top-level
 /// keys are removed once the multi-provider format is written. `history` is
 /// always written explicitly — the merge would otherwise drop the user's
@@ -603,8 +603,9 @@ fn search_section(search: &mut SetupSearch) {
     }
 }
 
-/// Toggle the opt-in REPL input-history feature (the `"history"` config key,
-/// off by default). The key name stays untranslated, like the search section.
+/// Toggle the REPL input-history feature (the `"history"` config key, ON by
+/// default; absent means true). The key name stays untranslated, like the
+/// search section.
 fn history_section(enabled: &mut bool) {
     let current = *enabled;
     let items: Vec<String> = [false, true]
@@ -655,8 +656,8 @@ pub fn run_setup() -> Result<bool, String> {
 
     let mut entries = json_to_entries(&existing);
     let mut search = SetupSearch::from_json(&existing);
-    // Opt-in REPL history: absent/false → off.
-    let mut history = existing["history"].as_bool().unwrap_or(false);
+    // REPL history: ON unless the config explicitly says false.
+    let mut history = existing["history"].as_bool().unwrap_or(true);
     // Auto-refine after a failed command; ON unless the config disables it.
     let mut auto_refine = existing
         .get("auto_refine")

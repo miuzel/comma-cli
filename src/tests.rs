@@ -939,6 +939,31 @@ pub fn run_tests() {
             );
         }
 
+        // Test 20j (g-005 att-003): `history` flipped from opt-in to ON by
+        // default — the absent key persists REPL inputs, only an explicit
+        // `false` keeps the disk untouched (that semantics must not change).
+        std::fs::write(
+            &cfg_file,
+            r#"{"base_url":"http://127.0.0.1","auth_token":"t","model":"m"}"#,
+        )
+        .unwrap();
+        let history_default = crate::config::load_config()
+            .map(|c| c.history)
+            .unwrap_or(false);
+        std::fs::write(
+            &cfg_file,
+            r#"{"base_url":"http://127.0.0.1","auth_token":"t","model":"m","history":false}"#,
+        )
+        .unwrap();
+        let history_explicit_off = crate::config::load_config()
+            .map(|c| c.history)
+            .unwrap_or(true);
+        check("config: history defaults to true", history_default);
+        check(
+            "config: explicit history=false still disables",
+            !history_explicit_off,
+        );
+
         match &saved_home {
             Some(v) => set_env("HOME", v),
             None => unset_env("HOME"),
@@ -1181,6 +1206,28 @@ pub fn run_tests() {
         check(
             &format!("locale {}: welcome substitutes %{{m}}/%{{s}}", locale),
             welcome.contains("MARK_MODEL") && welcome.contains("MARK_STYLE"),
+        );
+        // g-005 att-003: history is on by default, so this notice is printed on
+        // every REPL entry — all nine locales must define it, substitute the
+        // path and state both ways to turn persistence off.
+        let hist_notice = t!(
+            "interactive.history_notice",
+            locale => locale,
+            "p" => "MARK_PATH"
+        );
+        check(
+            &format!("locale {}: history_notice substitutes %{{p}}", locale),
+            hist_notice.contains("MARK_PATH"),
+        );
+        check(
+            &format!("locale {}: history_notice documents how to disable", locale),
+            hist_notice.contains("\"history\": false") && hist_notice.contains("--setup"),
+        );
+        check(
+            &format!("locale {}: history_notice is translated", locale),
+            *locale == "en"
+                || hist_notice
+                    != t!("interactive.history_notice", locale => "en", "p" => "MARK_PATH"),
         );
         // Auto-refine strings must exist in every locale (a missing key falls
         // back silently in production, so `--test` is the only guard).
@@ -1565,7 +1612,7 @@ pub fn run_tests() {
             && with_search["search"]["max_results"] == 7,
     );
 
-    // The opt-in REPL-history toggle must be written explicitly: the merge in
+    // The REPL-history toggle must be written explicitly: the merge in
     // entries_to_json would otherwise drop the user's choice, and unrelated
     // keys must survive either way.
     let history_on_json = crate::setup::entries_to_json(&entries, &search_on, true, &cfg_json);
@@ -1651,7 +1698,7 @@ pub fn run_tests() {
     );
     let _ = std::fs::remove_file(&tmp_missing);
 
-    // ── history.rs: opt-in REPL input history ───────────────────────────────
+    // ── history.rs: REPL input history (ON by default) ──────────────────────
     // Path resolution ($XDG_STATE_HOME wins, else the state dir under HOME) has
     // no exe-adjacent/legacy fallback, so there is nothing to test there. The
     // Windows branch is compile-time and cannot be exercised here.
@@ -1684,13 +1731,31 @@ pub fn run_tests() {
     let hist = std::env::temp_dir().join(format!("comma-test-history-{}", std::process::id()));
     let _ = std::fs::remove_file(&hist);
 
-    // Privacy invariant: disabled means no file is created and nothing is read.
-    crate::history::save_if_enabled(false, Some(&hist), &["secret intent".to_string()]);
-    check("history: disabled writes no file", !hist.exists());
+    // g-005 att-003: the feature is ON by default, so the enabled path is now
+    // the default path — `save_if_enabled(true, ..)` must create the file.
+    crate::history::save_if_enabled(true, Some(&hist), &["default intent".to_string()]);
     check(
-        "history: disabled reads nothing",
-        crate::history::load_if_enabled(false, Some(&hist)).is_empty(),
+        "history: enabled writes the file (default on)",
+        hist.exists(),
     );
+    check(
+        "history: enabled reads back what was saved",
+        crate::history::load_if_enabled(true, Some(&hist)) == ["default intent"],
+    );
+    let _ = std::fs::remove_file(&hist);
+
+    // Privacy invariant (unchanged): explicit `false` means no file is created
+    // and nothing is read, even when a file already exists on disk.
+    std::fs::write(&hist, "old intent\n").unwrap();
+    crate::history::save_if_enabled(false, Some(&hist), &["secret intent".to_string()]);
+    check(
+        "history: explicit false neither writes nor reads",
+        crate::history::load(&hist) == ["old intent"]
+            && crate::history::load_if_enabled(false, Some(&hist)).is_empty(),
+    );
+    let _ = std::fs::remove_file(&hist);
+    crate::history::save_if_enabled(false, Some(&hist), &["secret intent".to_string()]);
+    check("history: explicit false creates no file", !hist.exists());
     check(
         "history: missing file → empty",
         crate::history::load(&hist).is_empty(),
@@ -1698,6 +1763,31 @@ pub fn run_tests() {
     check(
         "history: HOME-less path is a no-op",
         crate::history::load_if_enabled(true, None).is_empty(),
+    );
+
+    // The welcome-block disclosure: shown only while persistence is on, and it
+    // must name the file, the config key and the `, --setup` toggle (the
+    // literal key names stay untranslated, so these assertions hold in every
+    // locale).
+    let hist_path = std::path::Path::new("/state/comma/history");
+    let notice_on = crate::history_notice(true, Some(hist_path));
+    check(
+        "history notice: shown when enabled, names path + key + setup",
+        notice_on.as_deref().is_some_and(|n| {
+            n.contains("\"history\": false")
+                && n.contains("--setup")
+                && n.contains("/state/comma/history")
+        }),
+    );
+    check(
+        "history notice: suppressed while disabled",
+        crate::history_notice(false, Some(hist_path)).is_none(),
+    );
+    check(
+        "history notice: HOME-less still discloses (generic path)",
+        crate::history_notice(true, None)
+            .as_deref()
+            .is_some_and(|n| n.contains("history") && n.contains("--setup")),
     );
 
     // Corrupt input (non-UTF-8, truncated) must never panic or abort startup.

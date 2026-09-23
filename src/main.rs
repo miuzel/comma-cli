@@ -22,6 +22,7 @@ use rustyline::Editor;
 use rustyline::config::Configurer;
 use rustyline::history::DefaultHistory;
 use std::io::{self, IsTerminal};
+use std::path::Path;
 
 use crate::cache::{CacheEntry, ResponseCache};
 use crate::config::{ApiStyle, Config, Reasoning, history_path, home_dir, load_config};
@@ -676,6 +677,26 @@ fn prompt_command_action(
     false
 }
 
+/// The line printed under the welcome message when REPL input history is on.
+///
+/// History is ON by default (a product decision: the file is local, 0600 and
+/// never sent to the API), so the user is told on every entry into the REPL
+/// that their inputs are being saved, where the file lives, and the two ways to
+/// turn it off — the `"history": false` config key and `, --setup`. While the
+/// feature is off (`"history": false`) nothing is written and `None` suppresses
+/// the notice entirely. A missing `$HOME` (no resolvable path) keeps the notice
+/// but names the state path generically, since the REPL is still usable.
+fn history_notice(enabled: bool, path: Option<&Path>) -> Option<String> {
+    if !enabled {
+        return None;
+    }
+    let shown = match path {
+        Some(p) => p.display().to_string(),
+        None => "$XDG_STATE_HOME/comma/history".to_string(),
+    };
+    Some(t!("interactive.history_notice", p = shown).to_string())
+}
+
 fn run_interactive(
     config: &Config,
     system: &str,
@@ -683,11 +704,24 @@ fn run_interactive(
     auto_confirm: bool,
     force_refresh: bool,
 ) {
+    // REPL input history (ON by default; only an explicit `"history": false`
+    // disables it). When disabled the helpers never touch the disk, so no
+    // history file is created, `↑` simply has no entries, and the notice below
+    // is suppressed. Only prompt inputs are recorded — the edit/refine text
+    // that `edit_or_execute` adds to the editor stays in memory and is never
+    // persisted.
+    let history_file = home_dir().ok().map(|h| history_path(&h));
+
     print_info(&t!(
         "interactive.welcome",
         m = config.model(),
         s = style_label(config.api_style()),
     ));
+    // Disclose the (default-on) history right in the welcome block, so the
+    // user always knows it is running and how to stop it.
+    if let Some(notice) = history_notice(config.history, history_file.as_deref()) {
+        print_info(&notice);
+    }
 
     let ph = collect_placeholders();
     let mut cache = ResponseCache::load(config.cache_size);
@@ -704,12 +738,6 @@ fn run_interactive(
         ));
     }
 
-    // REPL input history (opt-in, off by default). When `history` is false the
-    // helpers never touch the disk, so no history file is created and `↑`
-    // simply has no entries. Only prompt inputs are recorded here — the
-    // edit/refine text that `edit_or_execute` adds to the editor stays
-    // in memory and is never persisted.
-    let history_file = home_dir().ok().map(|h| history_path(&h));
     let mut session_history = history::load_if_enabled(config.history, history_file.as_deref());
 
     let mut rl = Editor::<FileHelper, DefaultHistory>::new().ok();
@@ -717,7 +745,7 @@ fn run_interactive(
         editor.set_helper(Some(FileHelper::new()));
         editor.set_completion_type(rustyline::CompletionType::List);
         // Seed the prompt history so `↑` recalls inputs from previous
-        // sessions; empty when the opt-in `history` key is off.
+        // sessions; empty when `"history": false` disabled the feature.
         for line in &session_history {
             let _ = editor.add_history_entry(line.as_str());
         }
@@ -764,7 +792,7 @@ fn run_interactive(
             break;
         }
         // Record REPL inputs (not the q/quit/exit command itself) for
-        // the opt-in on-disk history; saved once on exit below.
+        // the on-disk history; saved once on exit below.
         session_history.push(input.clone());
 
         if input == "x" || input == "exec" {

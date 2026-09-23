@@ -101,8 +101,9 @@ struct LocalConfig {
     auto_refine_rounds: Option<serde_json::Value>,
     // Language override (e.g., "en", "zh", "ja")
     lang: Option<String>,
-    // Opt-in REPL input-history persistence. Absent/false → nothing is read
-    // from or written to disk (no history file is ever created).
+    // REPL input-history persistence, ON by default (absent → true). Only an
+    // explicit `false` turns it off, and then nothing is read from or written
+    // to disk (no history file is ever created).
     history: Option<bool>,
     // Web search backend for the #SEARCH: protocol
     search: Option<SearchConfig>,
@@ -288,8 +289,9 @@ pub struct Config {
     /// [`Config::auto_refine_limit`] so `auto_refine: false` keeps winning.
     pub auto_refine_rounds: u32,
     pub lang: Option<String>,
-    /// Persist interactive REPL inputs across sessions (`"history": true`);
-    /// off by default — when false nothing is read from or written to disk.
+    /// Persist interactive REPL inputs across sessions. ON by default (the
+    /// `"history"` key absent means true); only an explicit `"history": false`
+    /// turns it off, and then nothing is read from or written to disk.
     pub history: bool,
     pub search: SearchConfig,
     pub full_prompt: Option<String>,
@@ -464,8 +466,8 @@ pub fn cache_path(home: &str) -> PathBuf {
 /// (default `~/.local/state/comma/history`; `%APPDATA%\comma\history` on
 /// Windows). Unlike the config/cache this deliberately has NO exe-adjacent or
 /// legacy `~/.local/bin` fallback: the file has no older installs to honor, so
-/// new writes must land on the state path. It is only read/written when the
-/// opt-in `history` config key is true (default false).
+/// new writes must land on the state path. It is read/written unless the
+/// `history` config key is explicitly false (the key defaults to true).
 pub fn history_path(home: &str) -> PathBuf {
     platform_path(home, "XDG_STATE_HOME", ".local/state", "history")
 }
@@ -509,8 +511,11 @@ pub fn load_config() -> Result<Config, String> {
     // leniently so a malformed value cannot break the whole config.
     let auto_refine_rounds = parse_auto_refine_rounds(local.auto_refine_rounds.as_ref());
     let lang = local.lang;
-    // Opt-in REPL history: absent → off, so nothing touches the disk.
-    let history = local.history.unwrap_or(false);
+    // REPL history is ON by default (a product decision: the file is local,
+    // 0600 and never sent to the API); only an explicit `false` keeps the
+    // disk untouched. The REPL's welcome line tells the user how to turn it
+    // off (see `history_notice` in main.rs).
+    let history = local.history.unwrap_or(true);
     let search = local.search.unwrap_or_default();
     let full_prompt = non_empty(local.full_prompt);
 

@@ -157,7 +157,7 @@ prompt_api_key = "%{provider} の APIキー"
 prompt_search_url = "SearXNG base URL"
 prompt_max_results = "最大結果数 [%{current}]"
 invalid_number = "数値ではありません。%{current} を維持します。"
-history_title = "REPL 入力履歴（プレーンテキスト保存、既定はオフ）"
+history_title = "REPL 入力履歴（プレーンテキスト、既定はオン、所有者のみ 0600）"
 history_off = "オフ（履歴ファイルを作成しません）"
 history_on = "オン（セッションをまたいで入力を記憶）"
 no_providers_warn = "LLMプロバイダーが設定されていません — 追加するまで comma は動作しません。"
@@ -207,6 +207,7 @@ api_style_auto = "  (省略時はURLから自動検出; anthropic URL → anthro
 
 [interactive]
 welcome = "%{m} (%{s})。コマンド生成後はそのまま操作メニューを表示。Tab でファイル名補完。'q' 終了、'x' でメニュー再表示、'/refine テキスト' で直接改良、'c' コピー。"
+history_notice = "入力履歴はオンです：プロンプトへの入力は %{p} に保存されます（所有者のみ 0600、API には送信されません）。無効にするには設定で \"history\": false を指定するか、', --setup' を実行してください。"
 auto_refine_notice = "前のコマンドが失敗しました（終了コード %{code}）— 自動リファイン中、%{round}/%{total} 回目（\"auto_refine\": false で無効化）。"
 auto_refine_exhausted = "自動リファインを %{rounds} 回試しても成功しませんでした — 自動リファインを停止します。コマンドをご自身で調整するか、\"auto_refine\": false を設定してください。"
 auto_refine_body = "前のコマンドが終了コード %{code} で失敗しました。\n\nコマンド:\n%{cmd}\n\n出力:\n%{output}\n\n次に成功するようコマンドを改良してください。"

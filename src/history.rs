@@ -1,9 +1,12 @@
-//! Opt-in REPL input-history persistence.
+//! REPL input-history persistence, ON by default.
 //!
-//! The feature is off by default (`"history": false`, or the key absent): when
-//! disabled, nothing is ever read from or written to disk, so no history file
-//! is created — the entries are raw user intents, so they are treated as
-//! private data (privacy by design). When enabled, each REPL session loads
+//! The feature is on unless the config says `"history": false`: when disabled,
+//! nothing is ever read from or written to disk, so no history file is created.
+//! The entries are raw user intents, so they are treated as private data: a
+//! local file, owner-only (0600), never sent to the API. That default is a
+//! deliberate product decision — the REPL's welcome line states that inputs are
+//! being saved, where the file lives and how to turn it off (one config line,
+//! or the `, --setup` toggle). When enabled, each REPL session loads
 //! `$XDG_STATE_HOME/comma/history` (`%APPDATA%\comma\history` on Windows) into
 //! the prompt editor and rewrites the file on exit, capped at `MAX_HISTORY`
 //! entries and readable by the owner only (0600).
@@ -40,8 +43,8 @@ pub fn load(path: &Path) -> Vec<String> {
     }
 }
 
-/// Load only when the feature is enabled; a disabled or unresolvable path
-/// (HOME missing) never touches the filesystem.
+/// Load only when the feature is enabled; a disabled (`"history": false`) or
+/// unresolvable path (HOME missing) never touches the filesystem.
 pub fn load_if_enabled(enabled: bool, path: Option<&Path>) -> Vec<String> {
     match (enabled, path) {
         (true, Some(p)) => load(p),
