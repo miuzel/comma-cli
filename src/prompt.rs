@@ -144,6 +144,7 @@ Rules:
   For ||| candidates, each candidate gets its own comment.
   Keep comments concise (one line, under 60 chars).
 - Commands run in a non-interactive child shell of $SHELL (see system context). Shell aliases, functions, and unexported variables from ~/.zshrc / ~/.bashrc are NOT available. Only use standard exported environment variables ($HOME, $USER, $SHELL, $PATH, $XDG_*). Do NOT rely on shell-specific or plugin-specific variables like $ZSH_CUSTOM; use an absolute path or the {{HOME}} placeholder instead.
+- That child shell has NO shell history — it is not an interactive session. `history`, `fc -l`, `fc -l -N`, `!!`, `!n`, `!$` and every other history builtin or history expansion do NOT work there: zsh fails outright (exit 1, `zsh:fc:N: no such event`), bash starts with an empty in-memory list (exit 0 but no output). NEVER output `history` or `fc -l` for a history intent. To show the user's shell history, READ THE HISTORY FILE instead, e.g. zsh: `tail -n 20 {{HOME}}/.zsh_history`, bash: `tail -n 20 {{HOME}}/.bash_history`, fish: `tail -n 20 {{HOME}}/.local/share/fish/fish_history`. `$HISTFILE` and `$HISTCMD` are normally NOT exported, so they are empty/unset in that shell — never depend on them; use the {{HOME}} placeholder with the known history file path.
 - Match the reported shell dialect. When the shell is PowerShell, use PowerShell syntax: chain commands with `;` (NOT `&&`), use `$env:VAR` for environment variables, and wrap native paths in quotes.
 
 Multiple candidates:

@@ -199,7 +199,7 @@ config_priority = "設定優先順位: COMMA_* 環境変数 > config.json > clau
 prompt_file = "プロンプトファイル: %{path}"
 config_file = "設定ファイル (%{path}):"
 auto_update_desc = "  auto_update   true (デフォルト、毎週) | false | <日数> (確認間隔)"
-auto_refine_desc = "  auto_refine   true（デフォルト）| false — コマンド失敗後に自動リファイン"
+auto_refine_desc = "  auto_refine   true（デフォルト）| false — コマンド失敗後に自動リファイン\n  auto_refine_rounds   1-10（デフォルト 3）— 1 つの意図で自動リファインする最大回数、0 = 無効"
 api_style = "APIスタイル (api_style):"
 openai_desc = "  openai       OpenAI互換 (Cerebras, Groq, Ollama, vLLM, ...)"
 anthropic_desc = "  anthropic    Anthropic Messages API"
@@ -207,7 +207,8 @@ api_style_auto = "  (省略時はURLから自動検出; anthropic URL → anthro
 
 [interactive]
 welcome = "%{m} (%{s})。コマンド生成後はそのまま操作メニューを表示。Tab でファイル名補完。'q' 終了、'x' でメニュー再表示、'/refine テキスト' で直接改良、'c' コピー。"
-auto_refine_notice = "前のコマンドが失敗しました（終了コード %{code}）— 自動リファインします（\"auto_refine\": false で無効化）。"
+auto_refine_notice = "前のコマンドが失敗しました（終了コード %{code}）— 自動リファイン中、%{round}/%{total} 回目（\"auto_refine\": false で無効化）。"
+auto_refine_exhausted = "自動リファインを %{rounds} 回試しても成功しませんでした — 自動リファインを停止します。コマンドをご自身で調整するか、\"auto_refine\": false を設定してください。"
 auto_refine_body = "前のコマンドが終了コード %{code} で失敗しました。\n\nコマンド:\n%{cmd}\n\n出力:\n%{output}\n\n次に成功するようコマンドを改良してください。"
 auto_refine_body_empty = "前のコマンドが終了コード %{code} で失敗しました。\n\nコマンド:\n%{cmd}\n\n出力はありません。次に成功するようコマンドを改良してください。"
 thinking = "%{m} 思考中..."

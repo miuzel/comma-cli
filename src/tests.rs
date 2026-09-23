@@ -11,7 +11,7 @@ use crate::style_label;
 use crate::ui::{is_bare_cd, parse_candidates, truncate};
 use crate::{
     AUTO_REFINE_MAX_OUTPUT_CHARS, ExecOutcome, auto_refine_body, auto_refine_output,
-    parse_refine_command, refine_turns, should_auto_refine,
+    auto_refine_step, parse_refine_command, refine_turns, should_auto_refine,
 };
 
 // ── Built-in self-test suite (`--test`) ─────────────────────────────────────
@@ -885,6 +885,60 @@ pub fn run_tests() {
             .unwrap_or(true);
         check("config: auto_refine defaults to true", default_on);
         check("config: auto_refine=false disables", !disabled);
+
+        // Test 20h (g-014): the `auto_refine_rounds` key — default 3, `0`
+        // disables, out-of-range values are clamped to 1-10, `auto_refine:
+        // false` wins over the count, and an unusable value degrades to the
+        // default without failing the whole config load. The effective value
+        // is read through `auto_refine_limit()`.
+        let rounds_cases: [(&str, &str, u32); 7] = [
+            (
+                "default (key absent)",
+                r#"{"base_url":"http://127.0.0.1","auth_token":"t","model":"m"}"#,
+                3,
+            ),
+            (
+                "explicit 5",
+                r#"{"base_url":"http://127.0.0.1","auth_token":"t","model":"m","auto_refine_rounds":5}"#,
+                5,
+            ),
+            (
+                "0 = off",
+                r#"{"base_url":"http://127.0.0.1","auth_token":"t","model":"m","auto_refine_rounds":0}"#,
+                0,
+            ),
+            (
+                "42 clamps to 10",
+                r#"{"base_url":"http://127.0.0.1","auth_token":"t","model":"m","auto_refine_rounds":42}"#,
+                10,
+            ),
+            (
+                "-4 clamps to 1",
+                r#"{"base_url":"http://127.0.0.1","auth_token":"t","model":"m","auto_refine_rounds":-4}"#,
+                1,
+            ),
+            (
+                "auto_refine:false wins over 5",
+                r#"{"base_url":"http://127.0.0.1","auth_token":"t","model":"m","auto_refine_rounds":5,"auto_refine":false}"#,
+                0,
+            ),
+            (
+                "unusable string falls back to 3",
+                r#"{"base_url":"http://127.0.0.1","auth_token":"t","model":"m","auto_refine_rounds":"nonsense"}"#,
+                3,
+            ),
+        ];
+        for (label, doc, want) in rounds_cases {
+            std::fs::write(&cfg_file, doc).unwrap();
+            let got = crate::config::load_config()
+                .map(|c| c.auto_refine_limit())
+                .unwrap_or(u32::MAX);
+            check(
+                &format!("config: auto_refine_rounds {} → {}", label, want),
+                got == want,
+            );
+        }
+
         match &saved_home {
             Some(v) => set_env("HOME", v),
             None => unset_env("HOME"),
@@ -894,6 +948,113 @@ pub fn run_tests() {
             None => unset_env("XDG_CONFIG_HOME"),
         }
         let _ = std::fs::remove_dir_all(&fake);
+    }
+
+    // Test 20i (g-014): `auto_refine_rounds` parsing itself (pure, no
+    // filesystem): missing or unusable → 3, `0` → 0 (= off), otherwise
+    // clamped to 1-10 so a negative or oversized value can never produce more
+    // than `MAX_AUTO_REFINE_ROUNDS` automatic refine turns.
+    let rounds = |v: Option<serde_json::Value>| crate::config::parse_auto_refine_rounds(v.as_ref());
+    check(
+        "auto_refine_rounds: default constant is 3",
+        crate::config::DEFAULT_AUTO_REFINE_ROUNDS == 3,
+    );
+    check(
+        "auto_refine_rounds: max constant is 10",
+        crate::config::MAX_AUTO_REFINE_ROUNDS == 10,
+    );
+    check("auto_refine_rounds: missing → 3", rounds(None) == 3);
+    check(
+        "auto_refine_rounds: 3 → 3",
+        rounds(Some(serde_json::json!(3))) == 3,
+    );
+    check(
+        "auto_refine_rounds: 10 → 10",
+        rounds(Some(serde_json::json!(10))) == 10,
+    );
+    check(
+        "auto_refine_rounds: 0 → 0 (off)",
+        rounds(Some(serde_json::json!(0))) == 0,
+    );
+    check(
+        "auto_refine_rounds: 42 → 10 (clamped)",
+        rounds(Some(serde_json::json!(42))) == 10,
+    );
+    check(
+        "auto_refine_rounds: -4 → 1 (clamped)",
+        rounds(Some(serde_json::json!(-4))) == 1,
+    );
+    check(
+        "auto_refine_rounds: numeric string accepted",
+        rounds(Some(serde_json::json!("7"))) == 7,
+    );
+    check(
+        "auto_refine_rounds: non-numeric string → 3",
+        rounds(Some(serde_json::json!("nonsense"))) == 3,
+    );
+    check(
+        "auto_refine_rounds: bool → 3",
+        rounds(Some(serde_json::json!(true))) == 3,
+    );
+    check(
+        "auto_refine_rounds: float → 3",
+        rounds(Some(serde_json::json!(2.5))) == 3,
+    );
+
+    // Test 20j (g-014): the per-intent gate on automatic refine — one user
+    // intent may spend exactly `limit` rounds and round N+1 is never started;
+    // limit 0 (auto_refine:false or rounds 0) never refines at all.
+    {
+        use crate::AutoRefineStep::{Disabled, Exhausted, Refine};
+        check(
+            "auto-refine gate: 0 (off) never refines",
+            auto_refine_step(0, 0) == Disabled && auto_refine_step(0, 7) == Disabled,
+        );
+        check(
+            "auto-refine gate: default limit 3 allows rounds 1, 2, 3",
+            auto_refine_step(3, 0) == Refine(1)
+                && auto_refine_step(3, 1) == Refine(2)
+                && auto_refine_step(3, 2) == Refine(3),
+        );
+        check(
+            "auto-refine gate: limit 3 is exhausted at 3 (never a 4th round)",
+            auto_refine_step(3, 3) == Exhausted(3) && auto_refine_step(3, 4) == Exhausted(3),
+        );
+        check(
+            "auto-refine gate: limit 1 stops after one round",
+            auto_refine_step(1, 0) == Refine(1) && auto_refine_step(1, 1) == Exhausted(1),
+        );
+        check(
+            "auto-refine gate: limit 5 allows a fifth round",
+            auto_refine_step(5, 4) == Refine(5) && auto_refine_step(5, 5) == Exhausted(5),
+        );
+        // Walk each budget to the end: exactly `limit` refines, then a hard
+        // stop that reports the limit — the shape of the REPL's chain.
+        for limit in [1u32, 2, 3, 5, 10] {
+            let mut used = 0u32;
+            let mut refines = 0u32;
+            let mut stop = None;
+            loop {
+                match auto_refine_step(limit, used) {
+                    Refine(n) => {
+                        used = n;
+                        refines += 1;
+                    }
+                    Exhausted(total) => {
+                        stop = Some(total);
+                        break;
+                    }
+                    Disabled => break,
+                }
+            }
+            check(
+                &format!(
+                    "auto-refine gate: limit {} spends {} rounds then stops",
+                    limit, limit
+                ),
+                refines == limit && stop == Some(limit),
+            );
+        }
     }
 
     // Test 21: is_bare_cd — first token of the comment-stripped command
@@ -1030,6 +1191,44 @@ pub fn run_tests() {
                 locale
             ),
             notice.contains('9'),
+        );
+        // g-014: the notice shows the current round and the budget, so both
+        // placeholders must substitute in every locale.
+        let notice_rounds = t!(
+            "interactive.auto_refine_notice",
+            locale => locale,
+            "code" => 9, "round" => 2, "total" => 3
+        );
+        check(
+            &format!(
+                "locale {}: auto_refine_notice substitutes %{{round}}/%{{total}}",
+                locale
+            ),
+            notice_rounds.contains("2") && notice_rounds.contains("3"),
+        );
+        // The exhausted notice (budget used up → stop and hand back) is new in
+        // g-014 and must be translated everywhere: a missing key silently falls
+        // back to English, so `--test` is the only guard.
+        let exhausted = t!("interactive.auto_refine_exhausted", locale => locale, "rounds" => 4);
+        check(
+            &format!(
+                "locale {}: auto_refine_exhausted substitutes %{{rounds}}",
+                locale
+            ),
+            exhausted.contains('4'),
+        );
+        check(
+            &format!("locale {}: auto_refine_exhausted is translated", locale),
+            *locale == "en"
+                || exhausted
+                    != t!("interactive.auto_refine_exhausted", locale => "en", "rounds" => 4),
+        );
+        check(
+            &format!(
+                "locale {}: auto_refine_desc documents auto_refine_rounds",
+                locale
+            ),
+            t!("help.auto_refine_desc", locale => locale).contains("auto_refine_rounds"),
         );
         let auto_body = t!(
             "interactive.auto_refine_body",
@@ -1596,6 +1795,33 @@ pub fn run_tests() {
         crate::prompt::DEFAULT_PROMPT.contains("PowerShell")
             && crate::prompt::DEFAULT_PROMPT.contains("NOT `&&`")
             && crate::prompt::DEFAULT_PROMPT.contains("$env:VAR"),
+    );
+    // g-014: the prompt must state that the child shell has no shell history,
+    // name the history builtins/expansions that cannot work there, point at
+    // the history FILE as the way to show history, and warn that
+    // HISTFILE/HISTCMD are not exported.
+    check(
+        "prompt: states the child shell has no shell history",
+        crate::prompt::DEFAULT_PROMPT.contains("NO shell history"),
+    );
+    check(
+        "prompt: names the unusable history builtins and expansions",
+        crate::prompt::DEFAULT_PROMPT.contains("`history`")
+            && crate::prompt::DEFAULT_PROMPT.contains("fc -l")
+            && crate::prompt::DEFAULT_PROMPT.contains("!!")
+            && crate::prompt::DEFAULT_PROMPT.contains("!n"),
+    );
+    check(
+        "prompt: tells the model to read the history file instead",
+        crate::prompt::DEFAULT_PROMPT.contains("READ THE HISTORY FILE")
+            && crate::prompt::DEFAULT_PROMPT.contains("{{HOME}}/.zsh_history")
+            && crate::prompt::DEFAULT_PROMPT.contains("{{HOME}}/.bash_history"),
+    );
+    check(
+        "prompt: HISTFILE/HISTCMD are not exported and not reliable",
+        crate::prompt::DEFAULT_PROMPT.contains("$HISTFILE")
+            && crate::prompt::DEFAULT_PROMPT.contains("$HISTCMD")
+            && crate::prompt::DEFAULT_PROMPT.contains("NOT exported"),
     );
 
     // ── Ctrl-C exit intent (g-005 att-002) ──────────────────────────────────

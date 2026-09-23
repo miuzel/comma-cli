@@ -199,7 +199,7 @@ config_priority = "Konfig-Priorität: COMMA_* Umgebungsvariable > config.json > 
 prompt_file = "Prompt-Datei:     %{path}"
 config_file = "Konfigurationsdatei (%{path}):"
 auto_update_desc = "  auto_update   true (Standard, wöchentlich) | false | <Tage> (Prüfintervall)"
-auto_refine_desc = "  auto_refine   true (Standard) | false — nach einem fehlgeschlagenen Befehl automatisch verfeinern"
+auto_refine_desc = "  auto_refine   true (Standard) | false — nach einem fehlgeschlagenen Befehl automatisch verfeinern\n  auto_refine_rounds   1-10 (Standard 3) — maximale automatische Verfeinerungsrunden pro Absicht; 0 = aus"
 api_style = "API-Stil (api_style):"
 openai_desc = "  openai       OpenAI-kompatibel (Cerebras, Groq, Ollama, vLLM, ...)"
 anthropic_desc = "  anthropic    Anthropic Messages API"
@@ -207,7 +207,8 @@ api_style_auto = "  (wird bei Weglassen aus der URL erkannt; anthropic URLs → 
 
 [interactive]
 welcome = "%{m} (%{s}). Jeder erzeugte Befehl öffnet das Aktionsmenü; Tab vervollständigt Dateinamen. 'q' beenden, 'x' Menü erneut öffnen, '/refine TEXT' direkt verfeinern, 'c' kopieren."
-auto_refine_notice = "Vorheriger Befehl fehlgeschlagen (Exit-Code %{code}) — automatisches Verfeinern (deaktivierbar mit \"auto_refine\": false)."
+auto_refine_notice = "Vorheriger Befehl fehlgeschlagen (Exit-Code %{code}) — automatisches Verfeinern, Runde %{round}/%{total} (deaktivierbar mit \"auto_refine\": false)."
+auto_refine_exhausted = "Nach %{rounds} automatischen Verfeinerungsrunden ohne Erfolg gestoppt — passen Sie den Befehl selbst an oder setzen Sie \"auto_refine\": false."
 auto_refine_body = "Der vorherige Befehl ist mit Exit-Code %{code} fehlgeschlagen.\n\nBefehl:\n%{cmd}\n\nAusgabe:\n%{output}\n\nVerfeinere den Befehl, damit er beim nächsten Versuch klappt."
 auto_refine_body_empty = "Der vorherige Befehl ist mit Exit-Code %{code} fehlgeschlagen.\n\nBefehl:\n%{cmd}\n\nDer Befehl hat keine Ausgabe erzeugt. Verfeinere ihn, damit er beim nächsten Versuch klappt."
 thinking = "%{m} denkt nach..."

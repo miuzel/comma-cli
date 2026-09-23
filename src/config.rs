@@ -95,6 +95,10 @@ struct LocalConfig {
     // code and a sanitized output summary. `false` disables it (and keeps the
     // old streaming `.status()` execution path).
     auto_refine: Option<bool>,
+    // Auto-refine round budget per user intent (1-10, default 3; 0 = off).
+    // Kept as a raw JSON value so an invalid entry (a string, a float, a
+    // bool) degrades to the default instead of failing the whole config.
+    auto_refine_rounds: Option<serde_json::Value>,
     // Language override (e.g., "en", "zh", "ja")
     lang: Option<String>,
     // Opt-in REPL input-history persistence. Absent/false → nothing is read
@@ -140,6 +144,33 @@ impl SearchConfig {
     }
     pub fn max_results(&self) -> usize {
         self.max_results.unwrap_or(5).clamp(1, 10)
+    }
+}
+
+/// How many automatic refine turns one user intent may spend by default (see
+/// `auto_refine_rounds`).
+pub const DEFAULT_AUTO_REFINE_ROUNDS: u32 = 3;
+/// Upper clamp for `auto_refine_rounds`: more rounds than this cost tokens
+/// without converging (the original bug was an unbounded chain of refines).
+pub const MAX_AUTO_REFINE_ROUNDS: u32 = 10;
+
+/// Parse the `auto_refine_rounds` config value leniently.
+///
+/// The raw JSON value is kept (never `u32`) so a malformed entry cannot make
+/// the whole config file fail to load:
+///   - missing, a bool, a float, or any non-numeric value → the default (3);
+///   - `0` → 0, which turns automatic refine off (same as `auto_refine: false`);
+///   - anything else → clamped to 1..=10 (so negatives land on 1).
+pub(crate) fn parse_auto_refine_rounds(value: Option<&serde_json::Value>) -> u32 {
+    let raw = match value {
+        Some(serde_json::Value::Number(n)) => n.as_i64(),
+        Some(serde_json::Value::String(s)) => s.trim().parse::<i64>().ok(),
+        _ => None,
+    };
+    match raw {
+        None => DEFAULT_AUTO_REFINE_ROUNDS,
+        Some(0) => 0,
+        Some(n) => n.clamp(1, MAX_AUTO_REFINE_ROUNDS as i64) as u32,
     }
 }
 
@@ -252,6 +283,10 @@ pub struct Config {
     pub auto_update: AutoUpdate,
     /// Auto-refine after a failed command (see `LocalConfig::auto_refine`).
     pub auto_refine: bool,
+    /// Configured automatic-refine budget per user intent, already parsed and
+    /// clamped (0 = off, otherwise 1–10, default 3). Read it through
+    /// [`Config::auto_refine_limit`] so `auto_refine: false` keeps winning.
+    pub auto_refine_rounds: u32,
     pub lang: Option<String>,
     /// Persist interactive REPL inputs across sessions (`"history": true`);
     /// off by default — when false nothing is read from or written to disk.
@@ -269,6 +304,18 @@ impl Config {
     }
     pub fn api_style(&self) -> ApiStyle {
         self.primary().api_style
+    }
+
+    /// Effective automatic-refine rounds per user intent: `auto_refine: false`
+    /// has the highest priority and yields 0, `auto_refine_rounds: 0` is
+    /// equivalent to it, and any other value is the clamped configured budget.
+    /// 0 means "no automatic refine at all".
+    pub fn auto_refine_limit(&self) -> u32 {
+        if self.auto_refine {
+            self.auto_refine_rounds
+        } else {
+            0
+        }
     }
 
     /// Fuzzy-match a keyword against configured model names (case-insensitive
@@ -298,6 +345,7 @@ impl Config {
                     max_output_tokens: self.max_output_tokens,
                     auto_update: self.auto_update,
                     auto_refine: self.auto_refine,
+                    auto_refine_rounds: self.auto_refine_rounds,
                     lang: self.lang.clone(),
                     history: self.history,
                     search: self.search.clone(),
@@ -456,6 +504,10 @@ pub fn load_config() -> Result<Config, String> {
     // Auto-refine is ON by default: a failed command is the case where a
     // one-line fix is most valuable. `"auto_refine": false` turns it off.
     let auto_refine = local.auto_refine.unwrap_or(true);
+    // Automatic-refine budget per user intent: default 3, clamped to 1-10,
+    // 0 = off (see `parse_auto_refine_rounds`). The config key is read
+    // leniently so a malformed value cannot break the whole config.
+    let auto_refine_rounds = parse_auto_refine_rounds(local.auto_refine_rounds.as_ref());
     let lang = local.lang;
     // Opt-in REPL history: absent → off, so nothing touches the disk.
     let history = local.history.unwrap_or(false);
@@ -548,6 +600,7 @@ pub fn load_config() -> Result<Config, String> {
         max_output_tokens,
         auto_update,
         auto_refine,
+        auto_refine_rounds,
         lang,
         history,
         search,
