@@ -75,16 +75,25 @@ pub fn save(path: &Path, entries: &[String]) {
     let mut tmp = path.as_os_str().to_os_string();
     tmp.push(".tmp");
     let tmp = PathBuf::from(tmp);
-    if !write_private(&tmp, body.as_bytes()) || std::fs::rename(&tmp, path).is_err() {
+    // Publish with a temp file + rename (short-circuit: a failed write is never
+    // renamed). Written as a positive condition instead of an early `return` so
+    // no platform ends up with a trailing `return` statement — on Windows the
+    // `#[cfg(unix)]` block below is compiled out, which made an early return
+    // the last statement of the function (`clippy::needless_return`, an error
+    // under the CI's `-D warnings`).
+    let published = write_private(&tmp, body.as_bytes()) && std::fs::rename(&tmp, path).is_ok();
+    if !published {
         let _ = std::fs::remove_file(&tmp);
-        return;
     }
     // Fix up a pre-existing file whose mode was looser (rename replaced the
     // inode, but an existing loose-mode temp file would survive the open).
+    // Unix-only: Windows files inherit the user profile's ACLs instead.
     #[cfg(unix)]
     {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+        if published {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o600));
+        }
     }
 }
 
