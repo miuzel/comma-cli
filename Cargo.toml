@@ -1,6 +1,6 @@
 [package]
 name = "comma"
-version = "0.28.0-alpha"
+version = "0.28.0"
 edition = "2024"
 
 [dependencies]
