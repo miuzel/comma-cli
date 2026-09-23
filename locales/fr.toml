@@ -29,6 +29,7 @@ running = "Exécution : %{cmd}"
 copied = "Copié dans le presse-papiers."
 cd_subprocess = "Note : `cd` s'exécute dans un sous-processus et ne changera pas le répertoire de votre shell — utilisez le wrapper d'intégration shell (voir README : Shell integration) pour cela."
 update_available = "Mise à jour disponible : %{from} → %{to} (exécutez , --update pour l'installer)"
+pty_fallback = "PTY indisponible (%{e}) — repli sur une sortie via tube (pas de TTY)."
 
 [update]
 checking = "Vérification des mises à jour (actuelle : %{v})..."

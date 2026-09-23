@@ -617,6 +617,59 @@ pub fn run_tests() {
             "execute: capture mode reports output + exit code",
             matches!(&captured, Some(o) if o.code == Some(3) && o.output.contains("comma-capture-marker")),
         );
+        // The capture path must not cost the child its terminal: on Unix it runs
+        // on a pty, so stdin/stdout/stderr are all TTYs (colors, progress bars
+        // and full-screen programs keep working) — that is the whole point of
+        // relaying instead of using `.output()`.
+        let tty = crate::execute(
+            "if [ -t 0 ] && [ -t 1 ] && [ -t 2 ]; then echo comma-on-pty; \
+             else echo comma-on-pipes; fi; exit 0",
+            true,
+        );
+        check(
+            "execute: capture mode runs the child on a pty (tty on 0/1/2)",
+            matches!(&tty, Some(o) if o.output.contains("comma-on-pty")),
+        );
+    }
+
+    // Test 20b-2: the bounded capture buffer keeps the first and last bytes and
+    // marks whatever it dropped, so an endless command cannot exhaust memory
+    // while the summary still sees both ends of the output.
+    let mut small = crate::pty::OutputCapture::default();
+    small.push(b"short output");
+    check(
+        "capture buffer: short output is kept verbatim",
+        small.finish() == "short output",
+    );
+    let mut chunked = crate::pty::OutputCapture::default();
+    chunked.push(&vec![b'a'; 20 * 1024]);
+    chunked.push(&vec![b'b'; 12 * 1024]);
+    let under_cap = chunked.finish();
+    check(
+        "capture buffer: output under the cap is not marked as dropped",
+        under_cap.len() == 32 * 1024 && !under_cap.contains("omitted"),
+    );
+    let mut huge = crate::pty::OutputCapture::default();
+    huge.push(&vec![b'a'; 100 * 1024]);
+    let bounded = huge.finish();
+    check(
+        "capture buffer: head+tail bounded, dropped middle marked",
+        bounded.len() < 70 * 1024
+            && bounded.starts_with("aaa")
+            && bounded.ends_with("aaa")
+            && bounded.contains("bytes of output omitted"),
+    );
+
+    // Test 20b-3: the portable pipe fallback (the Windows path, and what Unix
+    // uses when a pty cannot be allocated) streams and captures the same way.
+    if cfg!(unix) {
+        let mut piped_cmd = std::process::Command::new("sh");
+        piped_cmd.arg("-c").arg("echo comma-piped-marker; exit 4");
+        let piped = crate::pty::run_piped(piped_cmd);
+        check(
+            "execute: piped fallback reports output + exit code",
+            matches!(&piped, Ok(run) if run.code == Some(4) && run.output.contains("comma-piped-marker")),
+        );
     }
 
     // Test 20c: automatic refine trigger — any non-zero exit code starts one,
@@ -1030,6 +1083,19 @@ pub fn run_tests() {
         check(
             &format!("locale {}: menu_auto_refine substitutes %{{value}}", locale),
             menu_auto.contains("VALUE_MARK"),
+        );
+        // g-013: the pty-fallback notice is printed by the capture path (Windows,
+        // or a Unix host without a usable pty), so it must be translated too — a
+        // locale missing the key silently falls back to English.
+        let pty_fallback = t!("info.pty_fallback", locale => locale, "e" => "ERR_MARK");
+        check(
+            &format!("locale {}: pty_fallback substitutes %{{e}}", locale),
+            pty_fallback.contains("ERR_MARK"),
+        );
+        check(
+            &format!("locale {}: pty_fallback is translated", locale),
+            locale == "en"
+                || pty_fallback != t!("info.pty_fallback", locale => "en", "e" => "ERR_MARK"),
         );
         for key in [
             "error.no_command_refine",

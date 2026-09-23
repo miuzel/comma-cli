@@ -2,3 +2,4 @@
 .worktrees/
 .claude/worktrees/
 .cargo/
+/tmp/

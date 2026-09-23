@@ -29,6 +29,7 @@ running = "运行: %{cmd}"
 copied = "已复制到剪贴板。"
 cd_subprocess = "注意: `cd` 在子进程中运行，不会改变当前 shell 的目录 — 请使用 shell 集成包装器（参见 README: Shell integration）。"
 update_available = "有可用更新: %{from} → %{to}（运行 , --update 安装）"
+pty_fallback = "无法分配 PTY（%{e}）— 退回管道输出（无 TTY）。"
 
 [update]
 checking = "检查更新中（当前版本: %{v}）..."

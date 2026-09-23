@@ -29,6 +29,7 @@ running = "Ausführen: %{cmd}"
 copied = "In die Zwischenablage kopiert."
 cd_subprocess = "Hinweis: `cd` läuft in einem Unterprozess und ändert das Verzeichnis Ihrer Shell nicht — verwenden Sie dafür den Shell-Integrations-Wrapper (siehe README: Shell integration)."
 update_available = "Update verfügbar: %{from} → %{to} (mit , --update installieren)"
+pty_fallback = "PTY nicht verfügbar (%{e}) — Fallback auf Pipe-Ausgabe (kein TTY)."
 
 [update]
 checking = "Suche nach Updates (aktuell: %{v})..."

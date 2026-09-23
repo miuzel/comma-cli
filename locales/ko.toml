@@ -29,6 +29,7 @@ running = "실행 중: %{cmd}"
 copied = "클립보드에 복사했습니다."
 cd_subprocess = "참고: `cd` 는 하위 프로세스에서 실행되므로 현재 셸의 디렉터리가 변경되지 않습니다 — 셸 통합 래퍼를 사용하세요 (README: Shell integration 참조)."
 update_available = "사용 가능한 업데이트: %{from} → %{to} (, --update 로 설치)"
+pty_fallback = "PTY를 사용할 수 없습니다(%{e}) — 파이프 출력으로 대체합니다(TTY 없음)."
 
 [update]
 checking = "업데이트 확인 중 (현재: %{v})..."

@@ -522,13 +522,17 @@ Disable it in the config:
 }
 ```
 
-or toggle it in `, --setup`. With `auto_refine: false` the command runs exactly as before: stdio is inherited and output streams live.
+or toggle it in `, --setup`. With `auto_refine: false` the command runs with inherited stdio exactly as before — no pseudo-terminal is allocated and nothing is captured.
 
-While auto-refine is enabled, `,` needs the command's output for the summary, so the child's stdout/stderr are **captured** (stdin is still inherited):
+While auto-refine is enabled, `,` needs the command's output for the summary, so the child runs **on a pseudo-terminal** that `,` relays live:
 
-- output appears when the command finishes instead of streaming live;
-- stdout/stderr are pipes, not a TTY, so progress bars and colors may disappear and some programs switch to buffered output;
-- full-screen interactive programs (`vim`, `less`, ...) will not render correctly — run those with `auto_refine: false`, or execute them outside `,`.
+- output streams to your terminal as it is produced — nothing waits for the command to exit;
+- the child keeps full TTY semantics: colors and progress bars render as usual and full-screen programs (`vim`, `less`, ...) work — the terminal size is forwarded at startup and re-synced on a window resize;
+- your typing, and `Ctrl-C` (which interrupts the command), are forwarded to the command;
+- your terminal is put in raw mode for the duration and is always restored afterwards — normal exit, `Ctrl-C` or a fatal signal;
+- a bounded copy of the output (first + last 32 KB) is kept for the summary, so an endless command (`yes`, a chatty daemon) cannot grow it without bound.
+
+**Windows** has no pseudo-terminal support yet: output still streams live and stdin is inherited, but the child sees pipes rather than a TTY, so colors/progress bars may be missing and full-screen programs (`vim`, `less`) do not work there — use `auto_refine: false` for those. The same piped mode is used on a Unix host where no pty can be allocated, and `,` says so instead of degrading silently.
 
 What is sent is bounded and sanitized: ANSI escapes and control characters are stripped, the summary is truncated to 2000 characters (head + tail, because errors usually land at the end), and an empty output sends only the command and the exit code. Real `$HOME`, username and hostname are replaced by `{{HOME}}`/`{{USER}}`/`{{HOSTNAME}}` before anything is sent (see [Privacy](#privacy)) — masking happens before truncation, so a half-cut path can never leak.
 
