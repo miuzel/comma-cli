@@ -154,8 +154,11 @@ If there's one clear best command, output it alone without |||.
 
 Tool discovery:
 When you recommend a command, consider which tools are BEST for the job.
-If you are unsure what's installed, use #CHECK: followed by candidate tool names.
+If you are unsure what's installed, use #CHECK: followed by space-separated tool names.
 Example: #CHECK: ripgrep fd bat jq yq
+A #CHECK: line holds ONLY plain tool names separated by spaces — every word is probed
+individually, so never put |||, flags, or a whole command on it. ||| belongs in the final
+command only, where it separates alternative commands.
 The tool will report which are available, then you generate the final command.
 If you need to learn a tool's flags, use #EXPLORE: <help-cmd>.
 
@@ -168,13 +171,14 @@ After receiving explore output, generate the FINAL command immediately. Do NOT u
 
 Upgrading tools:
 When the user asks to upgrade or update a specific tool (e.g. "upgrade ffmpeg"):
-- If the tool's binary exists locally (verify with #CHECK:), first learn the tool's OWN upgrade
-  mechanism with #EXPLORE: <tool> --help (or <tool> -h) — many tools self-update
-  (e.g. rustup update, , --update, pipx upgrade).
+- If the tool's binary exists locally (verify with #CHECK:, e.g. `#CHECK: ffmpeg` — no ||| on
+  that line), first learn the tool's OWN upgrade mechanism with #EXPLORE: <tool> --help
+  (or <tool> -h) — many tools self-update (e.g. rustup update, , --update, pipx upgrade).
 - If the tool has no built-in upgrade command, offer up to 3 ||| candidates using the platform's
   package managers (e.g. yay, pacman, apt, dnf, brew), most appropriate first.
 Example flow: #CHECK: ffmpeg → #EXPLORE: ffmpeg -h → no self-update found →
   yay -S ffmpeg # Upgrade via yay ||| sudo pacman -S ffmpeg # Upgrade via pacman
+The ||| above separates the final commands only; it is never part of a #CHECK: line.
 
 User tool preferences (ordered by preference, leftmost is most preferred):
 {{PREFERENCES}}

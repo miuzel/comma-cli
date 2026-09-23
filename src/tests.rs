@@ -185,6 +185,32 @@ pub fn run_tests() {
     );
     check("parse_check: no prefix", parse_check("ls -la").is_none());
     check("parse_check: just prefix", parse_check("#CHECK:").is_none());
+    // `|||` is the candidate separator of final commands; on a #CHECK: line it
+    // must not survive as a tool name (it used to be probed with `which`).
+    check(
+        "parse_check: trailing ||| is a separator",
+        parse_check("#CHECK: opencode |||") == Some(vec!["opencode"]),
+    );
+    check(
+        "parse_check: ||| with repeated prefix",
+        parse_check("#CHECK: a b ||| #CHECK: c") == Some(vec!["a", "b", "c"]),
+    );
+    check(
+        "parse_check: ||| keeps order and dedupes",
+        parse_check("#CHECK: b ||| a ||| b") == Some(vec!["b", "a"]),
+    );
+    check(
+        "parse_check: bare pipes are dropped",
+        parse_check("#CHECK: rg ||| |") == Some(vec!["rg"]),
+    );
+    check(
+        "parse_check: comment still stripped",
+        parse_check("#CHECK: rg fd # best tools") == Some(vec!["rg", "fd"]),
+    );
+    check(
+        "parse_check: only separators",
+        parse_check("#CHECK: |||").is_none(),
+    );
 
     // Test 12b: #SEARCH: prefix detection
     check(

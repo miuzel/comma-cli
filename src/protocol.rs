@@ -24,15 +24,33 @@ Now generate the best shell command using what's actually installed. \
 Output ONLY the final command. Do NOT prefix with #CHECK:, #EXPLORE:, or #SEARCH:.";
 
 /// If raw starts with `#CHECK:`, extract the tool names.
+///
+/// `|||` is the candidate separator for final commands, but models sometimes
+/// append it to a `#CHECK:` line; treat it as a separator here too, and accept a
+/// repeated `#CHECK:` prefix on each segment, so `#CHECK: a b ||| #CHECK: c`
+/// yields `["a", "b", "c"]`. Order is preserved and duplicates are dropped.
 pub fn parse_check(raw: &str) -> Option<Vec<&str>> {
     let trimmed = raw.trim();
     let rest = trimmed.strip_prefix(CHECK_PREFIX)?.trim();
     if rest.is_empty() {
         return None;
     }
-    // Strip # comment before parsing tool names
-    let (tool_str, _) = split_comment(rest);
-    let tools: Vec<&str> = tool_str.split_whitespace().collect();
+    let mut tools: Vec<&str> = Vec::new();
+    for segment in rest.split("|||") {
+        let segment = segment.trim();
+        let segment = segment.strip_prefix(CHECK_PREFIX).unwrap_or(segment).trim();
+        // Strip # comment before parsing tool names
+        let (tool_str, _) = split_comment(segment);
+        for tool in tool_str.split_whitespace() {
+            // A bare run of `|` is a malformed separator, never a tool name
+            if tool.bytes().all(|b| b == b'|') {
+                continue;
+            }
+            if !tools.contains(&tool) {
+                tools.push(tool);
+            }
+        }
+    }
     if tools.is_empty() { None } else { Some(tools) }
 }
 
