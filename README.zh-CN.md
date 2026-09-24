@@ -48,6 +48,23 @@ $dir = "D:\tools\bin"; Invoke-WebRequest -Uri "https://github.com/miuzel/comma-c
 ![国际化](demo/i18n.gif)
 <!-- 录制：vhs demo/i18n.tape -->
 
+### 动作菜单
+每条生成的命令都会直接打开动作菜单——没有提示行要读，也不必先按 `x`（`x` 只用于重新打开菜单）。
+![动作菜单](demo/action-menu.gif)
+<!-- 录制：vhs demo/action-menu.tape -->
+
+### 自动精炼轮数上限
+命令以非零码退出后会自动精炼，每次意图最多 `auto_refine_rounds` 轮（默认 3；演示沙箱设为 2）。
+会显示当前轮次，配额用尽时直接停止并交还提示符，不会再开启下一轮。
+![自动精炼](demo/auto-refine.gif)
+<!-- 录制：vhs demo/auto-refine.tape -->
+
+### 忙时 Ctrl+C
+`Ctrl+C` 会先中断正在执行的一步，然后询问 `退出 REPL？ [y/N]`；选 `N` 丢弃被中断步骤的结果并回到 `> `。
+欢迎信息里也会显示默认开启的输入历史。
+![中断](demo/interrupt.gif)
+<!-- 录制：vhs demo/interrupt.tape -->
+
 ---
 
 ## 问题

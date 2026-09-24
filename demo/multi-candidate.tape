@@ -3,7 +3,7 @@
 # Uses a sandbox HOME (/tmp/comma-demo-home) so the UI renders in English.
 # Warm the response cache first (the cached response replays the full
 # candidate list instantly) — see demo/README.md.
-# Ends with 'n' so nothing is executed.
+# Ends with Esc so nothing is executed.
 
 Output demo/multi-candidate.gif
 
@@ -38,5 +38,6 @@ Down
 Sleep 800ms
 Enter
 Sleep 1s
-Type "n"
+# The selected command opens the action menu; Esc cancels it.
+Escape
 Sleep 2s
