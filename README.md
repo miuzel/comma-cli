@@ -48,6 +48,27 @@ $dir = "D:\tools\bin"; Invoke-WebRequest -Uri "https://github.com/miuzel/comma-c
 ![i18n](demo/i18n.gif)
 <!-- Record: vhs demo/i18n.tape -->
 
+### Action menu
+Every generated command opens the action menu straight away — there is no hint
+line to read and no need to type `x` first (`x` only re-opens the menu).
+![action menu](demo/action-menu.gif)
+<!-- Record: vhs demo/action-menu.tape -->
+
+### Auto-refine round limit
+A command that exits non-zero is refined automatically, at most
+`auto_refine_rounds` times per intent (default 3; the demo sandbox sets 2).
+The round is shown, and an exhausted budget stops the chain and hands the
+prompt back instead of starting another round.
+![auto-refine](demo/auto-refine.gif)
+<!-- Record: vhs demo/auto-refine.tape -->
+
+### Ctrl+C while a step is running
+`Ctrl+C` interrupts the running step and then asks `Exit REPL? [y/N]`; `N`
+drops the interrupted step and returns to `> `. The welcome block also shows
+the REPL input history, which is ON by default.
+![interrupt](demo/interrupt.gif)
+<!-- Record: vhs demo/interrupt.tape -->
+
 ---
 
 ## The problem
