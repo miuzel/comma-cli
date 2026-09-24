@@ -95,7 +95,7 @@ git show <commit> --name-only      # 有无越界改写无关文件
 - 涉及隐私/安全红线的，确认断言是**真断言**（能否在旧代码上 FAIL），不是空转；
 - 独立复跑门禁（见步骤 2），**不要**采信子代理贴出的 PASS 文本。
 
-### 步骤 2 · 门禁命令（固定四连）
+### 步骤 2 · 门禁命令（固定四连 + 一条 shell 套件）
 
 ```bash
 cd /home/miuzel/workspace/personal/comma-cli/.worktrees/g-012-att-01
@@ -103,11 +103,13 @@ cargo fmt --check
 cargo clippy --release --all-targets -- -D warnings
 cargo build --release
 ./target/release/comma --test
+./scripts/release-notes-test.sh        # CI gate 5：仅 shell + git，三平台都跑
 ```
 
-- 四项全过才算通过。
+- 四项 Rust 门禁全过才算通过；`release-notes-test.sh` 只在改动 `scripts/release-notes.sh` 或
+  `ci.yml` 时才需要单独复跑（CI 三平台都会跑它，见 4.6/4.7 的平台预演）。
 - **断言数校准**：`--test` 的总数应等于「基线 + 新增断言数」，可反证「测的确实是这个提交」。
-  本会话数据：基线 **228** → g-012 后 **263**（+35）→ g-005 后 **244**（单卡，+16）→ g-013 后 **338**（单卡，+110）→ **三卡集成后 389**。
+  本会话数据：基线 **228** → g-012 后 **263**（+35）→ g-005 后 **244**（单卡，+16）→ g-013 后 **338**（单卡，+110）→ **三卡集成后 389** → 0.28.0 全量 **542**。
 
 ### 步骤 3 · 把已验卡按顺序合入**集成分支**（不是 main）
 
