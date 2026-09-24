@@ -610,6 +610,18 @@ note: pub fn ioctl(fd: c_int, request: c_ulong, ...) -> c_int;
   ```
   ⚠️ 注意 `gh release download` 失败时**不会覆盖**已存在的旧文件 —— 本会话曾因此拿着**上一版的 sha256** 生成 Homebrew 公式（差点发错）。**生成公式后必须抽查一个真实压缩包**：`curl` 下载后 `sha256sum` 与公式里的值比对。
 
+### 4.9 录演示 GIF（VHS）与本沙箱的通用坑（v0.29.0 g-019 实测）
+
+演示流水线：`demo/*.tape`（VHS）→ 同名 `.gif`，由两个 README 的 `## Demo` 引用；复现步骤在 `demo/README.md`。
+
+- **`/tmp` 是每次 bash 调用一份私有 tmpfs**：跨调用不保留。所以**温缓存与录制必须在同一个脚本里跑完**（否则录到空/未预热状态）。同理，任何"先建临时状态、下一条命令再用"的流程在此沙箱都不可靠 —— 一律写成一个脚本。
+- **Go 的网络栈绕过 proxychains**（只有 libc 客户端如 curl/git/python 能出网）→ `go install <x>@latest` 报 `lookup proxy.golang.org: no such host`。**替代：直接下 GitHub release 的静态二进制**（`curl` 可用）解压到 `./tmp/bin`，免提权。这也解释了为什么本环境里 `curl` 打 github.com 常常比 `gh` 好用。
+- **vhs 0.12.0 有上游 bug**：`evaluator.go` 里 `ctx` 被 `context.WithCancel` 遮蔽，`teardown()` 先 cancel，`Render(ctx)` 拿到已取消的 ctx → ffmpeg 永不启动，**打印 `Creating …gif…` 后静默不写文件且 exit 0**（最恶心的失败模式：看起来成功）。**pin vhs 0.11.0**。
+- **无头浏览器**：VHS/rod 先找 `google-chrome`；WSL 下 `/usr/local/bin/google-chrome` 常是指向 Windows `chrome.exe` 的软链 → 用 `./tmp/bin/google-chrome` wrapper `exec /usr/bin/chromium`，并设 `VHS_NO_SANDBOX=1`。
+- **录的必须是新构建**：tapes 里敲的是 `,`，所以要 `ln -sf "$PWD/target/release/comma" ./tmp/bin/,` 并把 `./tmp/bin` 前置到 `PATH`，录前先 `, --version` 确认版本号。
+- **确定性靠温缓存**：cache key 含工作目录 → 必须在 tape 使用的同一目录里预热；演示沙箱 `HOME` 用 `/tmp/comma-demo-home`（复制真实 config **并删掉 `lang`**，否则真实配置的 `lang` 会压过 `COMMA_LANG`）。**绝不把含 API key 的 config 提交进仓库**。
+- **想看某帧**：`ffmpeg -v error -i demo/x.gif -vf "select=eq(n\,470)" -vframes 1 out.png -y`，然后直接看图核验（比读 PASS 文本可靠）。核验要点：模型名不是过期的、有 welcome/历史提示行、菜单无「提示行 + 按 x」残留。
+
 ---
 
 ## 5. 与 dsh-graph 看板的配合
