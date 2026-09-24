@@ -59,7 +59,8 @@ Usage:
 
 What it does:
   1. Collects commit subjects from <base>..v<version> (no merges; skips
-     "chore: release v…" / "bump version…" housekeeping commits).
+     "chore: release v…" / "chore: set integration version …" / "bump version…"
+     / "Update Cargo.lock" housekeeping commits).
   2. Groups them into Features / Fixes / Other bullets.
   3. Writes a draft file with a TODO summary placeholder and the
      **Full Changelog** compare link at the bottom, ready for
@@ -201,9 +202,11 @@ fi
 
 # ── collect and group commits ────────────────────────────────────────────
 # Subjects only; no merges; skip housekeeping commits ("chore: release v…",
-# "bump version…", "Update Cargo.lock"). Both plain and scoped conventional
-# prefixes ("feat:" and "feat(context):") are grouped; the prefix is stripped
-# from the bullet.
+# "chore: set integration version …" — the integration-branch version bump of
+# docs/version-integration-and-release-sop.md step 5 is build plumbing, not a
+# user-visible change —, "bump version…", "Update Cargo.lock"). Both plain and
+# scoped conventional prefixes ("feat:" and "feat(context):") are grouped; the
+# prefix is stripped from the bullet.
 strip_prefix() {
     sed -E 's/^[a-z]+(\([^)]*\))?:[[:space:]]*//' <<< "$1"
 }
@@ -219,20 +222,22 @@ while IFS= read -r line; do
         *)                  OTHER="${OTHER}  - $line"$'\n' ;;
     esac
 done < <(git log --no-merges --pretty=format:%s "$RANGE" \
-    | grep -Ev '^(chore: release v[0-9]|bump version|Update Cargo\.lock)' || true)
+    | grep -Ev '^(chore: release v[0-9]|chore: set integration version|bump version|Update Cargo\.lock)' || true)
 
 if [ -z "${FEAT}${FIX}${OTHER}" ]; then
     echo "release-notes.sh: no commits found in range $RANGE" >&2
     if [ "$AUTO_BASE" = 1 ] && [ -n "$BASE" ]; then
         echo "  Base $BASE was auto-detected (nearest release tag before $TAG), so the range" >&2
         echo "  is empty or every commit in it is housekeeping (\"chore: release v…\"," >&2
-        echo "  \"bump version…\", \"Update Cargo.lock\")." >&2
+        echo "  \"chore: set integration version …\", \"bump version…\", \"Update Cargo.lock\")." >&2
     elif [ "$AUTO_BASE" = 1 ]; then
         echo "  No previous release tag was found, so the range is the whole history and every" >&2
-        echo "  commit in it is housekeeping (\"chore: release v…\", \"bump version…\")." >&2
+        echo "  commit in it is housekeeping (\"chore: release v…\", \"chore: set integration" >&2
+        echo "  version …\", \"bump version…\")." >&2
     else
         echo "  --from $(printf '%q' "$BASE") is not an ancestor of $TAG, or every commit between" >&2
-        echo "  them is housekeeping (\"chore: release v…\", \"bump version…\")." >&2
+        echo "  them is housekeeping (\"chore: release v…\", \"chore: set integration version …\"," >&2
+        echo "  \"bump version…\")." >&2
     fi
     echo "  Re-run with the base you want in the changelog:" >&2
     echo "    scripts/release-notes.sh $VER --from <tag>" >&2

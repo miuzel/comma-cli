@@ -93,6 +93,9 @@ assert_contains "$NOTES" "compare/v0.27.1...v0.28.0" "compare link uses the real
 assert_absent "$NOTES" "alpha-verified" "the verification tag never appears in the draft"
 assert_contains "$NOTES" "bound the auto-refine chain per intent" "commits since v0.27.1 are collected"
 assert_absent "$NOTES" "bump version" "the version-bump commit stays filtered as housekeeping"
+assert_absent "$NOTES" "set integration version" \
+    "the integration-branch version bump stays filtered as housekeeping"
+assert_absent "$NOTES" "test build" "no trace of the integration version bump in any section"
 
 run "$A" v0.28.0 --from v0.27.1 --output notes-from.md
 assert_eq "$RUN_RC" 0 "explicit --from v0.27.1 still works"

@@ -50,3 +50,10 @@ jobs:
       - name: comma --test
         shell: bash
         run: ./target/release/comma --test
+
+      # Gate 5: release-notes.sh regression suite (git + bash only; runs on the
+      # same three OSes — macOS ships bash 3.2, so the scripts must stay 3.2-safe,
+      # and `shell: bash` gives Windows git-bash instead of cmd).
+      - name: release-notes tests
+        shell: bash
+        run: ./scripts/release-notes-test.sh
