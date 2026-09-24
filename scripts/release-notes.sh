@@ -12,6 +12,21 @@
 # (feature name + user-visible effect) and keeps the compare link at the
 # bottom, per AGENTS.md "Deployment process".
 #
+# "Previous version" means a *release-shaped* tag: exactly `vMAJOR.MINOR.PATCH`
+# (nothing after the patch number), reachable from `v<version>^` and nearest to
+# it — the `git describe --tags --abbrev=0` notion, restricted to release tags.
+# Every other tag is ignored on purpose. The integration-branch verification tag
+# (`0.28.0-alpha-verified`, docs/version-integration-and-release-sop.md step 7)
+# is deliberately not `v`-prefixed and is tagged right next to the release
+# commit: taking it as "the previous version" leaves a range whose only commit is
+# the version bump, which the housekeeping filter below drops, so the script used
+# to abort with a bogus "no commits found". Pass `--from <ref>` to choose the
+# base yourself; when the range turns out empty the script lists the tags you can
+# pass there.
+#
+# Regression tests for the base detection (and for the empty-range message):
+#   scripts/release-notes-test.sh
+#
 # CDN reminder (AGENTS.md): the ~10 min wait after pushing a tag applies to
 # testing `, --update` / install.sh against releases/latest/download — writing
 # the notes draft itself needs no download and is unaffected.
@@ -31,8 +46,15 @@ Usage:
   <version>    Release version to draft notes for (e.g. 0.27.0 or v0.27.0).
                The tag v<version> must exist in this repo (git fetch --tags).
   --output     Where to write the draft. Default: release-notes-<version>.md
-  --from       Base ref of the changelog range. Default: the previous version
-               tag reachable from v<version>^ .
+  --from REF   Base ref of the changelog range (tag, branch or commit).
+               Default: the previous *release* tag, i.e. a tag matching
+               exactly v<major>.<minor>.<patch> that is reachable from
+               v<version>^, nearest to it first. Every other tag is ignored
+               on purpose — an integration-branch verification tag such as
+               0.28.0-alpha-verified, a v<x>.<y>.<z>-rc1 pre-release, or a tag
+               without the `v` prefix is not a release and must never be used
+               as the previous version. Pass --from when you need a different
+               base (e.g. v0.27.1).
   -h, --help   Show this help.
 
 What it does:
@@ -42,6 +64,10 @@ What it does:
   3. Writes a draft file with a TODO summary placeholder and the
      **Full Changelog** compare link at the bottom, ready for
      `gh release edit <version> --repo miuzel/comma-cli --notes-file <file>`.
+
+When the range is empty the script fails with the candidate release tags and
+the exact `--from <tag>` command to re-run — it never guesses a different base
+silently.
 
 The ~10 min CDN wait from AGENTS.md applies to testing `, --update` /
 install.sh, not to drafting notes.
@@ -104,15 +130,73 @@ if ! git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
 fi
 
 # ── determine the changelog range ────────────────────────────────────────
+# Only a release-shaped tag may become the base: exactly `vMAJOR.MINOR.PATCH`,
+# no `-rc1`/`-alpha-verified`/`+build` suffix, no leading digit-only name. See
+# the header comment for why (integration test tags hijack the range).
+RELEASE_TAG_RE='^v[0-9]+\.[0-9]+\.[0-9]+$'
+CANDIDATE_LIMIT=10   # how many candidate bases the error messages list
+
+# Release tags reachable from v<version>^ — the candidates for "previous
+# version" — newest version first, so equal commit distances prefer the newer
+# version in detect_previous_release() below.
+release_tag_candidates() {
+    git tag --merged "$TAG^" --sort=-v:refname --list 2>/dev/null \
+        | grep -E "$RELEASE_TAG_RE" || true
+}
+
+# Print the bases the user may pass to --from (bounded, newest first). Used by
+# the error paths so a failed run always shows what to re-run with.
+print_candidates() {
+    local cands total
+    cands="$(release_tag_candidates)"
+    if [ -z "$cands" ]; then
+        echo "  (no release tag vX.Y.Z reachable from $TAG^ — this looks like the first release)" >&2
+        return 0
+    fi
+    echo "  Release tags usable as --from (reachable from $TAG^, newest first):" >&2
+    printf '%s\n' "$cands" | head -n "$CANDIDATE_LIMIT" | sed 's/^/    /' >&2
+    total="$(printf '%s\n' "$cands" | grep -c .)"
+    if [ "$total" -gt "$CANDIDATE_LIMIT" ]; then
+        echo "    … and $((total - CANDIDATE_LIMIT)) older release tag(s)" >&2
+    fi
+}
+
+# Nearest candidate by commit distance: the `git describe --tags --abbrev=0`
+# semantics, restricted to release tags. Prints nothing when there is none.
+detect_previous_release() {
+    local cand dist best="" best_dist=""
+    while IFS= read -r cand; do
+        [ -n "$cand" ] || continue
+        dist="$(git rev-list --count "$cand..$TAG^")"
+        if [ -z "$best_dist" ] || [ "$dist" -lt "$best_dist" ]; then
+            best="$cand"
+            best_dist="$dist"
+        fi
+    done < <(release_tag_candidates)
+    printf '%s' "$best"
+}
+
+AUTO_BASE=1
 if [ -n "$FROM" ]; then
+    AUTO_BASE=0
+    if ! git rev-parse -q --verify "${FROM}^{commit}" >/dev/null; then
+        echo "release-notes.sh: --from '$FROM' is not a known commit/ref." >&2
+        print_candidates
+        exit 2
+    fi
     BASE="$FROM"
 else
-    BASE="$(git describe --tags --abbrev=0 "$TAG^" 2>/dev/null || true)"
+    BASE="$(detect_previous_release)"
 fi
+
 if [ -n "$BASE" ]; then
     RANGE="$BASE..$TAG"
 else
     RANGE="$TAG"   # first release: everything up to the tag, no compare link
+    if [ "$AUTO_BASE" = 1 ]; then
+        echo "note: no previous release tag (vX.Y.Z) reachable from $TAG^; using the" >&2
+        echo "      full history. Pass --from <ref> to narrow the range." >&2
+    fi
 fi
 
 # ── collect and group commits ────────────────────────────────────────────
@@ -139,6 +223,20 @@ done < <(git log --no-merges --pretty=format:%s "$RANGE" \
 
 if [ -z "${FEAT}${FIX}${OTHER}" ]; then
     echo "release-notes.sh: no commits found in range $RANGE" >&2
+    if [ "$AUTO_BASE" = 1 ] && [ -n "$BASE" ]; then
+        echo "  Base $BASE was auto-detected (nearest release tag before $TAG), so the range" >&2
+        echo "  is empty or every commit in it is housekeeping (\"chore: release v…\"," >&2
+        echo "  \"bump version…\", \"Update Cargo.lock\")." >&2
+    elif [ "$AUTO_BASE" = 1 ]; then
+        echo "  No previous release tag was found, so the range is the whole history and every" >&2
+        echo "  commit in it is housekeeping (\"chore: release v…\", \"bump version…\")." >&2
+    else
+        echo "  --from $(printf '%q' "$BASE") is not an ancestor of $TAG, or every commit between" >&2
+        echo "  them is housekeeping (\"chore: release v…\", \"bump version…\")." >&2
+    fi
+    echo "  Re-run with the base you want in the changelog:" >&2
+    echo "    scripts/release-notes.sh $VER --from <tag>" >&2
+    print_candidates
     exit 1
 fi
 
