@@ -65,6 +65,15 @@ $dir = "D:\tools\bin"; Invoke-WebRequest -Uri "https://github.com/miuzel/comma-c
 ![中断](demo/interrupt.gif)
 <!-- 录制：vhs demo/interrupt.tape -->
 
+### 演示视频
+
+一条约 3 分钟的完整演示，录制于 commit `cb21689`（v0.28.0），中文与英文各一版：
+
+- **中文版** — [B 站](https://www.bilibili.com/video/BV1BjhU6yEAA/)
+- **英文版** — [YouTube](https://youtu.be/gZ8QcZxc8MY)
+
+视频里的界面是隔离的演示环境，模型回复来自本地 stub；片中的失败与自动精炼都由演示驱动脚本真实产生，不是摆拍。
+
 ---
 
 ## 问题

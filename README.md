@@ -69,6 +69,18 @@ the REPL input history, which is ON by default.
 ![interrupt](demo/interrupt.gif)
 <!-- Record: vhs demo/interrupt.tape -->
 
+### Demo video
+
+A three-minute narrated walkthrough of this release, recorded against commit
+`cb21689` (v0.28.0) — one video per language:
+
+- **中文** — [Bilibili](https://www.bilibili.com/video/BV1BjhU6yEAA/)
+- **English** — [YouTube](https://youtu.be/gZ8QcZxc8MY)
+
+The interface in the video is an isolated demo environment with a local stub
+model, so the failures and the automatic refinements it shows are really
+produced by the demo driver rather than staged.
+
 ---
 
 ## The problem
