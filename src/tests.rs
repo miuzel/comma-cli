@@ -1716,7 +1716,10 @@ pub fn run_tests() {
     );
     check(
         "responses body: disabled keeps max_output_tokens",
-        resp_disabled.get("max_output_tokens").and_then(|v| v.as_u64()) == Some(4096),
+        resp_disabled
+            .get("max_output_tokens")
+            .and_then(|v| v.as_u64())
+            == Some(4096),
     );
     let resp_low = responses_wire(&Reasoning::Effort("low".into()));
     check(

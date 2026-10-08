@@ -214,7 +214,7 @@ impl AutoUpdate {
 ///   - a string effort level (e.g. `"reasoning": "low"`)
 ///     → Anthropic: mapped to token budget
 ///     → OpenAI: passed as `reasoning.effort` or `reasoning_effort`
-///       (the key is omitted entirely while reasoning is disabled, see `effort_opt`)
+///     (the key is omitted entirely while reasoning is disabled, see `effort_opt`)
 #[derive(Deserialize, Clone, Debug, PartialEq)]
 #[serde(untagged)]
 pub enum Reasoning {
