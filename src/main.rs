@@ -331,6 +331,12 @@ fn run_oneshot(
     }
 
     let mut rl = Editor::<FileHelper, DefaultHistory>::new().ok();
+    // `e`/`r` read the edit/refine prompt through this editor, and that prompt
+    // is colored by `FileHelper::highlight_prompt` (g-029), so the helper has
+    // to be installed here too — without it the color would silently vanish.
+    if let Some(ref mut editor) = rl {
+        editor.set_helper(Some(FileHelper::new()));
+    }
 
     // Initial LLM call
     let mut spinner = Spinner::start(&t!("interactive.thinking", "m" => config.model()));
