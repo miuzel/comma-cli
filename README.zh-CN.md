@@ -149,9 +149,9 @@ $dir = "D:\tools\bin"; Invoke-WebRequest -Uri "https://github.com/miuzel/comma-c
 ```json
 {
   "providers": {
-    "cerebras": {
-      "base_url": "https://api.cerebras.ai/v1",
-      "auth_token": "csk-xxx",
+    "groq": {
+      "base_url": "https://api.groq.com/openai/v1",
+      "auth_token": "your-api-key",
       "api_style": "openai"
     },
     "anthropic": {
@@ -160,8 +160,8 @@ $dir = "D:\tools\bin"; Invoke-WebRequest -Uri "https://github.com/miuzel/comma-c
     }
   },
   "models": [
-    {"provider": "cerebras", "model": "llama-3.3-70b", "retries": 2},
-    {"provider": "anthropic", "model": "claude-sonnet-4-20250514", "retries": 1}
+    {"provider": "groq", "model": "openai/gpt-oss-20b", "retries": 2},
+    {"provider": "anthropic", "model": "claude-sonnet-5-5", "retries": 1}
   ]
 }
 ```
@@ -256,44 +256,36 @@ COMMA_LANG=fr , --help    # 或在 config.json 中设置 "lang": "fr"
 
 `,` 支持任何 OpenAI 或 Anthropic 兼容 API。以下是一些推荐：
 
+> 型号核对日期：2026-10-08（已对照各提供商官方文档）
+
 ### 🚀 快速 & 免费
 
 | 提供商 | 模型 | 速度 | 费用 | 适用场景 |
 |--------|------|------|------|----------|
-| [Cerebras](https://cerebras.ai) | `gemma-4-31b` | ⚡ 超快 | 免费额度 | 快速命令、高吞吐 |
-| [Groq](https://groq.com) | `llama-3.1-8b-instant` | ⚡ 超快 | 免费额度 | 低延迟、实时使用 |
+| [Groq](https://groq.com) | `openai/gpt-oss-20b` | ⚡ 超快 | 免费额度 | 低延迟、实时使用 |
 
 ### 💻 编程优化
 
 | 提供商 | 模型 | 适用场景 |
 |--------|------|----------|
-| [Moonshot](https://kimi.moonshot.cn) | `kimi-k2.7-coding` | Shell 命令、代码生成 |
-| [DeepSeek](https://deepseek.com) | `deepseek-v4-flash` | 快速推理、编程任务 |
+| [Moonshot](https://kimi.moonshot.cn) | `kimi-k2.7-code` | Shell 命令、代码生成 |
+| [DeepSeek](https://deepseek.com) | `deepseek-flash` | 快速推理、编程任务 |
 
 ### 🏠 本地运行（无需 API Key）
 
 | 工具 | 模型 | 适用场景 |
 |------|------|----------|
-| [Ollama](https://ollama.ai) | `qwen3.6-35b-a3b` | 隐私保护、离线使用 |
+| [Ollama](https://ollama.ai) | `qwen3.6:35b-a3b` | 隐私保护、离线使用 |
 | [vLLM](https://vllm.ai) | 任意模型 | 自托管、高吞吐 |
 
 ### 配置示例
-
-**Cerebras（快速、免费）：**
-```json
-{
-  "base_url": "https://api.cerebras.ai/v1",
-  "auth_token": "your-api-key",
-  "model": "gemma-4-31b"
-}
-```
 
 **Ollama（本地）：**
 ```json
 {
   "base_url": "http://localhost:11434/v1",
   "auth_token": "ollama",
-  "model": "qwen3.6-35b-a3b"
+  "model": "qwen3.6:35b-a3b"
 }
 ```
 
@@ -302,7 +294,7 @@ COMMA_LANG=fr , --help    # 或在 config.json 中设置 "lang": "fr"
 {
   "base_url": "https://api.deepseek.com/v1",
   "auth_token": "your-api-key",
-  "model": "deepseek-v4-flash"
+  "model": "deepseek-flash"
 }
 ```
 
@@ -310,10 +302,6 @@ COMMA_LANG=fr , --help    # 或在 config.json 中设置 "lang": "fr"
 ```json
 {
   "providers": {
-    "cerebras": {
-      "base_url": "https://api.cerebras.ai/v1",
-      "auth_token": "csk-xxx"
-    },
     "deepseek": {
       "base_url": "https://api.deepseek.com/v1",
       "auth_token": "sk-xxx"
@@ -324,9 +312,8 @@ COMMA_LANG=fr , --help    # 或在 config.json 中设置 "lang": "fr"
     }
   },
   "models": [
-    {"provider": "cerebras", "model": "gemma-4-31b", "retries": 2},
-    {"provider": "deepseek", "model": "deepseek-v4-flash", "retries": 1},
-    {"provider": "ollama", "model": "qwen3.6-35b-a3b", "retries": 1}
+    {"provider": "deepseek", "model": "deepseek-flash", "retries": 1},
+    {"provider": "ollama", "model": "qwen3.6:35b-a3b", "retries": 1}
   ]
 }
 ```
@@ -508,9 +495,9 @@ COMMA_* 环境变量
 ### 环境变量
 
 ```bash
-export COMMA_BASE_URL="https://api.cerebras.ai/v1"
-export COMMA_API_KEY="csk-xxx"
-export COMMA_MODEL="llama-3.3-70b"
+export COMMA_BASE_URL="https://api.groq.com/openai/v1"
+export COMMA_API_KEY="your-api-key"
+export COMMA_MODEL="openai/gpt-oss-20b"
 export COMMA_API_STYLE="openai"
 ```
 
@@ -518,9 +505,9 @@ export COMMA_API_STYLE="openai"
 
 ```json
 {
-  "base_url": "https://api.cerebras.ai/v1",
-  "auth_token": "csk-xxx",
-  "model": "llama-3.3-70b"
+  "base_url": "https://api.groq.com/openai/v1",
+  "auth_token": "your-api-key",
+  "model": "openai/gpt-oss-20b"
 }
 ```
 
@@ -591,9 +578,11 @@ export COMMA_API_STYLE="openai"
 
 发送的内容有上限且已净化：去除 ANSI 转义与控制字符，摘要截断到 2000 字符（保留首尾，因为错误通常出现在末尾），输出为空时只发送命令与退出码。真实的 `$HOME`、用户名和主机名会在发送前回填为 `{{HOME}}`/`{{USER}}`/`{{HOSTNAME}}`（见[隐私](#隐私)）—— 回填发生在截断之前，因此被截断的路径也不可能泄漏。
 
-### Reasoning（Anthropic）
+### Reasoning（推理）
 
 对 Anthropic 模型，`"reasoning": <tokens>` 按给定预算启用 extended thinking。`max_tokens` 会自动提高，因此 ≥ 1024 的预算可以正常使用。
+
+对 OpenAI 兼容端点（chat completions 与 Responses API），`"reasoning": "low" | "medium" | "high"`（或单次运行用 `--reasoning/-r <level>`）会作为 `reasoning_effort` 发送，其他字符串原样透传；不配置 `reasoning` 时该字段完全不发送，由 provider 使用自身默认值。
 
 ### 网络搜索
 
@@ -740,22 +729,21 @@ cd comma-cli
 
 ```json
 {
-  "base_url": "https://api.cerebras.ai/v1",
+  "base_url": "https://api.groq.com/openai/v1",
   "auth_token": "your-api-key-here",
-  "model": "gemma-4-31b"
+  "model": "openai/gpt-oss-20b"
 }
 ```
 
 或使用环境变量：
 
 ```bash
-export COMMA_BASE_URL="https://api.cerebras.ai/v1"
+export COMMA_BASE_URL="https://api.groq.com/openai/v1"
 export COMMA_API_KEY="your-api-key-here"
-export COMMA_MODEL="gemma-4-31b"
+export COMMA_MODEL="openai/gpt-oss-20b"
 ```
 
 **免费选项：**
-- [Cerebras](https://cerebras.ai) — 免费额度，超快，无需信用卡
 - [Groq](https://groq.com) — 免费额度，低延迟
 - [Ollama](https://ollama.ai) — 本地运行，无需 API Key，需要 8GB+ 内存
 

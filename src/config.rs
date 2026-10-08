@@ -214,6 +214,7 @@ impl AutoUpdate {
 ///   - a string effort level (e.g. `"reasoning": "low"`)
 ///     → Anthropic: mapped to token budget
 ///     → OpenAI: passed as `reasoning.effort` or `reasoning_effort`
+///       (the key is omitted entirely while reasoning is disabled, see `effort_opt`)
 #[derive(Deserialize, Clone, Debug, PartialEq)]
 #[serde(untagged)]
 pub enum Reasoning {
@@ -239,6 +240,28 @@ impl Reasoning {
                 "high" | "xhigh" | "max" => 4096,
                 _ => 0,
             },
+        }
+    }
+
+    /// Effort for OpenAI APIs, or `None` while reasoning is disabled.
+    ///
+    /// This is what goes on the wire: a disabled request must not carry the
+    /// key at all, because OpenAI-compatible gateways (e.g. Groq gpt-oss)
+    /// reject `reasoning_effort: "none"` with HTTP 400. Any explicit
+    /// non-disable value is passed through verbatim, including
+    /// provider-specific strings this crate does not know about.
+    pub fn effort_opt(&self) -> Option<&str> {
+        match self {
+            Reasoning::Tokens(0) => None,
+            Reasoning::Tokens(_) => Some(self.effort_str()),
+            Reasoning::Effort(s) => {
+                let t = s.trim();
+                if t.is_empty() || t.eq_ignore_ascii_case("none") {
+                    None
+                } else {
+                    Some(s.as_str())
+                }
+            }
         }
     }
 

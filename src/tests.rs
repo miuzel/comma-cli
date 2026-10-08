@@ -5,7 +5,9 @@ use crate::context::{
     mask_placeholders, shell_command,
 };
 use crate::danger::is_dangerous;
-use crate::llm::{Message, RETRY_HINT};
+use crate::llm::{
+    Message, RETRY_HINT, anthropic_thinking_json, openai_body_json, responses_body_json,
+};
 use crate::protocol::{parse_check, parse_explore, parse_search, strip_markdown_fences};
 use crate::style_label;
 use crate::ui::{is_bare_cd, parse_candidates, truncate};
@@ -1472,6 +1474,174 @@ pub fn run_tests() {
     let r = Reasoning::default();
     check("reasoning default is disabled", r.budget_tokens() == 0);
     check("reasoning default effort is none", r.effort_str() == "none");
+
+    // ── g-023: a disabled reasoning setting must not reach the wire ─────────
+    // `effort_str` is the display/max_tokens mapping and still yields "none";
+    // `effort_opt` is the wire-level switch and yields None = key absent.
+    check(
+        "reasoning effort_opt: default is None",
+        Reasoning::default().effort_opt().is_none(),
+    );
+    check(
+        "reasoning effort_opt: Tokens(0) is None",
+        Reasoning::Tokens(0).effort_opt().is_none(),
+    );
+    check(
+        "reasoning effort_opt: Tokens(4096) maps to low",
+        Reasoning::Tokens(4096).effort_opt() == Some("low"),
+    );
+    check(
+        "reasoning effort_opt: Tokens(8192) maps to medium",
+        Reasoning::Tokens(8192).effort_opt() == Some("medium"),
+    );
+    check(
+        "reasoning effort_opt: Tokens(65536) maps to high",
+        Reasoning::Tokens(65536).effort_opt() == Some("high"),
+    );
+    check(
+        "reasoning effort_opt: Effort(low) is low",
+        Reasoning::Effort("low".into()).effort_opt() == Some("low"),
+    );
+    check(
+        "reasoning effort_opt: Effort(custom) passthrough",
+        Reasoning::Effort("custom".into()).effort_opt() == Some("custom"),
+    );
+    check(
+        "reasoning effort_opt: Effort(none) is None",
+        Reasoning::Effort("none".into()).effort_opt().is_none(),
+    );
+    check(
+        "reasoning effort_opt: Effort(NONE) is None",
+        Reasoning::Effort("NONE".into()).effort_opt().is_none(),
+    );
+    check(
+        "reasoning effort_opt: Effort(empty) is None",
+        Reasoning::Effort(String::new()).effort_opt().is_none(),
+    );
+    // effort_str keeps its old contract (max_tokens still maps through it).
+    check(
+        "reasoning effort_str unchanged: default none",
+        Reasoning::default().effort_str() == "none",
+    );
+
+    // Serialized chat-completions body: the key must be *absent* (not "none",
+    // not "" and not null) while disabled — Groq gpt-oss rejects
+    // `reasoning_effort: "none"` with HTTP 400 and other OpenAI-compatible
+    // gateways reject unknown parameters the same way.
+    let wire_msgs = vec![Message {
+        role: "user".into(),
+        content: "hi".into(),
+    }];
+    let openai_wire = |r: &Reasoning| {
+        serde_json::from_str::<serde_json::Value>(
+            &openai_body_json("m", "sys", &wire_msgs, r, None).unwrap(),
+        )
+        .unwrap()
+    };
+
+    let oai_disabled = openai_wire(&Reasoning::default());
+    check(
+        "openai body: disabled omits reasoning_effort key",
+        oai_disabled.get("reasoning_effort").is_none(),
+    );
+    check(
+        "openai body: disabled keeps max_tokens mapping",
+        oai_disabled.get("max_tokens").and_then(|v| v.as_u64()) == Some(1024),
+    );
+    check(
+        "openai body: messages still serialized",
+        oai_disabled
+            .get("messages")
+            .and_then(|v| v.as_array())
+            .map(|a| a.len())
+            == Some(2),
+    );
+
+    let oai_low = openai_wire(&Reasoning::Effort("low".into()));
+    check(
+        "openai body: explicit low sends reasoning_effort=low",
+        oai_low.get("reasoning_effort").and_then(|v| v.as_str()) == Some("low"),
+    );
+    check(
+        "openai body: explicit low keeps max_tokens mapping",
+        oai_low.get("max_tokens").and_then(|v| v.as_u64()) == Some(2048),
+    );
+    let oai_medium = openai_wire(&Reasoning::Effort("medium".into()));
+    check(
+        "openai body: explicit medium sends reasoning_effort=medium",
+        oai_medium.get("reasoning_effort").and_then(|v| v.as_str()) == Some("medium"),
+    );
+    let oai_high = openai_wire(&Reasoning::Effort("high".into()));
+    check(
+        "openai body: explicit high sends reasoning_effort=high",
+        oai_high.get("reasoning_effort").and_then(|v| v.as_str()) == Some("high"),
+    );
+    let oai_custom = openai_wire(&Reasoning::Effort("custom".into()));
+    check(
+        "openai body: custom effort passthrough",
+        oai_custom.get("reasoning_effort").and_then(|v| v.as_str()) == Some("custom"),
+    );
+    let oai_budget = openai_wire(&Reasoning::Tokens(8192));
+    check(
+        "openai body: token budget maps to effort=medium",
+        oai_budget.get("reasoning_effort").and_then(|v| v.as_str()) == Some("medium"),
+    );
+    let oai_spelled_none = openai_wire(&Reasoning::Effort("none".into()));
+    check(
+        "openai body: explicit none spelling omits key",
+        oai_spelled_none.get("reasoning_effort").is_none(),
+    );
+
+    // Responses API path: same omission, nested under `reasoning.effort`.
+    let responses_wire = |r: &Reasoning| {
+        serde_json::from_str::<serde_json::Value>(
+            &responses_body_json("m", "sys", &wire_msgs, r, None).unwrap(),
+        )
+        .unwrap()
+    };
+    let resp_disabled = responses_wire(&Reasoning::default());
+    check(
+        "responses body: disabled omits reasoning object",
+        resp_disabled.get("reasoning").is_none(),
+    );
+    check(
+        "responses body: disabled keeps max_output_tokens",
+        resp_disabled.get("max_output_tokens").and_then(|v| v.as_u64()) == Some(4096),
+    );
+    let resp_low = responses_wire(&Reasoning::Effort("low".into()));
+    check(
+        "responses body: explicit low sends reasoning.effort=low",
+        resp_low
+            .get("reasoning")
+            .and_then(|v| v.get("effort"))
+            .and_then(|v| v.as_str())
+            == Some("low"),
+    );
+    check(
+        "responses body: disabled carries no effort string anywhere",
+        !resp_disabled.to_string().contains("effort"),
+    );
+
+    // Anthropic path is deliberately unchanged by g-023: disabled still sends
+    // {"type":"disabled"} with no budget_tokens; budget mapping is untouched.
+    let anth_disabled: serde_json::Value =
+        serde_json::from_str(&anthropic_thinking_json(&Reasoning::default()).unwrap()).unwrap();
+    check(
+        "anthropic thinking: disabled type kept",
+        anth_disabled.get("type").and_then(|v| v.as_str()) == Some("disabled"),
+    );
+    check(
+        "anthropic thinking: disabled omits budget_tokens",
+        anth_disabled.get("budget_tokens").is_none(),
+    );
+    let anth_high: serde_json::Value =
+        serde_json::from_str(&anthropic_thinking_json(&Reasoning::Effort("high".into())).unwrap())
+            .unwrap();
+    check(
+        "anthropic thinking: high enables and maps budget",
+        anth_high.get("type").and_then(|v| v.as_str()) == Some("enabled")
+            && anth_high.get("budget_tokens").and_then(|v| v.as_u64()) == Some(4096),
+    );
 
     // ── strip_markdown_fences ───────────────────────────────────────────────
     check(
