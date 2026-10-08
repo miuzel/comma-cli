@@ -589,7 +589,7 @@ What is sent is bounded and sanitized: ANSI escapes and control characters are s
 
 For Anthropic models, `"reasoning": <tokens>` enables extended thinking with that budget. `max_tokens` is raised automatically, so budgets ≥ 1024 work.
 
-For OpenAI-compatible endpoints (chat completions and the Responses API), `"reasoning": "low" | "medium" | "high"` — or `--reasoning/-r <level>` for a single run — is sent as `reasoning_effort`, and any other string is passed through as-is; leave `reasoning` unset and the field is not sent at all, so the provider's own default applies.
+For OpenAI-compatible endpoints (chat completions and the Responses API), `"reasoning": "low" | "medium" | "high"` — or `--reasoning/-r <level>` for a single run — is sent as `reasoning_effort`. The three portable levels are trimmed and case-normalized before they go on the wire (`" low "` and `"LOW"` are sent as `"low"`), because strict gateways (e.g. Groq's gpt-oss models) accept only those exact spellings; any other string is trimmed and otherwise passed through as-is, keeping its case. Leave `reasoning` unset and the field is not sent at all, so the provider's own default applies.
 
 ### Web search
 

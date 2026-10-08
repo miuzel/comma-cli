@@ -582,7 +582,7 @@ export COMMA_API_STYLE="openai"
 
 对 Anthropic 模型，`"reasoning": <tokens>` 按给定预算启用 extended thinking。`max_tokens` 会自动提高，因此 ≥ 1024 的预算可以正常使用。
 
-对 OpenAI 兼容端点（chat completions 与 Responses API），`"reasoning": "low" | "medium" | "high"`（或单次运行用 `--reasoning/-r <level>`）会作为 `reasoning_effort` 发送，其他字符串原样透传；不配置 `reasoning` 时该字段完全不发送，由 provider 使用自身默认值。
+对 OpenAI 兼容端点（chat completions 与 Responses API），`"reasoning": "low" | "medium" | "high"`（或单次运行用 `--reasoning/-r <level>`）会作为 `reasoning_effort` 发送。三档标准值在发送前会去除首尾空白并归一大小写（`" low "` 与 `"LOW"` 都发送为 `"low"`），因为严格网关（如 Groq 的 gpt-oss 系列）只接受这三种拼写；其它字符串只去首尾空白、其余原样透传，大小写不变。不配置 `reasoning` 时该字段完全不发送，由 provider 使用自身默认值。
 
 ### 网络搜索
 

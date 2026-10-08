@@ -247,9 +247,14 @@ impl Reasoning {
     ///
     /// This is what goes on the wire: a disabled request must not carry the
     /// key at all, because OpenAI-compatible gateways (e.g. Groq gpt-oss)
-    /// reject `reasoning_effort: "none"` with HTTP 400. Any explicit
-    /// non-disable value is passed through verbatim, including
-    /// provider-specific strings this crate does not know about.
+    /// reject `reasoning_effort: "none"` with HTTP 400.
+    ///
+    /// The three portable levels are trimmed *and* case-normalized, so a
+    /// hand-written `" low "` / `"LOW"` still reaches a strict gateway as
+    /// `"low"` instead of 400-ing on the raw string. Any other explicit
+    /// non-disable string is trimmed and otherwise passed through verbatim,
+    /// preserving its case (provider-specific levels this crate does not
+    /// know about).
     pub fn effort_opt(&self) -> Option<&str> {
         match self {
             Reasoning::Tokens(0) => None,
@@ -258,8 +263,14 @@ impl Reasoning {
                 let t = s.trim();
                 if t.is_empty() || t.eq_ignore_ascii_case("none") {
                     None
+                } else if t.eq_ignore_ascii_case("low") {
+                    Some("low")
+                } else if t.eq_ignore_ascii_case("medium") {
+                    Some("medium")
+                } else if t.eq_ignore_ascii_case("high") {
+                    Some("high")
                 } else {
-                    Some(s.as_str())
+                    Some(t)
                 }
             }
         }

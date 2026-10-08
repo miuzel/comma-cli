@@ -1524,6 +1524,84 @@ pub fn run_tests() {
         Reasoning::default().effort_str() == "none",
     );
 
+    // ── g-026: the value that goes on the wire is trimmed + normalized ──────
+    // `effort_opt` used to only *test* the trimmed string for "disabled" and
+    // then forward `s` verbatim, so a hand-written `" low "` / `"LOW"` reached
+    // a strict gateway (Groq gpt-oss accepts only low|medium|high) as-is and
+    // got HTTP 400. The three portable levels are now canonicalized; every
+    // other non-disable string is trimmed only, keeping its case.
+    let opt = |s: &str| {
+        let r = Reasoning::Effort(s.to_string());
+        r.effort_opt().map(str::to_string)
+    };
+    check(
+        "reasoning effort_opt: \" low \" -> low",
+        opt(" low ").as_deref() == Some("low"),
+    );
+    check(
+        "reasoning effort_opt: LOW -> low",
+        opt("LOW").as_deref() == Some("low"),
+    );
+    check(
+        "reasoning effort_opt: Low -> low",
+        opt("Low").as_deref() == Some("low"),
+    );
+    check(
+        "reasoning effort_opt: \" medium \" -> medium",
+        opt(" medium ").as_deref() == Some("medium"),
+    );
+    check(
+        "reasoning effort_opt: MEDIUM -> medium",
+        opt("MEDIUM").as_deref() == Some("medium"),
+    );
+    check(
+        "reasoning effort_opt: \"high \" -> high",
+        opt("high ").as_deref() == Some("high"),
+    );
+    check(
+        "reasoning effort_opt: HIGH -> high",
+        opt("HIGH").as_deref() == Some("high"),
+    );
+    check(
+        "reasoning effort_opt: \" none \" -> None",
+        opt(" none ").is_none(),
+    );
+    check(
+        "reasoning effort_opt: \"NONE \" -> None",
+        opt("NONE ").is_none(),
+    );
+    check(
+        "reasoning effort_opt: whitespace only -> None",
+        opt(" \t\n ").is_none(),
+    );
+    check(
+        "reasoning effort_opt: \" custom \" -> custom",
+        opt(" custom ").as_deref() == Some("custom"),
+    );
+    check(
+        "reasoning effort_opt: Custom-Thing verbatim",
+        opt("Custom-Thing").as_deref() == Some("Custom-Thing"),
+    );
+    check(
+        "reasoning effort_opt: unknown XHIGH keeps its case",
+        opt("XHIGH").as_deref() == Some("XHIGH"),
+    );
+    // The old contracts are pinned as *unchanged*: `effort_str` still returns
+    // the configured string raw (so `max_tokens` mapping above is untouched)
+    // and `budget_tokens` still lowercases without trimming.
+    check(
+        "reasoning effort_str still raw for \" low \"",
+        Reasoning::Effort(" low ".into()).effort_str() == " low ",
+    );
+    check(
+        "reasoning budget_tokens still raw for \" low \"",
+        Reasoning::Effort(" low ".into()).budget_tokens() == 0,
+    );
+    check(
+        "reasoning budget_tokens still case-insensitive for LOW",
+        Reasoning::Effort("LOW".into()).budget_tokens() == 1024,
+    );
+
     // Serialized chat-completions body: the key must be *absent* (not "none",
     // not "" and not null) while disabled — Groq gpt-oss rejects
     // `reasoning_effort: "none"` with HTTP 400 and other OpenAI-compatible
@@ -1592,6 +1670,38 @@ pub fn run_tests() {
         oai_spelled_none.get("reasoning_effort").is_none(),
     );
 
+    // g-026 wire form: the exact config value that used to 400 now lands as
+    // "low" (or disappears entirely when it spells a disable).
+    let oai_padded_low = openai_wire(&Reasoning::Effort(" low ".into()));
+    check(
+        "openai body: \" low \" sends reasoning_effort=low",
+        oai_padded_low
+            .get("reasoning_effort")
+            .and_then(|v| v.as_str())
+            == Some("low"),
+    );
+    let oai_upper_low = openai_wire(&Reasoning::Effort("LOW".into()));
+    check(
+        "openai body: LOW sends reasoning_effort=low",
+        oai_upper_low
+            .get("reasoning_effort")
+            .and_then(|v| v.as_str())
+            == Some("low"),
+    );
+    let oai_padded_none = openai_wire(&Reasoning::Effort(" none ".into()));
+    check(
+        "openai body: \" none \" omits reasoning_effort key",
+        oai_padded_none.get("reasoning_effort").is_none(),
+    );
+    let oai_custom_thing = openai_wire(&Reasoning::Effort("Custom-Thing".into()));
+    check(
+        "openai body: Custom-Thing lands verbatim",
+        oai_custom_thing
+            .get("reasoning_effort")
+            .and_then(|v| v.as_str())
+            == Some("Custom-Thing"),
+    );
+
     // Responses API path: same omission, nested under `reasoning.effort`.
     let responses_wire = |r: &Reasoning| {
         serde_json::from_str::<serde_json::Value>(
@@ -1620,6 +1730,15 @@ pub fn run_tests() {
     check(
         "responses body: disabled carries no effort string anywhere",
         !resp_disabled.to_string().contains("effort"),
+    );
+    let resp_padded_low = responses_wire(&Reasoning::Effort(" low ".into()));
+    check(
+        "responses body: \" low \" sends reasoning.effort=low",
+        resp_padded_low
+            .get("reasoning")
+            .and_then(|v| v.get("effort"))
+            .and_then(|v| v.as_str())
+            == Some("low"),
     );
 
     // Anthropic path is deliberately unchanged by g-023: disabled still sends
