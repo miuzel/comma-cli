@@ -201,7 +201,7 @@ config_file = "配置文件 (%{path}):"
 auto_update_desc = "  auto_update   true (默认，每周) | false | <天数> (检查间隔)"
 auto_refine_desc = "  auto_refine   true（默认）| false —— 命令失败后自动精炼\n  auto_refine_rounds   1-10（默认 3）—— 每次意图最多自动精炼轮数；0 = 关闭"
 api_style = "API 风格 (api_style):"
-openai_desc = "  openai       OpenAI 兼容 (Cerebras, Groq, Ollama, vLLM, ...)"
+openai_desc = "  openai       OpenAI 兼容 (Groq, Ollama, vLLM, ...)"
 anthropic_desc = "  anthropic    Anthropic Messages API"
 api_style_auto = "  (如省略则从 URL 自动检测; anthropic URL → anthropic, 其他 → openai)"
 

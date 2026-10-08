@@ -156,9 +156,9 @@ Configure multiple providers with automatic fallback:
 ```json
 {
   "providers": {
-    "cerebras": {
-      "base_url": "https://api.cerebras.ai/v1",
-      "auth_token": "csk-xxx",
+    "groq": {
+      "base_url": "https://api.groq.com/openai/v1",
+      "auth_token": "your-api-key",
       "api_style": "openai"
     },
     "anthropic": {
@@ -167,8 +167,8 @@ Configure multiple providers with automatic fallback:
     }
   },
   "models": [
-    {"provider": "cerebras", "model": "llama-3.3-70b", "retries": 2},
-    {"provider": "anthropic", "model": "claude-sonnet-4-20250514", "retries": 1}
+    {"provider": "groq", "model": "openai/gpt-oss-20b", "retries": 2},
+    {"provider": "anthropic", "model": "claude-sonnet-5-5", "retries": 1}
   ]
 }
 ```
@@ -263,44 +263,36 @@ Language is auto-detected from your system locale (`LANG`/`LC_ALL`); `COMMA_LANG
 
 `,` works with any OpenAI or Anthropic compatible API. Here are some great options:
 
+> Verified 2026-10-08 against provider docs.
+
 ### 🚀 Fast & Free
 
 | Provider | Model | Speed | Cost | Best for |
 |----------|-------|-------|------|----------|
-| [Cerebras](https://cerebras.ai) | `gemma-4-31b` | ⚡ Ultra-fast | Free tier | Quick commands, high throughput |
-| [Groq](https://groq.com) | `llama-3.1-8b-instant` | ⚡ Ultra-fast | Free tier | Low latency, real-time use |
+| [Groq](https://groq.com) | `openai/gpt-oss-20b` | ⚡ Ultra-fast | Free tier | Low latency, real-time use |
 
 ### 💻 Coding-Optimized
 
 | Provider | Model | Best for |
 |----------|-------|----------|
-| [Moonshot](https://kimi.moonshot.cn) | `kimi-k2.7-coding` | Shell commands, code generation |
-| [DeepSeek](https://deepseek.com) | `deepseek-v4-flash` | Fast inference, coding tasks |
+| [Moonshot](https://kimi.moonshot.cn) | `kimi-k2.7-code` | Shell commands, code generation |
+| [DeepSeek](https://deepseek.com) | `deepseek-flash` | Fast inference, coding tasks |
 
 ### 🏠 Local (No API key needed)
 
 | Tool | Model | Best for |
 |------|-------|----------|
-| [Ollama](https://ollama.ai) | `qwen3.6-35b-a3b` | Privacy, offline use |
+| [Ollama](https://ollama.ai) | `qwen3.6:35b-a3b` | Privacy, offline use |
 | [vLLM](https://vllm.ai) | Any model | Self-hosted, high throughput |
 
 ### Example configs
-
-**Cerebras (fast, free):**
-```json
-{
-  "base_url": "https://api.cerebras.ai/v1",
-  "auth_token": "your-api-key",
-  "model": "gemma-4-31b"
-}
-```
 
 **Ollama (local):**
 ```json
 {
   "base_url": "http://localhost:11434/v1",
   "auth_token": "ollama",
-  "model": "qwen3.6-35b-a3b"
+  "model": "qwen3.6:35b-a3b"
 }
 ```
 
@@ -309,7 +301,7 @@ Language is auto-detected from your system locale (`LANG`/`LC_ALL`); `COMMA_LANG
 {
   "base_url": "https://api.deepseek.com/v1",
   "auth_token": "your-api-key",
-  "model": "deepseek-v4-flash"
+  "model": "deepseek-flash"
 }
 ```
 
@@ -317,10 +309,6 @@ Language is auto-detected from your system locale (`LANG`/`LC_ALL`); `COMMA_LANG
 ```json
 {
   "providers": {
-    "cerebras": {
-      "base_url": "https://api.cerebras.ai/v1",
-      "auth_token": "csk-xxx"
-    },
     "deepseek": {
       "base_url": "https://api.deepseek.com/v1",
       "auth_token": "sk-xxx"
@@ -331,9 +319,8 @@ Language is auto-detected from your system locale (`LANG`/`LC_ALL`); `COMMA_LANG
     }
   },
   "models": [
-    {"provider": "cerebras", "model": "gemma-4-31b", "retries": 2},
-    {"provider": "deepseek", "model": "deepseek-v4-flash", "retries": 1},
-    {"provider": "ollama", "model": "qwen3.6-35b-a3b", "retries": 1}
+    {"provider": "deepseek", "model": "deepseek-flash", "retries": 1},
+    {"provider": "ollama", "model": "qwen3.6:35b-a3b", "retries": 1}
   ]
 }
 ```
@@ -515,9 +502,9 @@ The same chain applies to the cache (`~/.cache/comma/cache.json`, `$XDG_CACHE_HO
 ### Environment variables
 
 ```bash
-export COMMA_BASE_URL="https://api.cerebras.ai/v1"
-export COMMA_API_KEY="csk-xxx"
-export COMMA_MODEL="llama-3.3-70b"
+export COMMA_BASE_URL="https://api.groq.com/openai/v1"
+export COMMA_API_KEY="your-api-key"
+export COMMA_MODEL="openai/gpt-oss-20b"
 export COMMA_API_STYLE="openai"
 ```
 
@@ -525,9 +512,9 @@ export COMMA_API_STYLE="openai"
 
 ```json
 {
-  "base_url": "https://api.cerebras.ai/v1",
-  "auth_token": "csk-xxx",
-  "model": "llama-3.3-70b"
+  "base_url": "https://api.groq.com/openai/v1",
+  "auth_token": "your-api-key",
+  "model": "openai/gpt-oss-20b"
 }
 ```
 
@@ -598,9 +585,11 @@ While auto-refine is enabled, `,` needs the command's output for the summary, so
 
 What is sent is bounded and sanitized: ANSI escapes and control characters are stripped, the summary is truncated to 2000 characters (head + tail, because errors usually land at the end), and an empty output sends only the command and the exit code. Real `$HOME`, username and hostname are replaced by `{{HOME}}`/`{{USER}}`/`{{HOSTNAME}}` before anything is sent (see [Privacy](#privacy)) — masking happens before truncation, so a half-cut path can never leak.
 
-### Reasoning (Anthropic)
+### Reasoning
 
 For Anthropic models, `"reasoning": <tokens>` enables extended thinking with that budget. `max_tokens` is raised automatically, so budgets ≥ 1024 work.
+
+For OpenAI-compatible endpoints (chat completions and the Responses API), `"reasoning": "low" | "medium" | "high"` — or `--reasoning/-r <level>` for a single run — is sent as `reasoning_effort`. The three portable levels are trimmed and case-normalized before they go on the wire (`" low "` and `"LOW"` are sent as `"low"`), because strict gateways (e.g. Groq's gpt-oss models) accept only those exact spellings; any other string is trimmed and otherwise passed through as-is, keeping its case. Leave `reasoning` unset and the field is not sent at all, so the provider's own default applies.
 
 ### Web search
 
@@ -747,22 +736,21 @@ It manages LLM providers (add/edit/delete/reorder — the order is the fallback 
 
 ```json
 {
-  "base_url": "https://api.cerebras.ai/v1",
+  "base_url": "https://api.groq.com/openai/v1",
   "auth_token": "your-api-key-here",
-  "model": "gemma-4-31b"
+  "model": "openai/gpt-oss-20b"
 }
 ```
 
 Or use environment variables:
 
 ```bash
-export COMMA_BASE_URL="https://api.cerebras.ai/v1"
+export COMMA_BASE_URL="https://api.groq.com/openai/v1"
 export COMMA_API_KEY="your-api-key-here"
-export COMMA_MODEL="gemma-4-31b"
+export COMMA_MODEL="openai/gpt-oss-20b"
 ```
 
 **Free options to get started:**
-- [Cerebras](https://cerebras.ai) — Free tier, ultra-fast, no credit card needed
 - [Groq](https://groq.com) — Free tier, low latency
 - [Ollama](https://ollama.ai) — Local, no API key, requires 8GB+ RAM
 

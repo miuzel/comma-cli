@@ -201,7 +201,7 @@ config_file = "Konfigurationsdatei (%{path}):"
 auto_update_desc = "  auto_update   true (Standard, wöchentlich) | false | <Tage> (Prüfintervall)"
 auto_refine_desc = "  auto_refine   true (Standard) | false — nach einem fehlgeschlagenen Befehl automatisch verfeinern\n  auto_refine_rounds   1-10 (Standard 3) — maximale automatische Verfeinerungsrunden pro Absicht; 0 = aus"
 api_style = "API-Stil (api_style):"
-openai_desc = "  openai       OpenAI-kompatibel (Cerebras, Groq, Ollama, vLLM, ...)"
+openai_desc = "  openai       OpenAI-kompatibel (Groq, Ollama, vLLM, ...)"
 anthropic_desc = "  anthropic    Anthropic Messages API"
 api_style_auto = "  (wird bei Weglassen aus der URL erkannt; anthropic URLs → anthropic, Rest → openai)"
 

@@ -201,7 +201,7 @@ config_file = "設定ファイル (%{path}):"
 auto_update_desc = "  auto_update   true (デフォルト、毎週) | false | <日数> (確認間隔)"
 auto_refine_desc = "  auto_refine   true（デフォルト）| false — コマンド失敗後に自動リファイン\n  auto_refine_rounds   1-10（デフォルト 3）— 1 つの意図で自動リファインする最大回数、0 = 無効"
 api_style = "APIスタイル (api_style):"
-openai_desc = "  openai       OpenAI互換 (Cerebras, Groq, Ollama, vLLM, ...)"
+openai_desc = "  openai       OpenAI互換 (Groq, Ollama, vLLM, ...)"
 anthropic_desc = "  anthropic    Anthropic Messages API"
 api_style_auto = "  (省略時はURLから自動検出; anthropic URL → anthropic、その他 → openai)"
 

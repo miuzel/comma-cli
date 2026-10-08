@@ -201,7 +201,7 @@ config_file = "설정 파일 (%{path}):"
 auto_update_desc = "  auto_update   true (기본값, 매주) | false | <일수> (확인 간격)"
 auto_refine_desc = "  auto_refine   true (기본) | false — 명령 실패 후 자동 개선\n  auto_refine_rounds   1-10 (기본 3) — 의도당 자동 개선 최대 횟수, 0 = 끄기"
 api_style = "API 스타일 (api_style):"
-openai_desc = "  openai       OpenAI 호환 (Cerebras, Groq, Ollama, vLLM, ...)"
+openai_desc = "  openai       OpenAI 호환 (Groq, Ollama, vLLM, ...)"
 anthropic_desc = "  anthropic    Anthropic Messages API"
 api_style_auto = "  (생략 시 URL 에서 자동 감지; anthropic URL → anthropic, 나머지 → openai)"
 

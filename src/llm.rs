@@ -40,7 +40,10 @@ struct OpenAiRequest {
     model: String,
     max_tokens: u32,
     messages: Vec<OpenAiMessage>,
-    reasoning_effort: String,
+    /// Omitted entirely while reasoning is disabled — some OpenAI-compatible
+    /// gateways (Groq gpt-oss) return HTTP 400 for `reasoning_effort: "none"`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reasoning_effort: Option<String>,
 }
 
 #[derive(Serialize)]
@@ -85,7 +88,10 @@ struct ResponsesRequest {
     model: String,
     input: Vec<ResponsesInputItem>,
     max_output_tokens: u32,
-    reasoning: ResponsesReasoning,
+    /// Omitted entirely while reasoning is disabled (same rationale as
+    /// `OpenAiRequest::reasoning_effort`).
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reasoning: Option<ResponsesReasoning>,
 }
 
 #[derive(Serialize)]
@@ -443,18 +449,19 @@ pub fn make_client() -> Result<ureq::Agent, String> {
     Ok(ureq::Agent::new_with_config(config))
 }
 
-fn call_openai(
-    entry: &ModelEntry,
+/// Assemble the `/v1/chat/completions` request body.
+///
+/// Kept separate from `call_openai` so `run_tests` can assert on the exact JSON
+/// that goes on the wire (`openai_body_json`), notably that a disabled
+/// reasoning setting leaves `reasoning_effort` out of the body completely.
+fn build_openai_body(
+    model: &str,
     system: &str,
     messages: &[Message],
-    v: Verbosity,
     reasoning: &Reasoning,
     max_output_tokens: Option<u32>,
-) -> Result<LlmResponse, String> {
-    let base = normalize_base_url(&entry.base_url);
-    let url = format!("{}/v1/chat/completions", base);
-
-    let mut oai_messages: Vec<OpenAiMessage> = Vec::new();
+) -> OpenAiRequest {
+    let mut oai_messages: Vec<OpenAiMessage> = Vec::with_capacity(messages.len() + 1);
     oai_messages.push(OpenAiMessage {
         role: "system".into(),
         content: system.to_string(),
@@ -466,16 +473,51 @@ fn call_openai(
         });
     }
 
-    let body = OpenAiRequest {
-        model: entry.model.clone(),
+    OpenAiRequest {
+        model: model.to_string(),
+        // max_tokens keeps its own mapping (driven by effort_str, not effort_opt):
+        // this is about response length, independent of whether the effort key
+        // is sent at all.
         max_tokens: max_output_tokens.unwrap_or(match reasoning.effort_str() {
             "none" => 1024,
             "low" => 2048,
             _ => 4096,
         }),
         messages: oai_messages,
-        reasoning_effort: reasoning.effort_str().to_string(),
-    };
+        reasoning_effort: reasoning.effort_opt().map(str::to_string),
+    }
+}
+
+/// Serialized chat-completions body, exposed for `run_tests`.
+pub(crate) fn openai_body_json(
+    model: &str,
+    system: &str,
+    messages: &[Message],
+    reasoning: &Reasoning,
+    max_output_tokens: Option<u32>,
+) -> Result<String, String> {
+    serde_json::to_string(&build_openai_body(
+        model,
+        system,
+        messages,
+        reasoning,
+        max_output_tokens,
+    ))
+    .map_err(|e| e.to_string())
+}
+
+fn call_openai(
+    entry: &ModelEntry,
+    system: &str,
+    messages: &[Message],
+    v: Verbosity,
+    reasoning: &Reasoning,
+    max_output_tokens: Option<u32>,
+) -> Result<LlmResponse, String> {
+    let base = normalize_base_url(&entry.base_url);
+    let url = format!("{}/v1/chat/completions", base);
+
+    let body = build_openai_body(&entry.model, system, messages, reasoning, max_output_tokens);
 
     if v.show_debug() {
         print_debug(&format!("POST {}", url));
@@ -559,22 +601,15 @@ fn call_openai(
     })
 }
 
-/// OpenAI Responses API (`/v1/responses`). The system prompt is sent as a
-/// leading system input item, NOT the `instructions` field: gateway
-/// emulations of /v1/responses (chat-completions adapters) often drop
-/// `instructions` entirely, silently stripping the command-generator rules.
-/// History maps user→input_text, assistant→output_text.
-fn call_openai_responses(
-    entry: &ModelEntry,
+/// Assemble the `/v1/responses` request body (see `build_openai_body` for why
+/// this is split out of the caller).
+fn build_responses_body(
+    model: &str,
     system: &str,
     messages: &[Message],
-    v: Verbosity,
     reasoning: &Reasoning,
     max_output_tokens: Option<u32>,
-) -> Result<LlmResponse, String> {
-    let base = normalize_base_url(&entry.base_url);
-    let url = format!("{}/v1/responses", base);
-
+) -> ResponsesRequest {
     let mut input: Vec<ResponsesInputItem> = Vec::with_capacity(messages.len() + 1);
     input.push(ResponsesInputItem {
         role: "system".into(),
@@ -599,16 +634,51 @@ fn call_openai_responses(
         }
     }));
 
-    let reasoning_obj = ResponsesReasoning {
-        effort: reasoning.effort_str().to_string(),
-    };
-
-    let body = ResponsesRequest {
-        model: entry.model.clone(),
+    ResponsesRequest {
+        model: model.to_string(),
         input,
         max_output_tokens: max_output_tokens.unwrap_or(4096),
-        reasoning: reasoning_obj,
-    };
+        reasoning: reasoning.effort_opt().map(|effort| ResponsesReasoning {
+            effort: effort.to_string(),
+        }),
+    }
+}
+
+/// Serialized Responses API body, exposed for `run_tests`.
+pub(crate) fn responses_body_json(
+    model: &str,
+    system: &str,
+    messages: &[Message],
+    reasoning: &Reasoning,
+    max_output_tokens: Option<u32>,
+) -> Result<String, String> {
+    serde_json::to_string(&build_responses_body(
+        model,
+        system,
+        messages,
+        reasoning,
+        max_output_tokens,
+    ))
+    .map_err(|e| e.to_string())
+}
+
+/// OpenAI Responses API (`/v1/responses`). The system prompt is sent as a
+/// leading system input item, NOT the `instructions` field: gateway
+/// emulations of /v1/responses (chat-completions adapters) often drop
+/// `instructions` entirely, silently stripping the command-generator rules.
+/// History maps user→input_text, assistant→output_text.
+fn call_openai_responses(
+    entry: &ModelEntry,
+    system: &str,
+    messages: &[Message],
+    v: Verbosity,
+    reasoning: &Reasoning,
+    max_output_tokens: Option<u32>,
+) -> Result<LlmResponse, String> {
+    let base = normalize_base_url(&entry.base_url);
+    let url = format!("{}/v1/responses", base);
+
+    let body = build_responses_body(&entry.model, system, messages, reasoning, max_output_tokens);
 
     if v.show_debug() {
         print_debug(&format!("POST {}", url));
@@ -703,6 +773,23 @@ fn call_openai_responses(
     })
 }
 
+/// Build the Anthropic `thinking` object. Deliberately *unchanged* by the
+/// OpenAI `reasoning_effort` fix (g-023): disabled reasoning still sends
+/// `{"type":"disabled"}` without `budget_tokens`, exactly as before.
+fn build_thinking(reasoning: &Reasoning) -> ThinkingConfig {
+    let budget = reasoning.budget_tokens();
+    ThinkingConfig {
+        thinking_type: if budget > 0 { "enabled" } else { "disabled" }.to_string(),
+        budget_tokens: if budget > 0 { Some(budget) } else { None },
+    }
+}
+
+/// Serialized Anthropic `thinking` object, exposed for `run_tests` so the
+/// frozen (unchanged) Anthropic behaviour is pinned by an assertion.
+pub(crate) fn anthropic_thinking_json(reasoning: &Reasoning) -> Result<String, String> {
+    serde_json::to_string(&build_thinking(reasoning)).map_err(|e| e.to_string())
+}
+
 fn call_anthropic(
     entry: &ModelEntry,
     system: &str,
@@ -715,10 +802,7 @@ fn call_anthropic(
     let url = format!("{}/v1/messages", base);
 
     let budget = reasoning.budget_tokens();
-    let thinking = Some(ThinkingConfig {
-        thinking_type: if budget > 0 { "enabled" } else { "disabled" }.to_string(),
-        budget_tokens: if budget > 0 { Some(budget) } else { None },
-    });
+    let thinking = Some(build_thinking(reasoning));
 
     // Anthropic requires max_tokens > thinking.budget_tokens
     let base_max = max_output_tokens.unwrap_or(1024);
