@@ -144,7 +144,7 @@ if [ -f "$CONFIG_FILE" ]; then
         echo "⚠  No API key configured!"
         echo "Run ', --setup' for the interactive wizard, or edit $CONFIG_FILE manually."
         echo ""
-        echo "Free options: Cerebras (cerebras.ai), Groq (groq.com), Ollama (local)"
+        echo "Free options: Groq (groq.com), Ollama (local)"
     fi
 fi
 
