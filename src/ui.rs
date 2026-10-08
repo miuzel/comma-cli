@@ -17,13 +17,59 @@ use rust_i18n::t;
 
 pub struct FileHelper {
     completer: FilenameCompleter,
+    /// Colored copy of the prompt the editor is reading with right now, built
+    /// by [`rl_prompt`] and handed back to rustyline through
+    /// `highlight_prompt` (g-029). Empty = no prompt of ours is active, so
+    /// prompts are displayed exactly as given.
+    colored_prompt: String,
 }
 
 impl FileHelper {
     pub fn new() -> Self {
         Self {
             completer: FilenameCompleter::new(),
+            colored_prompt: String::new(),
         }
+    }
+}
+
+/// Build the two halves of one rustyline prompt (g-029).
+///
+/// Returns `(measured, rendered)`:
+///
+/// * `measured` is the plain visible text, and it is what must be handed to
+///   `Editor::readline`/`readline_with_initial`. rustyline measures exactly
+///   that string and nothing else: `State::new` (rustyline 15.0.0
+///   `src/edit.rs:54`) calls `calculate_position(prompt, …)` on the `&str` the
+///   caller passed — the highlighter is picked up later and only for rendering
+///   (`edit.rs:167` selects it, `refresh_line` uses it to build the output
+///   buffer in `tty/unix.rs:1000` / `tty/windows.rs:449`), while the cursor
+///   stays on `prompt_size` (`edit.rs:125`, `tty/mod.rs:71`). Its Windows
+///   renderer counts every byte of a raw ANSI escape as a column
+///   (`tty/windows.rs:497` sums `UnicodeWidthStr::width` per grapheme with no
+///   escape awareness — unlike the Unix one in `tty/unix.rs:1051` and unlike
+///   its own `wrap_at_eol`), so the 10-byte `\x1b[38;5;14m` plus the 4-byte
+///   `\x1b[0m` of the cyan `> ` prompt pushed the cursor 14 columns right of
+///   the text on Windows. Plain text measures exactly what a terminal
+///   displays, on both platforms.
+/// * `rendered` is the colored version, returned for display by
+///   [`FileHelper::highlight_prompt`], which rustyline measures with its
+///   ANSI-aware width — the escapes therefore cost zero columns anywhere. It
+///   is built from the same crossterm commands as before, so the visible text
+///   and the color are unchanged, including crossterm's own
+///   `NO_COLOR`/`TERM=dumb` policy (which empties the color part).
+pub fn rl_prompt(text: &str, color: Color) -> (String, String) {
+    (
+        text.to_string(),
+        format!("{}{}{}", SetForegroundColor(color), text, ResetColor),
+    )
+}
+
+/// Make `colored` the prompt [`FileHelper::highlight_prompt`] renders for the
+/// next `readline` call. The caller still hands the plain text to rustyline.
+pub fn set_rl_prompt(rl: &mut Editor<FileHelper, DefaultHistory>, colored: &str) {
+    if let Some(helper) = rl.helper_mut() {
+        helper.colored_prompt = colored.to_string();
     }
 }
 
@@ -51,6 +97,19 @@ impl Hinter for FileHelper {
 }
 
 impl Highlighter for FileHelper {
+    fn highlight_prompt<'b, 's: 'b, 'p: 'b>(
+        &'s self,
+        prompt: &'p str,
+        default: bool,
+    ) -> Cow<'b, str> {
+        // The default prompt is the one set through `rl_prompt`; a continuation
+        // prompt (multi-line input) keeps whatever rustyline asked for.
+        if default && !self.colored_prompt.is_empty() {
+            Cow::Borrowed(&self.colored_prompt)
+        } else {
+            Cow::Borrowed(prompt)
+        }
+    }
     fn highlight_hint<'h>(&self, hint: &'h str) -> Cow<'h, str> {
         Cow::Borrowed(hint)
     }
@@ -732,12 +791,11 @@ pub fn edit_or_execute(cmd: &str, rl: &mut Editor<FileHelper, DefaultHistory>) -
                 }
                 KeyCode::Char('e') => {
                     let _ = crossterm::terminal::disable_raw_mode();
-                    let edit_prompt = format!(
-                        "{}{}{}",
-                        SetForegroundColor(Color::Yellow),
-                        t!("ui.edit_prompt"),
-                        ResetColor
-                    );
+                    // Plain text to the editor, color through the highlighter
+                    // (see `rl_prompt`): a raw escape sequence in the prompt
+                    // string is mis-measured by rustyline on Windows.
+                    let (edit_prompt, colored) = rl_prompt(&t!("ui.edit_prompt"), Color::Yellow);
+                    set_rl_prompt(rl, &colored);
                     match rl.readline_with_initial(&edit_prompt, (cmd, "")) {
                         Ok(edited) => {
                             let trimmed = edited.trim().to_string();
@@ -752,12 +810,9 @@ pub fn edit_or_execute(cmd: &str, rl: &mut Editor<FileHelper, DefaultHistory>) -
                 }
                 KeyCode::Char('r') => {
                     let _ = crossterm::terminal::disable_raw_mode();
-                    let refine_prompt = format!(
-                        "{}{}{}",
-                        SetForegroundColor(Color::Yellow),
-                        t!("ui.refine_prompt"),
-                        ResetColor
-                    );
+                    let (refine_prompt, colored) =
+                        rl_prompt(&t!("ui.refine_prompt"), Color::Yellow);
+                    set_rl_prompt(rl, &colored);
                     match rl.readline(&refine_prompt) {
                         Ok(text) => {
                             let trimmed = text.trim().to_string();
@@ -796,7 +851,8 @@ pub enum PromptResult {
 }
 
 pub fn prompt_input(rl: &mut Editor<FileHelper, DefaultHistory>) -> PromptResult {
-    let prompt = format!("{}> {}", SetForegroundColor(Color::Cyan), ResetColor);
+    let (prompt, colored) = rl_prompt("> ", Color::Cyan);
+    set_rl_prompt(rl, &colored);
     match rl.readline(&prompt) {
         Ok(line) => {
             let trimmed = line.trim().to_string();
